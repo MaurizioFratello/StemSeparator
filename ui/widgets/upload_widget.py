@@ -51,12 +51,17 @@ class SeparationWorker(QRunnable):
         """Execute separation in background thread"""
         try:
             separator = self.ctx.separator()
-            
+
+            # Get quality preset from settings
+            settings_mgr = self.ctx.settings_manager()
+            quality_preset = settings_mgr.get_quality_preset()
+
             # Run separation with progress callback
             result = separator.separate(
                 audio_file=self.audio_file,
                 model_id=self.model_id,
                 output_dir=self.output_dir,
+                quality_preset=quality_preset,
                 progress_callback=self._on_progress
             )
             

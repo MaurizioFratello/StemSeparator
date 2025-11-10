@@ -16,6 +16,17 @@ from config import (
 from utils.logger import get_logger
 from utils.file_manager import get_file_manager
 
+
+def _get_chunk_length_from_settings():
+    """Hole chunk_length aus settings_manager falls verfügbar, sonst aus config"""
+    try:
+        from ui.settings_manager import get_settings_manager
+        settings_mgr = get_settings_manager()
+        return settings_mgr.get_chunk_length()
+    except (ImportError, Exception):
+        # Fallback auf config falls settings_manager nicht verfügbar
+        return CHUNK_LENGTH_SECONDS
+
 logger = get_logger()
 
 
@@ -61,8 +72,19 @@ class ChunkProcessor:
             info = sf.info(str(audio_file))
             duration_seconds = info.duration
 
+            # Hole aktuelle chunk_length aus Settings
+            chunk_length = _get_chunk_length_from_settings()
+
             # Chunk wenn länger als chunk_length + overlap
-            return duration_seconds > (self.chunk_length_seconds + self.overlap_seconds)
+            should_chunk = duration_seconds > (chunk_length + self.overlap_seconds)
+
+            self.logger.debug(
+                f"File duration: {duration_seconds:.1f}s, "
+                f"Chunk threshold: {chunk_length + self.overlap_seconds}s, "
+                f"Should chunk: {should_chunk}"
+            )
+
+            return should_chunk
 
         except Exception as e:
             self.logger.error(f"Error checking if file should be chunked: {e}")
@@ -83,7 +105,13 @@ class ChunkProcessor:
         Returns:
             Liste von AudioChunk Objekten
         """
-        self.logger.info(f"Chunking audio file: {audio_file.name}")
+        # Hole aktuelle chunk_length aus Settings
+        chunk_length = _get_chunk_length_from_settings()
+
+        self.logger.info(
+            f"Chunking audio file: {audio_file.name} "
+            f"(chunk_length: {chunk_length}s, overlap: {self.overlap_seconds}s)"
+        )
 
         # Lade Audio-Datei
         audio_data, sample_rate = sf.read(str(audio_file), always_2d=True)
@@ -92,7 +120,7 @@ class ChunkProcessor:
         audio_data = audio_data.T
 
         total_samples = audio_data.shape[1]
-        chunk_samples = int(self.chunk_length_seconds * sample_rate)
+        chunk_samples = int(chunk_length * sample_rate)
         overlap_samples = int(self.overlap_seconds * sample_rate)
 
         # Berechne Anzahl Chunks

@@ -57,6 +57,70 @@ MODELS = {
 # Default Model
 DEFAULT_MODEL = 'demucs_6s'
 
+# Quality Presets für Separation
+# Diese beeinflussen die Qualität und Geschwindigkeit der Stem-Trennung
+QUALITY_PRESETS = {
+    'fast': {
+        'name': 'Fast',
+        'description': 'Schnellere Verarbeitung, geringere Qualität',
+        'params': {},  # Keine zusätzlichen __init__ Parameter
+        # Architektur-spezifische Parameter werden als Attribute gesetzt
+        'attributes': {
+            'demucs_shifts': 1,
+            'demucs_overlap': 0.25,
+            'vr_window_size': 1024,
+            'vr_aggression': 5,
+            'vr_enable_tta': False,
+            'vr_enable_post_process': False,
+        }
+    },
+    'balanced': {
+        'name': 'Balanced',
+        'description': 'Ausgewogen zwischen Qualität und Geschwindigkeit (empfohlen)',
+        'params': {},
+        'attributes': {
+            'demucs_shifts': 2,
+            'demucs_overlap': 0.25,
+            'vr_window_size': 512,
+            'vr_aggression': 5,
+            'vr_enable_tta': False,
+            'vr_enable_post_process': False,
+        }
+    },
+    'quality': {
+        'name': 'Best Quality',
+        'description': 'Beste Qualität, deutlich langsamer (2-3x länger)',
+        'params': {},
+        'attributes': {
+            'demucs_shifts': 5,
+            'demucs_overlap': 0.5,
+            'vr_window_size': 320,
+            'vr_aggression': 5,
+            'vr_enable_tta': True,
+            'vr_enable_post_process': True,
+            'vr_post_process_threshold': 0.2,
+        }
+    },
+    'ultra': {
+        'name': 'Ultra Quality',
+        'description': 'Maximal mögliche Qualität (4-5x länger, nur für kritische Anwendungen)',
+        'params': {},
+        'attributes': {
+            'demucs_shifts': 8,
+            'demucs_overlap': 0.5,
+            'vr_window_size': 320,
+            'vr_aggression': 8,
+            'vr_enable_tta': True,
+            'vr_enable_post_process': True,
+            'vr_post_process_threshold': 0.15,
+            'vr_high_end_process': 'mirroring',
+        }
+    }
+}
+
+# Default Quality Preset
+DEFAULT_QUALITY_PRESET = 'balanced'
+
 # GPU/CPU Konfiguration
 USE_GPU = True  # Automatisch auf MPS (Apple Silicon) oder CUDA falls verfügbar
 FALLBACK_TO_CPU = True
