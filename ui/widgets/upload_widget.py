@@ -388,7 +388,13 @@ class UploadWidget(QWidget):
             output_dir = Path(self.output_path.text())
 
         # Create trimmed file if trimming is applied
+        self.ctx.logger().info(f"Processing file: {original_file.name}")
         file_to_process = self._create_trimmed_file(original_file)
+        self.ctx.logger().info(f"File to process: {file_to_process.name}")
+
+        # Show user feedback if file was trimmed
+        if file_to_process != original_file:
+            self.status_label.setText(f"Using trimmed version: {file_to_process.name}")
 
         self._start_separation(file_to_process, model_id, output_dir)
     
@@ -418,19 +424,25 @@ class UploadWidget(QWidget):
         WHY: Allows users to trim audio before separation without modifying original
         """
         # Check if waveform widget is visible and has trim data
-        if not self.waveform_widget.isVisible():
+        is_visible = self.waveform_widget.isVisible()
+        self.ctx.logger().debug(f"Waveform widget visible: {is_visible}")
+
+        if not is_visible:
+            self.ctx.logger().info("Waveform not visible, using original file")
             return original_file
 
         start_sec, end_sec = self.waveform_widget.get_trim_range()
         duration = self.waveform_widget.duration
 
+        self.ctx.logger().debug(f"Trim range: {start_sec:.2f}s to {end_sec:.2f}s (duration: {duration:.2f}s)")
+
         # Check if any trimming is actually applied
         if start_sec <= 0.01 and end_sec >= (duration - 0.01):
-            self.ctx.logger().debug("No trimming applied, using original file")
+            self.ctx.logger().info("No trimming applied, using original file")
             return original_file
 
         try:
-            self.ctx.logger().info(f"Trimming audio: {start_sec:.2f}s to {end_sec:.2f}s")
+            self.ctx.logger().info(f"Creating trimmed file: {start_sec:.2f}s to {end_sec:.2f}s")
 
             # Read original audio
             audio_data, sample_rate = sf.read(original_file, dtype='float32')
@@ -453,7 +465,8 @@ class UploadWidget(QWidget):
             # Write trimmed audio
             sf.write(output_file, trimmed_data, sample_rate)
 
-            self.ctx.logger().info(f"Created trimmed file: {output_file.name}")
+            self.ctx.logger().info(f"✓ Created trimmed file: {output_file.name} ({trimmed_data.shape[0] / sample_rate:.2f}s)")
+            self.ctx.logger().info(f"  Original: {original_file.name} → Trimmed: {output_file.name}")
             return output_file
 
         except Exception as e:

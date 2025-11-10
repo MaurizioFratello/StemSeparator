@@ -245,8 +245,8 @@ class WaveformWidget(QWidget):
             self.current_file = file_path
             self.audio_data = audio_data
             self.sample_rate = sample_rate
-            self.duration = len(audio_data) if audio_data.ndim == 1 else len(audio_data[0])
-            self.duration = self.duration / sample_rate
+            # Calculate duration in seconds (len gives frames for both mono and stereo)
+            self.duration = len(audio_data) / sample_rate
 
             # Update waveform display
             self.waveform_display.set_audio_data(audio_data, sample_rate)
