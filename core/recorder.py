@@ -60,6 +60,20 @@ class Recorder:
         # Callbacks
         self.level_callback: Optional[Callable[[float], None]] = None
 
+        # Level Meter Ballistics (professional audio meter behavior)
+        # Attack time: how quickly meter responds to increasing signal (300ms = VU meter standard)
+        # Release time: how quickly meter falls when signal decreases (600ms for smooth, pleasant decay)
+        self.attack_time_ms = 300.0   # Fast response to peaks
+        self.release_time_ms = 600.0  # Slower, smoother decay
+        self.current_level = 0.0      # Current smoothed level (0.0-1.0)
+
+        # Display range for dBFS scale
+        # Professional meters typically show -60 dBFS to 0 dBFS
+        # -60 dBFS is very quiet (digital silence threshold)
+        # 0 dBFS is digital full scale (clipping point)
+        self.db_range_min = -60.0  # Bottom of meter
+        self.db_range_max = 0.0    # Top of meter (clipping)
+
         # SoundCard
         self._soundcard = None
         self._import_soundcard()
@@ -182,6 +196,7 @@ class Recorder:
         self.recorded_chunks = []
         self._stop_event.clear()
         self.level_callback = level_callback
+        self.current_level = 0.0  # Reset ballistics filter
         self.state = RecordingState.RECORDING
 
         # Starte Recording Thread
@@ -194,18 +209,97 @@ class Recorder:
 
         return True
 
+    def _rms_to_dbfs(self, rms: float) -> float:
+        """
+        Convert RMS value to dBFS (decibels relative to full scale)
+
+        WHY: Professional audio meters use dBFS scale where:
+             - 0 dBFS = maximum possible digital level (clipping)
+             - -∞ dBFS = digital silence
+             - Full-scale sine wave RMS = 0 dBFS (standard definition per AES17)
+
+        Formula: dBFS = 20 * log10(rms * sqrt(2))
+        The sqrt(2) factor ensures a full-scale sine wave (RMS = 1/sqrt(2)) reads as 0 dBFS
+        """
+        if rms <= 1e-10:  # Avoid log(0) which would be -infinity
+            return -100.0  # Very quiet, below useful display range
+
+        # Standard dBFS calculation (AES17-1998 standard)
+        db = 20.0 * np.log10(rms * np.sqrt(2.0))
+        return float(db)
+
+    def _dbfs_to_display(self, dbfs: float) -> float:
+        """
+        Convert dBFS to display level (0.0-1.0) based on meter range
+
+        WHY: GUI meters show a limited range (typically -60 to 0 dBFS)
+             Map this range to 0.0-1.0 for progress bar display
+
+        Example: If meter range is -60 to 0 dBFS:
+                 -60 dBFS → 0.0 (empty)
+                 -30 dBFS → 0.5 (halfway)
+                   0 dBFS → 1.0 (full/clipping)
+        """
+        # Clamp to display range
+        dbfs = max(self.db_range_min, min(self.db_range_max, dbfs))
+
+        # Map to 0.0-1.0
+        range_width = self.db_range_max - self.db_range_min
+        level = (dbfs - self.db_range_min) / range_width
+        return float(level)
+
+    def _apply_ballistics(self, target_level: float, dt_seconds: float) -> float:
+        """
+        Apply ballistics filter (attack/release smoothing) to level meter
+
+        WHY: Professional audio meters don't jump instantly - they have:
+             - Attack time: Fast response when signal increases (prevents missing peaks)
+             - Release time: Slow decay when signal decreases (smooth, readable display)
+
+             This mimics analog VU meters and prevents flickering
+
+        Args:
+            target_level: New measured level (0.0-1.0)
+            dt_seconds: Time since last update in seconds
+
+        Returns:
+            Smoothed level (0.0-1.0)
+        """
+        if target_level > self.current_level:
+            # Signal increasing - use attack time (fast response)
+            time_constant_ms = self.attack_time_ms
+        else:
+            # Signal decreasing - use release time (slow, smooth decay)
+            time_constant_ms = self.release_time_ms
+
+        # Calculate smoothing coefficient
+        # Formula: alpha = 1 - exp(-dt / time_constant)
+        # This creates an exponential moving average with the desired time constant
+        time_constant_s = time_constant_ms / 1000.0
+        alpha = 1.0 - np.exp(-dt_seconds / time_constant_s)
+
+        # Apply exponential smoothing
+        self.current_level = self.current_level + alpha * (target_level - self.current_level)
+
+        return self.current_level
+
     def _record_loop(self, device):
         """Recording Loop (läuft in separatem Thread)"""
         try:
             # Blocksize: CoreAudio limits blocksize to 15-512
             # Use maximum allowed blocksize for best performance
             blocksize = 512
-            
-            # Calculate how many blocks per 0.1 seconds for level updates
-            blocks_per_update = int((0.1 * self.sample_rate) / blocksize)
-            blocks_per_update = max(1, blocks_per_update)  # At least 1
-            
-            self.logger.debug(f"Recording with blocksize={blocksize}, blocks_per_update={blocks_per_update}")
+
+            # Update level meter every ~50ms (20 Hz) for smooth visual feedback
+            # Too fast = flickering, too slow = laggy response
+            update_interval = 0.05  # 50ms
+            blocks_per_update = max(1, int((update_interval * self.sample_rate) / blocksize))
+
+            self.logger.debug(
+                f"Recording with blocksize={blocksize}, "
+                f"blocks_per_update={blocks_per_update} "
+                f"(update every {update_interval*1000:.0f}ms)"
+            )
 
             with device.recorder(
                 samplerate=self.sample_rate,
@@ -214,7 +308,9 @@ class Recorder:
             ) as recorder:
 
                 block_counter = 0
-                
+                accumulated_blocks = []
+                last_update_time = time.time()
+
                 while not self._stop_event.is_set():
                     if self.state != RecordingState.RECORDING:
                         # Pausiert - warte kurz
@@ -227,14 +323,36 @@ class Recorder:
                     # Speichere Chunk
                     self.recorded_chunks.append(audio_block)
 
-                    # Berechne Audio-Level (RMS) - nur alle blocks_per_update Blocks
+                    # Akkumuliere Blöcke für RMS-Berechnung über längeres Fenster
+                    accumulated_blocks.append(audio_block)
                     block_counter += 1
+
+                    # Level-Update mit professioneller RMS-Berechnung und Ballistics
                     if self.level_callback and block_counter >= blocks_per_update:
-                        rms = np.sqrt(np.mean(audio_block**2))
-                        # Normalisiere auf 0-1 Range (ca.)
-                        level = min(rms * 10, 1.0)
-                        self.level_callback(level)
+                        current_time = time.time()
+                        dt = current_time - last_update_time
+
+                        # Berechne RMS über alle akkumulierten Blöcke
+                        # WHY: Längeres Fenster = stabilere RMS-Messung
+                        combined_audio = np.concatenate(accumulated_blocks, axis=0)
+                        rms = np.sqrt(np.mean(combined_audio**2))
+
+                        # Convert to dBFS (professional audio scale)
+                        dbfs = self._rms_to_dbfs(rms)
+
+                        # Convert to display level (0.0-1.0)
+                        target_level = self._dbfs_to_display(dbfs)
+
+                        # Apply ballistics filter (smooth attack/release)
+                        smoothed_level = self._apply_ballistics(target_level, dt)
+
+                        # Send to GUI
+                        self.level_callback(smoothed_level)
+
+                        # Reset for next update
                         block_counter = 0
+                        accumulated_blocks = []
+                        last_update_time = current_time
 
         except Exception as e:
             self.logger.error(f"Error in recording loop: {e}", exc_info=True)
