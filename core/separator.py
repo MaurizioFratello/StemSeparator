@@ -13,7 +13,9 @@ from config import (
     DEFAULT_MODEL,
     TEMP_DIR,
     EXPORT_SAMPLE_RATE,
-    EXPORT_BIT_DEPTH
+    EXPORT_BIT_DEPTH,
+    QUALITY_PRESETS,
+    DEFAULT_QUALITY_PRESET
 )
 from core.model_manager import get_model_manager
 from core.device_manager import get_device_manager
@@ -59,6 +61,7 @@ class Separator:
         audio_file: Path,
         model_id: Optional[str] = None,
         output_dir: Optional[Path] = None,
+        quality_preset: Optional[str] = None,
         progress_callback: Optional[Callable[[str, int], None]] = None
     ) -> SeparationResult:
         """
@@ -68,6 +71,7 @@ class Separator:
             audio_file: Pfad zur Audio-Datei
             model_id: Model zu verwenden (default: DEFAULT_MODEL)
             output_dir: Output-Verzeichnis (default: temp/separated)
+            quality_preset: Quality-Preset ('fast', 'balanced', 'quality', 'ultra')
             progress_callback: Callback(message, progress_percent)
 
         Returns:
@@ -93,6 +97,12 @@ class Separator:
         model_id = model_id or DEFAULT_MODEL
         model_info = self.model_manager.get_model_info(model_id)
 
+        # Wähle Quality Preset
+        quality_preset = quality_preset or DEFAULT_QUALITY_PRESET
+        if quality_preset not in QUALITY_PRESETS:
+            self.logger.warning(f"Unknown quality preset '{quality_preset}', using 'balanced'")
+            quality_preset = 'balanced'
+
         if not model_info:
             error_msg = f"Unknown model: {model_id}"
             self.logger.error(error_msg)
@@ -104,9 +114,11 @@ class Separator:
         output_dir = output_dir or self.output_dir
         output_dir.mkdir(parents=True, exist_ok=True)
 
+        preset_info = QUALITY_PRESETS[quality_preset]
         self.logger.info(
             f"Starting separation: {audio_file.name} | "
             f"Model: {model_info.name} | "
+            f"Quality: {preset_info['name']} | "
             f"Device: {self.device_manager.get_device()}"
         )
 
@@ -123,6 +135,7 @@ class Separator:
                     model_id,
                     model_info,
                     output_dir,
+                    quality_preset,
                     progress_callback
                 )
             else:
@@ -131,6 +144,7 @@ class Separator:
                     model_id,
                     model_info,
                     output_dir,
+                    quality_preset,
                     progress_callback
                 )
 
@@ -165,6 +179,7 @@ class Separator:
         model_id: str,
         model_info,
         output_dir: Path,
+        quality_preset: str,
         progress_callback: Optional[Callable[[str, int], None]] = None
     ) -> SeparationResult:
         """Separiert Audio-Datei ohne Chunking"""
@@ -178,6 +193,7 @@ class Separator:
                 audio_file,
                 model_id,
                 output_dir,
+                quality_preset,
                 device=device,
                 progress_callback=progress_callback
             )
@@ -200,6 +216,7 @@ class Separator:
         model_id: str,
         model_info,
         output_dir: Path,
+        quality_preset: str,
         progress_callback: Optional[Callable[[str, int], None]] = None
     ) -> SeparationResult:
         """Separiert Audio-Datei mit Chunking"""
@@ -247,6 +264,7 @@ class Separator:
                     temp_chunk_file,
                     model_id,
                     self.chunk_processor.chunks_dir,
+                    quality_preset,
                     device=device
                 )
 
@@ -304,6 +322,7 @@ class Separator:
         audio_file: Path,
         model_id: str,
         output_dir: Path,
+        quality_preset: str,
         device: str = 'cpu',
         progress_callback: Optional[Callable[[str, int], None]] = None
     ) -> Dict[str, Path]:
@@ -314,6 +333,7 @@ class Separator:
             audio_file: Audio-Datei
             model_id: Model ID
             output_dir: Output-Verzeichnis
+            quality_preset: Quality-Preset ID
             device: Device ('cpu', 'mps', 'cuda')
             progress_callback: Progress Callback
 
@@ -323,7 +343,7 @@ class Separator:
         Raises:
             SeparationError: Bei Fehlern
         """
-        self.logger.info(f"Running separation on device: {device}")
+        self.logger.info(f"Running separation on device: {device} with preset: {quality_preset}")
 
         # Setze Device
         if not self.device_manager.set_device(device):
@@ -339,11 +359,15 @@ class Separator:
             # Hole model filename
             model_filename = MODELS[model_id]['model_filename']
 
-            # Erstelle Separator-Instanz
+            # Hole Quality-Preset-Parameter
+            preset_params = QUALITY_PRESETS[quality_preset]['params'].copy()
+
+            # Erstelle Separator-Instanz mit Quality-Preset-Parametern
             separator = AudioSeparator(
                 log_level=20,  # INFO level
                 model_file_dir=str(self.model_manager.models_dir),
-                output_dir=str(output_dir)
+                output_dir=str(output_dir),
+                **preset_params  # Entpacke alle Quality-Parameter
             )
 
             # Lade das Modell

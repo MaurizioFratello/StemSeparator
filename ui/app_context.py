@@ -13,6 +13,7 @@ from core.device_manager import DeviceManager, get_device_manager
 from core.model_manager import ModelManager, get_model_manager
 from core.recorder import Recorder, get_recorder
 from core.separator import Separator, get_separator
+from ui.settings_manager import SettingsManager, get_settings_manager
 from utils.error_handler import ErrorHandler, error_handler
 from utils.file_manager import FileManager, get_file_manager
 from utils.i18n import get_language, set_language, t
@@ -89,6 +90,14 @@ class AppContext:
         """
 
         return get_file_manager()
+
+    def settings_manager(self) -> SettingsManager:
+        """
+        PURPOSE: Provide access to the settings manager singleton.
+        CONTEXT: UI components need to read/write user preferences like quality preset and model selection.
+        """
+
+        return get_settings_manager()
 
     def blackhole_installer(self) -> BlackHoleInstaller:
         """

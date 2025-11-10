@@ -82,11 +82,16 @@ class QueueWorker(QRunnable):
                 def progress_callback(message: str, percent: int):
                     self.signals.task_progress.emit(index, message, percent)
                 
+                # Get quality preset from settings
+                settings_mgr = self.ctx.settings_manager()
+                quality_preset = settings_mgr.get_quality_preset()
+
                 # Run separation
                 result = separator.separate(
                     audio_file=task.file_path,
                     model_id=task.model_id,
                     output_dir=task.output_dir,
+                    quality_preset=quality_preset,
                     progress_callback=progress_callback
                 )
                 

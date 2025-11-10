@@ -10,7 +10,8 @@ import json
 
 from config import (
     DEFAULT_LANGUAGE, DEFAULT_MODEL, USE_GPU,
-    CHUNK_LENGTH_SECONDS, TEMP_DIR, BASE_DIR
+    CHUNK_LENGTH_SECONDS, TEMP_DIR, BASE_DIR,
+    DEFAULT_QUALITY_PRESET
 )
 from utils.logger import get_logger
 
@@ -37,6 +38,7 @@ class SettingsManager:
         self.settings = {
             'language': DEFAULT_LANGUAGE,
             'default_model': DEFAULT_MODEL,
+            'quality_preset': DEFAULT_QUALITY_PRESET,
             'use_gpu': USE_GPU,
             'chunk_length_seconds': CHUNK_LENGTH_SECONDS,
             'output_directory': str(TEMP_DIR / "separated"),
@@ -127,6 +129,14 @@ class SettingsManager:
     def set_output_directory(self, path: Path):
         """Set output directory"""
         self.settings['output_directory'] = str(path)
+
+    def get_quality_preset(self) -> str:
+        """Get quality preset"""
+        return self.settings.get('quality_preset', DEFAULT_QUALITY_PRESET)
+
+    def set_quality_preset(self, preset: str):
+        """Set quality preset"""
+        self.settings['quality_preset'] = preset
 
 
 # Global instance

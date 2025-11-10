@@ -14,6 +14,7 @@ from PySide6.QtCore import Qt, Signal, Slot
 
 from ui.app_context import AppContext
 from ui.settings_manager import get_settings_manager
+from config import QUALITY_PRESETS
 
 
 class SettingsDialog(QDialog):
@@ -168,7 +169,39 @@ class SettingsDialog(QDialog):
         
         gpu_group.setLayout(gpu_layout)
         layout.addWidget(gpu_group)
-        
+
+        # Quality Settings
+        quality_group = QGroupBox("Separation Quality")
+        quality_layout = QVBoxLayout()
+
+        quality_select = QHBoxLayout()
+        quality_select.addWidget(QLabel("Quality Preset:"))
+        self.quality_combo = QComboBox()
+
+        # Load quality presets
+        for preset_id, preset_info in QUALITY_PRESETS.items():
+            self.quality_combo.addItem(
+                f"{preset_info['name']} - {preset_info['description']}",
+                userData=preset_id
+            )
+
+        quality_select.addWidget(self.quality_combo)
+        quality_layout.addLayout(quality_select)
+
+        quality_info = QLabel(
+            "Quality-Presets beeinflussen die Parameter der Separierung:\n"
+            "• Fast: Schnellere Verarbeitung (1 shift, größeres Fenster)\n"
+            "• Balanced: Empfohlen für die meisten Anwendungen (2 shifts)\n"
+            "• Best Quality: 2-3x langsamer, bessere Ergebnisse (5 shifts, TTA)\n"
+            "• Ultra Quality: 4-5x langsamer, maximale Qualität (8 shifts, alle Optimierungen)"
+        )
+        quality_info.setStyleSheet("color: gray; font-size: 10pt;")
+        quality_info.setWordWrap(True)
+        quality_layout.addWidget(quality_info)
+
+        quality_group.setLayout(quality_layout)
+        layout.addWidget(quality_group)
+
         # Chunking Settings
         chunk_group = QGroupBox("Audio Chunking")
         chunk_layout = QVBoxLayout()
@@ -283,7 +316,14 @@ class SettingsDialog(QDialog):
         
         # GPU
         self.gpu_checkbox.setChecked(self.settings_mgr.get_use_gpu())
-        
+
+        # Quality Preset
+        quality_preset = self.settings_mgr.get_quality_preset()
+        for i in range(self.quality_combo.count()):
+            if self.quality_combo.itemData(i) == quality_preset:
+                self.quality_combo.setCurrentIndex(i)
+                break
+
         # Chunk length
         self.chunk_spinbox.setValue(self.settings_mgr.get_chunk_length())
         
@@ -327,6 +367,7 @@ class SettingsDialog(QDialog):
         # Save all settings
         self.settings_mgr.set_language(self.language_combo.currentData())
         self.settings_mgr.set_default_model(self.model_combo.currentData())
+        self.settings_mgr.set_quality_preset(self.quality_combo.currentData())
         self.settings_mgr.set_use_gpu(self.gpu_checkbox.isChecked())
         self.settings_mgr.set_chunk_length(self.chunk_spinbox.value())
         self.settings_mgr.set_output_directory(Path(self.output_path.text()))

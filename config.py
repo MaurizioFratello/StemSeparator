@@ -57,6 +57,97 @@ MODELS = {
 # Default Model
 DEFAULT_MODEL = 'demucs_6s'
 
+# Quality Presets für Separation
+# Diese beeinflussen die Qualität und Geschwindigkeit der Stem-Trennung
+QUALITY_PRESETS = {
+    'fast': {
+        'name': 'Fast',
+        'description': 'Schnellere Verarbeitung, geringere Qualität',
+        'params': {
+            # Gemeinsame Parameter
+            'normalization': 0.9,
+            'use_autocast': True,  # GPU-Optimierung
+
+            # Demucs-spezifisch
+            'demucs_shifts': 1,  # Weniger Shifts = schneller
+            'demucs_overlap': 0.25,
+            'demucs_segments_enabled': True,
+
+            # VR/BS-RoFormer-spezifisch
+            'vr_window_size': 1024,  # Größeres Fenster = schneller
+            'vr_aggression': 5,
+            'vr_enable_tta': False,
+            'vr_enable_post_process': False,
+        }
+    },
+    'balanced': {
+        'name': 'Balanced',
+        'description': 'Ausgewogen zwischen Qualität und Geschwindigkeit (empfohlen)',
+        'params': {
+            # Gemeinsame Parameter
+            'normalization': 0.9,
+            'use_autocast': True,
+
+            # Demucs-spezifisch
+            'demucs_shifts': 2,  # Standard
+            'demucs_overlap': 0.25,
+            'demucs_segments_enabled': True,
+
+            # VR/BS-RoFormer-spezifisch
+            'vr_window_size': 512,  # Standard
+            'vr_aggression': 5,
+            'vr_enable_tta': False,
+            'vr_enable_post_process': False,
+        }
+    },
+    'quality': {
+        'name': 'Best Quality',
+        'description': 'Beste Qualität, deutlich langsamer (2-3x länger)',
+        'params': {
+            # Gemeinsame Parameter
+            'normalization': 0.9,
+            'use_autocast': True,
+
+            # Demucs-spezifisch
+            'demucs_shifts': 5,  # Mehr Shifts = bessere Qualität
+            'demucs_overlap': 0.5,  # Mehr Overlap = glattere Übergänge
+            'demucs_segments_enabled': True,
+
+            # VR/BS-RoFormer-spezifisch
+            'vr_window_size': 320,  # Kleineres Fenster = bessere Qualität
+            'vr_aggression': 5,
+            'vr_enable_tta': True,  # Test-Time Augmentation
+            'vr_enable_post_process': True,  # Artefakt-Entfernung
+            'vr_post_process_threshold': 0.2,
+        }
+    },
+    'ultra': {
+        'name': 'Ultra Quality',
+        'description': 'Maximal mögliche Qualität (4-5x länger, nur für kritische Anwendungen)',
+        'params': {
+            # Gemeinsame Parameter
+            'normalization': 0.9,
+            'use_autocast': True,
+
+            # Demucs-spezifisch
+            'demucs_shifts': 8,  # Maximum Shifts
+            'demucs_overlap': 0.5,
+            'demucs_segments_enabled': True,
+
+            # VR/BS-RoFormer-spezifisch
+            'vr_window_size': 320,
+            'vr_aggression': 8,  # Höhere Aggression
+            'vr_enable_tta': True,
+            'vr_enable_post_process': True,
+            'vr_post_process_threshold': 0.15,  # Sensibler
+            'vr_high_end_process': 'mirroring',  # Hochfrequenz-Verarbeitung
+        }
+    }
+}
+
+# Default Quality Preset
+DEFAULT_QUALITY_PRESET = 'balanced'
+
 # GPU/CPU Konfiguration
 USE_GPU = True  # Automatisch auf MPS (Apple Silicon) oder CUDA falls verfügbar
 FALLBACK_TO_CPU = True
