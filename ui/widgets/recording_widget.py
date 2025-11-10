@@ -521,16 +521,14 @@ class RecordingWidget(QWidget):
             RecordingState.PAUSED: "⏸ Paused",
             RecordingState.STOPPED: "Stopped"
         }.get(state, "Unknown")
-        
+
         self.state_label.setText(state_text)
-        
-        # Blink recording indicator
+
+        # Constant red indicator during recording
         if state == RecordingState.RECORDING:
-            style = self.state_label.styleSheet()
-            if "color: red" in style:
-                self.state_label.setStyleSheet("")
-            else:
-                self.state_label.setStyleSheet("color: red; font-weight: bold;")
+            self.state_label.setStyleSheet("color: red; font-weight: bold;")
+        else:
+            self.state_label.setStyleSheet("")
     
     def apply_translations(self):
         """
