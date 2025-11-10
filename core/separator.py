@@ -359,16 +359,23 @@ class Separator:
             # Hole model filename
             model_filename = MODELS[model_id]['model_filename']
 
-            # Hole Quality-Preset-Parameter
-            preset_params = QUALITY_PRESETS[quality_preset]['params'].copy()
+            # Hole Quality-Preset-Konfiguration
+            preset_config = QUALITY_PRESETS[quality_preset]
+            preset_params = preset_config.get('params', {}).copy()
+            preset_attributes = preset_config.get('attributes', {})
 
-            # Erstelle Separator-Instanz mit Quality-Preset-Parametern
+            # Erstelle Separator-Instanz mit grundlegenden Parametern
             separator = AudioSeparator(
                 log_level=20,  # INFO level
                 model_file_dir=str(self.model_manager.models_dir),
                 output_dir=str(output_dir),
-                **preset_params  # Entpacke alle Quality-Parameter
+                **preset_params  # Grundlegende Parameter
             )
+
+            # Setze architektur-spezifische Attribute
+            for attr_name, attr_value in preset_attributes.items():
+                setattr(separator, attr_name, attr_value)
+                self.logger.debug(f"Set separator.{attr_name} = {attr_value}")
 
             # Lade das Modell
             separator.load_model(model_filename=model_filename)
