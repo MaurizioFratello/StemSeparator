@@ -405,11 +405,21 @@ class UploadWidget(QWidget):
         if not selected_items:
             return
 
-        file_path = selected_items[0].data(Qt.UserRole)
+        original_file = selected_items[0].data(Qt.UserRole)
         model_id = self.model_combo.currentData()
 
-        self.file_queued.emit(file_path, model_id)
-        self.status_label.setText(f"Added {file_path.name} to queue")
+        # Create trimmed file if trimming is applied
+        self.ctx.logger().info(f"Queueing file: {original_file.name}")
+        file_to_queue = self._create_trimmed_file(original_file)
+        self.ctx.logger().info(f"File queued: {file_to_queue.name}")
+
+        # Show user feedback if file was trimmed
+        if file_to_queue != original_file:
+            self.status_label.setText(f"Added trimmed version to queue: {file_to_queue.name}")
+        else:
+            self.status_label.setText(f"Added {file_to_queue.name} to queue")
+
+        self.file_queued.emit(file_to_queue, model_id)
 
     def _create_trimmed_file(self, original_file: Path) -> Optional[Path]:
         """
