@@ -129,14 +129,24 @@ class RecordingWidget(QWidget):
         controls_group = QGroupBox("Recording")
         controls_layout = QVBoxLayout()
         
-        # Level meter
+        # Level meter (RMS with ballistics)
         meter_layout = QHBoxLayout()
-        meter_layout.addWidget(QLabel("Level:"))
+        meter_label = QLabel("Level (RMS):")
+        meter_label.setToolTip(
+            "Audio level meter with professional ballistics\n"
+            "Range: -60 dBFS (silence) to 0 dBFS (clipping)\n"
+            "Green: Normal (<-12 dB)\n"
+            "Yellow: High (-12 to -3 dB)\n"
+            "Red: Danger (>-3 dB - risk of clipping)"
+        )
+        meter_layout.addWidget(meter_label)
         self.level_meter = QProgressBar()
         self.level_meter.setRange(0, 100)
         self.level_meter.setValue(0)
-        self.level_meter.setTextVisible(False)
-        self.level_meter.setMaximumHeight(20)
+        self.level_meter.setTextVisible(True)
+        self.level_meter.setFormat("Silence")
+        self.level_meter.setMinimumHeight(30)  # Taller for better text visibility
+        self.level_meter.setMaximumHeight(30)
         meter_layout.addWidget(self.level_meter)
         controls_layout.addLayout(meter_layout)
         
@@ -460,8 +470,10 @@ class RecordingWidget(QWidget):
         self.btn_cancel.setEnabled(False)
         self.device_combo.setEnabled(True)
         self.btn_refresh_devices.setEnabled(True)
-        
+
         self.level_meter.setValue(0)
+        self.level_meter.setFormat("Silence")
+        self.level_meter.setStyleSheet("")  # Reset to default style
         self.duration_label.setText("Duration: 00:00.0")
         self.state_label.setText("Ready")
     
@@ -479,24 +491,62 @@ class RecordingWidget(QWidget):
     def _update_level_meter(self, level: float):
         """
         Update level meter (runs in GUI thread)
-        
+
         WHY: Receives level_updated signal and safely updates GUI
+
+        IMPORTANT: The level value now represents calibrated dBFS scale:
+                   - 0.0 = -60 dBFS (silence/very quiet)
+                   - 0.5 = -30 dBFS (moderate level)
+                   - 1.0 = 0 dBFS (digital full scale - clipping!)
+
+        Professional audio meter color standards:
+                   - Green: Normal operating range (below -12 dBFS, level < 0.80)
+                   - Yellow: High but safe range (-12 to -3 dBFS, level 0.80-0.95)
+                   - Red: Danger zone (above -3 dBFS, level > 0.95) - risk of clipping
         """
-        # Convert level (0.0-1.0) to percentage
+        # Convert level (0.0-1.0) to percentage for display
         level_percent = int(level * 100)
         self.level_meter.setValue(level_percent)
-        
-        # Color code the level meter
-        if level > 0.9:
-            # Clipping warning
-            stylesheet = "QProgressBar::chunk { background-color: red; }"
-        elif level > 0.7:
-            # High level
-            stylesheet = "QProgressBar::chunk { background-color: orange; }"
+
+        # Calculate actual dBFS for user feedback
+        # Meter range: -60 dBFS to 0 dBFS
+        db_range = 60.0  # Full range width
+        dbfs = -60.0 + (level * db_range)
+
+        # Update text to show dBFS value
+        if level < 0.01:  # Very quiet
+            self.level_meter.setFormat("Silence")
+        elif dbfs >= -0.1:  # Essentially at 0 dBFS
+            self.level_meter.setFormat("0 dB (CLIP!)")
         else:
-            # Normal level
-            stylesheet = "QProgressBar::chunk { background-color: green; }"
-        
+            self.level_meter.setFormat(f"{dbfs:.1f} dB")
+
+        self.level_meter.setTextVisible(True)
+
+        # Color code based on professional audio standards
+        # WHY: These thresholds match broadcast and recording industry standards
+        if level > 0.95:  # Above -3 dBFS
+            # RED: Danger zone - very close to clipping
+            # At this level, audio transients can easily clip
+            stylesheet = """
+                QProgressBar::chunk { background-color: #ff0000; }
+                QProgressBar { color: white; font-weight: bold; }
+            """
+        elif level > 0.80:  # Above -12 dBFS
+            # YELLOW/ORANGE: High level - still safe but approaching limit
+            # Professional recordings typically peak around -6 to -12 dBFS for headroom
+            stylesheet = """
+                QProgressBar::chunk { background-color: #ff8800; }
+                QProgressBar { color: black; font-weight: bold; }
+            """
+        else:  # Below -12 dBFS
+            # GREEN: Normal operating range
+            # Plenty of headroom, no risk of clipping
+            stylesheet = """
+                QProgressBar::chunk { background-color: #00cc00; }
+                QProgressBar { color: black; }
+            """
+
         self.level_meter.setStyleSheet(stylesheet)
     
     @Slot()
