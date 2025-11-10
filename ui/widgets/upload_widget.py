@@ -6,6 +6,8 @@ CONTEXT: Primary workflow entry point for file-based separation.
 """
 from pathlib import Path
 from typing import Optional, Dict, List
+import soundfile as sf
+import numpy as np
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
     QComboBox, QLineEdit, QProgressBar, QListWidget, QListWidgetItem,
@@ -16,6 +18,7 @@ from PySide6.QtGui import QDragEnterEvent, QDropEvent
 
 from ui.app_context import AppContext
 from core.separator import SeparationResult
+from ui.widgets.waveform_widget import WaveformWidget
 
 
 class SeparationSignals(QObject):
@@ -125,7 +128,11 @@ class UploadWidget(QWidget):
         
         file_group.setLayout(file_layout)
         layout.addWidget(file_group)
-        
+
+        # Waveform Widget (hidden by default, shown when file is selected)
+        self.waveform_widget = WaveformWidget()
+        layout.addWidget(self.waveform_widget)
+
         # Configuration Group
         config_group = QGroupBox("Separation Settings")
         config_layout = QVBoxLayout()
@@ -185,7 +192,7 @@ class UploadWidget(QWidget):
         self.btn_output_browse.clicked.connect(self._on_output_browse_clicked)
         self.btn_start.clicked.connect(self._on_start_clicked)
         self.btn_queue.clicked.connect(self._on_queue_clicked)
-        self.file_list.itemSelectionChanged.connect(self._update_button_states)
+        self.file_list.itemSelectionChanged.connect(self._on_file_selection_changed)
         self.model_combo.currentIndexChanged.connect(self._on_model_changed)
     
     def _load_models(self):
@@ -280,8 +287,24 @@ class UploadWidget(QWidget):
     def _on_clear_clicked(self):
         """Clear file list"""
         self.file_list.clear()
+        self.waveform_widget.clear()
         self._update_button_states()
-    
+
+    @Slot()
+    def _on_file_selection_changed(self):
+        """Handle file selection change - load waveform for selected file"""
+        selected_items = self.file_list.selectedItems()
+
+        if selected_items:
+            # Get selected file path
+            file_path = selected_items[0].data(Qt.UserRole)
+            self.waveform_widget.load_file(file_path)
+        else:
+            # No selection - hide waveform
+            self.waveform_widget.clear()
+
+        self._update_button_states()
+
     @Slot()
     def _on_output_browse_clicked(self):
         """Select output directory"""
@@ -356,15 +379,24 @@ class UploadWidget(QWidget):
         selected_items = self.file_list.selectedItems()
         if not selected_items:
             return
-        
-        file_path = selected_items[0].data(Qt.UserRole)
+
+        original_file = selected_items[0].data(Qt.UserRole)
         model_id = self.model_combo.currentData()
-        
+
         output_dir = None
         if self.output_path.text().strip():
             output_dir = Path(self.output_path.text())
-        
-        self._start_separation(file_path, model_id, output_dir)
+
+        # Create trimmed file if trimming is applied
+        self.ctx.logger().info(f"Processing file: {original_file.name}")
+        file_to_process = self._create_trimmed_file(original_file)
+        self.ctx.logger().info(f"File to process: {file_to_process.name}")
+
+        # Show user feedback if file was trimmed
+        if file_to_process != original_file:
+            self.status_label.setText(f"Using trimmed version: {file_to_process.name}")
+
+        self._start_separation(file_to_process, model_id, output_dir)
     
     @Slot()
     def _on_queue_clicked(self):
@@ -372,12 +404,89 @@ class UploadWidget(QWidget):
         selected_items = self.file_list.selectedItems()
         if not selected_items:
             return
-        
-        file_path = selected_items[0].data(Qt.UserRole)
+
+        original_file = selected_items[0].data(Qt.UserRole)
         model_id = self.model_combo.currentData()
-        
-        self.file_queued.emit(file_path, model_id)
-        self.status_label.setText(f"Added {file_path.name} to queue")
+
+        # Create trimmed file if trimming is applied
+        self.ctx.logger().info(f"Queueing file: {original_file.name}")
+        file_to_queue = self._create_trimmed_file(original_file)
+        self.ctx.logger().info(f"File queued: {file_to_queue.name}")
+
+        # Show user feedback if file was trimmed
+        if file_to_queue != original_file:
+            self.status_label.setText(f"Added trimmed version to queue: {file_to_queue.name}")
+        else:
+            self.status_label.setText(f"Added {file_to_queue.name} to queue")
+
+        self.file_queued.emit(file_to_queue, model_id)
+
+    def _create_trimmed_file(self, original_file: Path) -> Optional[Path]:
+        """
+        Create a trimmed copy of audio file based on waveform widget trim settings
+
+        Args:
+            original_file: Path to original audio file
+
+        Returns:
+            Path to trimmed file, or None if trimming not needed or failed
+
+        WHY: Allows users to trim audio before separation without modifying original
+        """
+        # Check if waveform widget is visible and has trim data
+        is_visible = self.waveform_widget.isVisible()
+        self.ctx.logger().debug(f"Waveform widget visible: {is_visible}")
+
+        if not is_visible:
+            self.ctx.logger().info("Waveform not visible, using original file")
+            return original_file
+
+        start_sec, end_sec = self.waveform_widget.get_trim_range()
+        duration = self.waveform_widget.duration
+
+        self.ctx.logger().debug(f"Trim range: {start_sec:.2f}s to {end_sec:.2f}s (duration: {duration:.2f}s)")
+
+        # Check if any trimming is actually applied
+        if start_sec <= 0.01 and end_sec >= (duration - 0.01):
+            self.ctx.logger().info("No trimming applied, using original file")
+            return original_file
+
+        try:
+            self.ctx.logger().info(f"Creating trimmed file: {start_sec:.2f}s to {end_sec:.2f}s")
+
+            # Read original audio
+            audio_data, sample_rate = sf.read(original_file, dtype='float32')
+
+            # Calculate sample indices
+            start_sample = int(start_sec * sample_rate)
+            end_sample = int(end_sec * sample_rate)
+
+            # Trim audio data
+            if audio_data.ndim == 1:
+                # Mono
+                trimmed_data = audio_data[start_sample:end_sample]
+            else:
+                # Stereo/multi-channel
+                trimmed_data = audio_data[start_sample:end_sample, :]
+
+            # Create output path with "_trimmed" suffix
+            output_file = original_file.parent / f"{original_file.stem}_trimmed{original_file.suffix}"
+
+            # Write trimmed audio
+            sf.write(output_file, trimmed_data, sample_rate)
+
+            self.ctx.logger().info(f"✓ Created trimmed file: {output_file.name} ({trimmed_data.shape[0] / sample_rate:.2f}s)")
+            self.ctx.logger().info(f"  Original: {original_file.name} → Trimmed: {output_file.name}")
+            return output_file
+
+        except Exception as e:
+            self.ctx.logger().error(f"Failed to create trimmed file: {e}", exc_info=True)
+            QMessageBox.warning(
+                self,
+                "Trimming Failed",
+                f"Could not create trimmed file. Using original file instead.\n\nError: {e}"
+            )
+            return original_file
     
     def _start_separation(self, file_path: Path, model_id: str, output_dir: Optional[Path]):
         """
