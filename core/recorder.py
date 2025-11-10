@@ -82,24 +82,19 @@ class Recorder:
         Gibt Liste verfügbarer Audio-Devices zurück
 
         Returns:
-            Liste von Device-Namen
+            Liste von Input-Device-Namen (nur diese können für Recording verwendet werden)
         """
         if not self._soundcard:
             return []
 
         try:
-            speakers = self._soundcard.all_speakers()
             microphones = self._soundcard.all_microphones()
 
             devices = []
 
-            # Add output devices with "Out:" prefix
-            for spk in speakers:
-                devices.append(f"Out: {spk.name}")
-
-            # Add input devices with "In:" prefix
+            # Add only input devices - these are the only ones we can record from
             for mic in microphones:
-                devices.append(f"In: {mic.name}")
+                devices.append(mic.name)
 
             return devices
 
@@ -158,34 +153,15 @@ class Recorder:
 
         # Finde Device
         if device_name:
-            # Entferne [IN]/[OUT] Präfix falls vorhanden
-            clean_device_name = device_name
-            if device_name.startswith("[IN]"):
-                clean_device_name = device_name.replace("[IN] ", "")
-            elif device_name.startswith("[OUT]"):
-                clean_device_name = device_name.replace("[OUT] ", "")
-            elif device_name.startswith("In:"):
-                clean_device_name = device_name.replace("In: ", "")
-            elif device_name.startswith("Out:"):
-                clean_device_name = device_name.replace("Out: ", "")
-            
-            self.logger.info(f"Looking for device: '{clean_device_name}' (original: '{device_name}')")
-            
+            self.logger.info(f"Looking for device: '{device_name}'")
+
             # Suche spezifisches Device
             device = None
             for mic in self._soundcard.all_microphones():
-                if clean_device_name in mic.name or mic.name in clean_device_name:
+                if device_name == mic.name or device_name in mic.name or mic.name in device_name:
                     device = mic
                     self.logger.info(f"Found matching device: {mic.name}")
                     break
-            
-            if not device:
-                self.logger.warning(f"Device '{clean_device_name}' not found in microphones, trying exact match")
-                # Versuch exakte Übereinstimmung
-                for mic in self._soundcard.all_microphones():
-                    if mic.name == clean_device_name:
-                        device = mic
-                        break
         else:
             # Default: BlackHole
             device = self.find_blackhole_device()
