@@ -105,8 +105,8 @@ class ChunkProcessor:
         Returns:
             Liste von AudioChunk Objekten
         """
-        # Hole aktuelle chunk_length aus Settings
-        chunk_length = _get_chunk_length_from_settings()
+        # Verwende die chunk_length aus dem Konstruktor
+        chunk_length = self.chunk_length_seconds
 
         self.logger.info(
             f"Chunking audio file: {audio_file.name} "
@@ -195,15 +195,17 @@ class ChunkProcessor:
         overlap_samples = int(self.overlap_seconds * sample_rate)
 
         # Berechne finale Länge
-        # Jeder Chunk minus Overlap, außer der letzte behält seine volle Länge
+        # Erster Chunk wird komplett geschrieben, alle anderen minus Overlap
         total_length = 0
         for i, (chunk, data) in enumerate(chunks):
-            if i < len(chunks) - 1:
-                # Nicht der letzte Chunk: subtrahiere Overlap
-                total_length += data.shape[1] - overlap_samples
+            chunk_samples = data.shape[1]
+            if i == 0:
+                # Erster Chunk: volle Länge
+                total_length += chunk_samples
             else:
-                # Letzter Chunk: volle Länge
-                total_length += data.shape[1]
+                # Alle anderen Chunks: Länge minus Overlap (aber nicht mehr als Chunk-Länge)
+                actual_overlap = min(overlap_samples, chunk_samples)
+                total_length += chunk_samples - actual_overlap
 
         # Initialisiere Output-Array
         num_channels = first_data.shape[0]
@@ -218,31 +220,36 @@ class ChunkProcessor:
             if i == 0:
                 # Erster Chunk: kopiere komplett
                 merged_audio[:, :chunk_length] = chunk_data
-                current_pos = chunk_length - overlap_samples
+                # Position für nächsten Overlap (mindestens 0, falls erster Chunk sehr kurz ist)
+                current_pos = max(0, chunk_length - overlap_samples)
 
             else:
                 # Crossfade im Overlap-Bereich
                 # Linear fade: vorheriger Chunk fade-out, neuer Chunk fade-in
 
-                # Overlap-Bereich
-                overlap_data = chunk_data[:, :overlap_samples]
+                # Berechne tatsächliche Overlap-Länge (kann kürzer sein wenn Chunk kürzer ist)
+                actual_overlap = min(overlap_samples, chunk_length)
 
-                # Erstelle Fade-Kurven
-                fade_out = np.linspace(1.0, 0.0, overlap_samples)
-                fade_in = np.linspace(0.0, 1.0, overlap_samples)
+                # Overlap-Bereich
+                overlap_data = chunk_data[:, :actual_overlap]
+
+                # Erstelle Fade-Kurven für die tatsächliche Overlap-Länge
+                fade_out = np.linspace(1.0, 0.0, actual_overlap)
+                fade_in = np.linspace(0.0, 1.0, actual_overlap)
 
                 # Apply Fades
-                overlap_existing = merged_audio[:, current_pos:current_pos + overlap_samples]
+                overlap_existing = merged_audio[:, current_pos:current_pos + actual_overlap]
                 crossfaded = (overlap_existing * fade_out + overlap_data * fade_in)
 
                 # Schreibe crossfaded Overlap
-                merged_audio[:, current_pos:current_pos + overlap_samples] = crossfaded
+                merged_audio[:, current_pos:current_pos + actual_overlap] = crossfaded
 
-                # Rest des Chunks (nach Overlap)
-                rest_start = overlap_samples
-                rest_length = chunk_length - overlap_samples
-                merged_audio[:, current_pos + overlap_samples:current_pos + overlap_samples + rest_length] = \
-                    chunk_data[:, rest_start:]
+                # Rest des Chunks (nach Overlap) - falls vorhanden
+                rest_start = actual_overlap
+                rest_length = chunk_length - actual_overlap
+                if rest_length > 0:
+                    merged_audio[:, current_pos + actual_overlap:current_pos + actual_overlap + rest_length] = \
+                        chunk_data[:, rest_start:]
 
                 current_pos += rest_length
 
@@ -335,7 +342,9 @@ def get_chunk_processor() -> ChunkProcessor:
     """Gibt die globale ChunkProcessor-Instanz zurück"""
     global _chunk_processor
     if _chunk_processor is None:
-        _chunk_processor = ChunkProcessor()
+        # Hole chunk_length aus Settings, falls verfügbar
+        chunk_length = _get_chunk_length_from_settings()
+        _chunk_processor = ChunkProcessor(chunk_length_seconds=chunk_length)
     return _chunk_processor
 
 
