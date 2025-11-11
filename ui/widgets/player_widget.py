@@ -512,8 +512,14 @@ class PlayerWidget(QWidget):
         self.player.set_position(position_s)
         self.ctx.logger().info(f"User seeked to {self._format_time(position_s)}")
 
-        # Re-enable automatic position updates
-        self._user_seeking = False
+        # Explicitly set slider to the seek position to prevent jump-back
+        self.position_slider.blockSignals(True)
+        self.position_slider.setValue(position_ms)
+        self.position_slider.blockSignals(False)
+
+        # Use QTimer.singleShot to re-enable updates after a short delay
+        # This prevents race condition with position timer
+        QTimer.singleShot(50, lambda: setattr(self, '_user_seeking', False))
 
     def _format_time(self, seconds: float) -> str:
         """Format seconds as MM:SS"""
