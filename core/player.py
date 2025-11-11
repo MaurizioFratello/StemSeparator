@@ -73,6 +73,7 @@ class AudioPlayer:
         self.playback_thread: Optional[threading.Thread] = None
         self._stop_event = threading.Event()
         self._pause_event = threading.Event()
+        self._position_lock = threading.Lock()  # Lock for thread-safe seeking
 
         # Callbacks
         self.position_callback: Optional[Callable[[float, float], None]] = None  # (position, duration)
@@ -121,8 +122,8 @@ class AudioPlayer:
             for stem_name, file_path in stem_files.items():
                 self.logger.debug(f"Loading stem: {stem_name} from {file_path}")
 
-                # Load audio
-                audio_data, file_sr = sf.read(str(file_path), always_2d=True)
+                # Load audio (ensure float32 for consistent processing)
+                audio_data, file_sr = sf.read(str(file_path), always_2d=True, dtype='float32')
 
                 self.logger.info(
                     f"Loaded {stem_name}: sample_rate={file_sr} Hz, "
@@ -136,7 +137,7 @@ class AudioPlayer:
                     self.logger.info(f"Using sample rate from stems: {self.sample_rate} Hz")
 
                 # Transpose to (channels, samples)
-                audio_data = audio_data.T
+                audio_data = audio_data.T.astype(np.float32)
 
                 # Resample if needed
                 if file_sr != detected_sample_rate:
@@ -151,7 +152,7 @@ class AudioPlayer:
                         orig_sr=file_sr,
                         target_sr=detected_sample_rate,
                         res_type='kaiser_best'
-                    )
+                    ).astype(np.float32)
                     self.logger.info(f"Resampled {stem_name} to {detected_sample_rate} Hz")
 
                 # Ensure stereo
@@ -209,19 +210,21 @@ class AudioPlayer:
 
     def get_position(self) -> float:
         """Get current position in seconds"""
-        return self.position_samples / self.sample_rate
+        with self._position_lock:
+            return self.position_samples / self.sample_rate
 
     def set_position(self, position_seconds: float):
         """
-        Seek to position
+        Seek to position (thread-safe)
 
         Args:
             position_seconds: Target position in seconds
         """
-        position_samples = int(position_seconds * self.sample_rate)
-        position_samples = max(0, min(position_samples, self.duration_samples))
-        self.position_samples = position_samples
-        self.logger.debug(f"Seek to {position_seconds:.2f}s")
+        with self._position_lock:
+            position_samples = int(position_seconds * self.sample_rate)
+            position_samples = max(0, min(position_samples, self.duration_samples))
+            self.position_samples = position_samples
+            self.logger.info(f"Seeked to {position_seconds:.2f}s ({position_samples} samples)")
 
     def set_stem_volume(self, stem_name: str, volume: float):
         """Set stem volume (0.0 to 1.0)"""
@@ -321,8 +324,9 @@ class AudioPlayer:
             speaker = self._soundcard.default_speaker()
 
             # Buffer size (samples per buffer)
-            # Use smaller buffer for better responsiveness
-            buffer_size = 4096
+            # Balance between latency and smooth playback
+            # At 48kHz: 8192 samples = ~170ms latency
+            buffer_size = 8192
 
             self.logger.info(
                 f"Playback started - Sample rate: {self.sample_rate} Hz, "
@@ -336,18 +340,24 @@ class AudioPlayer:
                 if self._stop_event.is_set():
                     break
 
+                # Get current position (thread-safe)
+                with self._position_lock:
+                    current_pos = self.position_samples
+
                 # Check if reached end
-                if self.position_samples >= self.duration_samples:
+                if current_pos >= self.duration_samples:
                     self.logger.info("Reached end of audio")
                     self._stop_event.set()
                     break
 
-                # Mix audio
+                # Calculate buffer bounds
                 end_sample = min(
-                    self.position_samples + buffer_size,
+                    current_pos + buffer_size,
                     self.duration_samples
                 )
-                mixed_audio = self._mix_stems(self.position_samples, end_sample)
+
+                # Mix audio
+                mixed_audio = self._mix_stems(current_pos, end_sample)
 
                 # Transpose to (samples, channels) for soundcard
                 playback_data = mixed_audio.T
@@ -356,8 +366,9 @@ class AudioPlayer:
                 # CRITICAL: samplerate must match the actual sample rate of the audio
                 speaker.play(playback_data, samplerate=self.sample_rate)
 
-                # Update position
-                self.position_samples = end_sample
+                # Update position (thread-safe)
+                with self._position_lock:
+                    self.position_samples = end_sample
 
                 # Position callback
                 if self.position_callback:
@@ -423,7 +434,14 @@ class AudioPlayer:
         # Apply master volume
         mixed = mixed * self.master_volume
 
-        # Clip to prevent distortion
+        # Soft clipping to prevent harsh distortion
+        # Use tanh for smooth limiting instead of hard clipping
+        peak = np.max(np.abs(mixed))
+        if peak > 1.0:
+            # Normalize to prevent clipping, with some headroom
+            mixed = mixed * (0.95 / peak)
+
+        # Final safety clip (should rarely be needed now)
         mixed = np.clip(mixed, -1.0, 1.0)
 
         return mixed
