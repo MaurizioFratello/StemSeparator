@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Optional, Dict, Callable, List
 from dataclasses import dataclass
 import time
+import re
 import numpy as np
 import soundfile as sf
 
@@ -393,10 +394,24 @@ class Separator:
             if isinstance(output_files, list):
                 for file_path in output_files:
                     file_path = Path(file_path)
+
+                    # Wenn Pfad nicht absolut ist, ergänze mit output_dir
+                    if not file_path.is_absolute():
+                        file_path = output_dir / file_path
+
                     # Extrahiere Stem-Name aus Dateiname
-                    # Format: filename_(stem).wav
-                    stem_name = file_path.stem.split('_')[-1]
+                    # Format: filename_(stem).wav oder filename_(stem)_modelname.wav
+                    # Stem-Name steht in Klammern, z.B. (Piano), (Vocals), etc.
+                    match = re.search(r'\(([^)]+)\)', file_path.stem)
+                    if match:
+                        stem_name = match.group(1)
+                    else:
+                        # Fallback: letztes Element nach Underscore
+                        stem_name = file_path.stem.split('_')[-1]
+
                     stems[stem_name] = file_path
+
+                    self.logger.debug(f"Parsed stem: {stem_name} -> {file_path}")
 
             return stems
 
