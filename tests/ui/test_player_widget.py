@@ -424,3 +424,74 @@ class TestPlayerWidget:
             widget.close()
 
             mock_stop.assert_called_once()
+
+    @patch('core.player.AudioPlayer._import_soundcard')
+    def test_interactive_seeking(self, mock_soundcard, qtbot, test_audio_files):
+        """Test interactive seeking with slider"""
+        widget = PlayerWidget()
+        qtbot.addWidget(widget)
+
+        temp_dir, file_paths = test_audio_files
+        widget._load_stems(file_paths)
+
+        # Simulate slider interaction
+        # Press slider
+        widget._on_slider_pressed()
+        assert widget._user_seeking is True
+
+        # Move slider
+        widget.position_slider.setValue(1500)  # 1.5 seconds
+        widget._on_slider_moved(1500)
+        assert widget.current_time_label.text() == "00:01"
+
+        # Release slider (perform seek)
+        widget._on_slider_released()
+        assert widget._user_seeking is False
+        assert abs(widget.player.get_position() - 1.5) < 0.1
+
+    @patch('core.player.AudioPlayer._import_soundcard')
+    def test_seeking_during_playback(self, mock_soundcard, qtbot, test_audio_files):
+        """Test that seeking works during playback"""
+        widget = PlayerWidget()
+        qtbot.addWidget(widget)
+
+        temp_dir, file_paths = test_audio_files
+        widget._load_stems(file_paths)
+
+        # Set playing state
+        widget.player.state = PlaybackState.PLAYING
+        widget._on_state_changed(PlaybackState.PLAYING)
+
+        # Seek while playing
+        widget._on_slider_pressed()
+        widget.position_slider.setValue(500)
+        widget._on_slider_released()
+
+        # Verify seek happened
+        assert abs(widget.player.get_position() - 0.5) < 0.1
+
+    @patch('core.player.AudioPlayer._import_soundcard')
+    def test_position_updates_blocked_during_seeking(self, mock_soundcard, qtbot, test_audio_files):
+        """Test that automatic position updates don't interfere with seeking"""
+        widget = PlayerWidget()
+        qtbot.addWidget(widget)
+
+        temp_dir, file_paths = test_audio_files
+        widget._load_stems(file_paths)
+
+        # Start seeking
+        widget._on_slider_pressed()
+
+        # Simulate position update from timer (should be ignored)
+        widget.player.position_samples = 88200  # 2 seconds
+        widget._update_position()
+
+        # Slider should not have been updated
+        assert widget.position_slider.value() != 2000
+
+        # Finish seeking
+        widget._on_slider_released()
+
+        # Now position updates should work
+        widget._update_position()
+        assert abs(widget.position_slider.value() - 2000) < 100

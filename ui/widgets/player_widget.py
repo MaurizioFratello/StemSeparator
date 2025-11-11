@@ -134,6 +134,9 @@ class PlayerWidget(QWidget):
         self.position_timer.timeout.connect(self._update_position)
         self.position_timer.setInterval(100)  # 100ms updates
 
+        # Track if user is seeking
+        self._user_seeking = False
+
         # Setup player callbacks
         self.player.position_callback = self._on_position_update
         self.player.state_callback = self._on_state_changed
@@ -198,7 +201,9 @@ class PlayerWidget(QWidget):
         # Position slider
         self.position_slider = QSlider(Qt.Horizontal)
         self.position_slider.setEnabled(False)
+        self.position_slider.setTracking(True)  # Enable continuous updates
         self.position_slider.sliderPressed.connect(self._on_slider_pressed)
+        self.position_slider.sliderMoved.connect(self._on_slider_moved)
         self.position_slider.sliderReleased.connect(self._on_slider_released)
         controls_layout.addWidget(self.position_slider)
 
@@ -469,12 +474,17 @@ class PlayerWidget(QWidget):
     @Slot()
     def _update_position(self):
         """Update position slider from player (called by timer)"""
+        # Don't update if user is currently seeking
+        if self._user_seeking:
+            return
+
         position = self.player.get_position()
         duration = self.player.get_duration()
 
-        # Update slider (if not being dragged)
-        if not self.position_slider.isSliderDown():
-            self.position_slider.setValue(int(position * 1000))
+        # Update slider
+        self.position_slider.blockSignals(True)  # Prevent triggering valueChanged
+        self.position_slider.setValue(int(position * 1000))
+        self.position_slider.blockSignals(False)
 
         # Update time label
         self.current_time_label.setText(self._format_time(position))
@@ -482,15 +492,28 @@ class PlayerWidget(QWidget):
     @Slot()
     def _on_slider_pressed(self):
         """Handle slider press (start seeking)"""
-        # Pause position updates while dragging
-        pass
+        self._user_seeking = True
+        self.ctx.logger().debug("User started seeking")
+
+    @Slot()
+    def _on_slider_moved(self, value):
+        """Handle slider movement (update time display while seeking)"""
+        # Update time display to show where we would seek to
+        position_s = value / 1000.0
+        self.current_time_label.setText(self._format_time(position_s))
 
     @Slot()
     def _on_slider_released(self):
-        """Handle slider release (seek to position)"""
+        """Handle slider release (perform seek)"""
         position_ms = self.position_slider.value()
         position_s = position_ms / 1000.0
+
+        # Perform the seek
         self.player.set_position(position_s)
+        self.ctx.logger().info(f"User seeked to {self._format_time(position_s)}")
+
+        # Re-enable automatic position updates
+        self._user_seeking = False
 
     def _format_time(self, seconds: float) -> str:
         """Format seconds as MM:SS"""
