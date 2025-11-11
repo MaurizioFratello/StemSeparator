@@ -6,6 +6,7 @@ audio-separator>=0.20.0
 
 # System Audio Recording
 soundcard>=0.4.2
+rtmixer>=0.1.7
 
 # Audio Processing
 numpy>=1.24.0
