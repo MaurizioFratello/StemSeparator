@@ -115,6 +115,7 @@ class AudioPlayer:
             self.stems.clear()
             self.stem_settings.clear()
             max_length = 0
+            detected_sample_rate = None
 
             # Load all stems
             for stem_name, file_path in stem_files.items():
@@ -123,23 +124,35 @@ class AudioPlayer:
                 # Load audio
                 audio_data, file_sr = sf.read(str(file_path), always_2d=True)
 
+                self.logger.info(
+                    f"Loaded {stem_name}: sample_rate={file_sr} Hz, "
+                    f"shape={audio_data.shape}, duration={audio_data.shape[0]/file_sr:.2f}s"
+                )
+
+                # Use first file's sample rate as reference
+                if detected_sample_rate is None:
+                    detected_sample_rate = file_sr
+                    self.sample_rate = file_sr
+                    self.logger.info(f"Using sample rate from stems: {self.sample_rate} Hz")
+
                 # Transpose to (channels, samples)
                 audio_data = audio_data.T
 
                 # Resample if needed
-                if file_sr != self.sample_rate:
+                if file_sr != detected_sample_rate:
                     self.logger.warning(
-                        f"Stem {stem_name} has different sample rate ({file_sr} vs {self.sample_rate}). "
-                        "Resampling may cause quality loss."
+                        f"Stem {stem_name} has different sample rate ({file_sr} vs {detected_sample_rate}). "
+                        f"Resampling from {file_sr} to {detected_sample_rate} Hz..."
                     )
-                    # Simple resampling (for production, use librosa.resample)
+                    # Resample using librosa
                     import librosa
                     audio_data = librosa.resample(
                         audio_data,
                         orig_sr=file_sr,
-                        target_sr=self.sample_rate,
+                        target_sr=detected_sample_rate,
                         res_type='kaiser_best'
                     )
+                    self.logger.info(f"Resampled {stem_name} to {detected_sample_rate} Hz")
 
                 # Ensure stereo
                 if audio_data.shape[0] == 1:
@@ -308,9 +321,13 @@ class AudioPlayer:
             speaker = self._soundcard.default_speaker()
 
             # Buffer size (samples per buffer)
-            buffer_size = 2048
+            # Use smaller buffer for better responsiveness
+            buffer_size = 4096
 
-            self.logger.debug(f"Playback loop started with buffer size: {buffer_size}")
+            self.logger.info(
+                f"Playback started - Sample rate: {self.sample_rate} Hz, "
+                f"Buffer size: {buffer_size} samples"
+            )
 
             while not self._stop_event.is_set():
                 # Check pause
@@ -335,7 +352,8 @@ class AudioPlayer:
                 # Transpose to (samples, channels) for soundcard
                 playback_data = mixed_audio.T
 
-                # Play buffer
+                # Play buffer - this blocks until buffer is played
+                # CRITICAL: samplerate must match the actual sample rate of the audio
                 speaker.play(playback_data, samplerate=self.sample_rate)
 
                 # Update position
