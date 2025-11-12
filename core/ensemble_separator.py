@@ -272,6 +272,8 @@ class EnsembleSeparator:
 
             # Sammle Audio von allen Modellen für diesen Stem
             stem_audios = []
+            sample_rates = []
+
             for i, result in enumerate(results):
                 stem_file = self._find_stem_file(result, stem_name)
 
@@ -279,7 +281,8 @@ class EnsembleSeparator:
                     try:
                         audio, sr = sf.read(str(stem_file), always_2d=True, dtype='float32')
                         audio = audio.T.astype(np.float32)  # (channels, samples)
-                        stem_audios.append((audio, normalized_weights[i], model_ids[i]))
+                        stem_audios.append((audio, normalized_weights[i], model_ids[i], sr))
+                        sample_rates.append(sr)
                     except Exception as e:
                         self.logger.warning(
                             f"Failed to load {stem_name} from {model_ids[i]}: {e}"
@@ -293,8 +296,75 @@ class EnsembleSeparator:
                 self.logger.warning(f"No audio found for stem: {stem_name}")
                 continue
 
+            # CRITICAL: Verify sample rates match
+            if len(set(sample_rates)) > 1:
+                sr_info = ", ".join([f"{model_ids[i]}:{sr}Hz" for i, sr in enumerate(sample_rates)])
+                self.logger.error(
+                    f"CRITICAL: Sample rate mismatch for {stem_name}! {sr_info}"
+                )
+                self.logger.error(
+                    f"Models must output the same sample rate. "
+                    f"This would cause severe timing/pitch artifacts!"
+                )
+
+                # Use resampling to fix this
+                target_sr = sample_rates[0]  # Use first model's sample rate
+                self.logger.warning(f"Resampling all stems to {target_sr} Hz...")
+
+                resampled_audios = []
+                for audio, weight, model_id, sr in stem_audios:
+                    if sr != target_sr:
+                        # Simple resampling using scipy if available
+                        try:
+                            from scipy import signal
+                            # Resample each channel
+                            num_samples = int(audio.shape[1] * target_sr / sr)
+                            resampled = np.zeros((audio.shape[0], num_samples), dtype=np.float32)
+                            for ch in range(audio.shape[0]):
+                                resampled[ch] = signal.resample(audio[ch], num_samples).astype(np.float32)
+
+                            self.logger.info(
+                                f"Resampled {stem_name} from {model_id}: {sr}Hz -> {target_sr}Hz "
+                                f"({audio.shape[1]} -> {num_samples} samples)"
+                            )
+                            resampled_audios.append((resampled, weight, model_id))
+                        except ImportError:
+                            self.logger.error(
+                                f"scipy not available for resampling! "
+                                f"Install with: pip install scipy"
+                            )
+                            # Fall back to skipping mismatched sample rates
+                            if sr == target_sr:
+                                resampled_audios.append((audio, weight, model_id))
+                    else:
+                        resampled_audios.append((audio, weight, model_id))
+
+                # Replace with resampled (remove sr from tuple)
+                stem_audios = [(audio, weight, model_id) for audio, weight, model_id in resampled_audios]
+            else:
+                # Remove sr from tuple for consistency
+                stem_audios = [(audio, weight, model_id) for audio, weight, model_id, sr in stem_audios]
+
             # Stelle sicher alle haben gleiche Länge (pad if necessary)
             max_length = max(audio.shape[1] for audio, _, _ in stem_audios)
+            min_length = min(audio.shape[1] for audio, _, _ in stem_audios)
+            length_diff = max_length - min_length
+
+            # Warn about significant length differences
+            if length_diff > 0:
+                length_diff_ms = (length_diff / sample_rates[0]) * 1000
+                if length_diff > sample_rates[0] * 0.1:  # More than 100ms difference
+                    self.logger.warning(
+                        f"Significant length difference for {stem_name}: "
+                        f"{length_diff} samples ({length_diff_ms:.1f}ms). "
+                        f"This could indicate different model processing or border effects."
+                    )
+                else:
+                    self.logger.debug(
+                        f"Minor length difference for {stem_name}: "
+                        f"{length_diff} samples ({length_diff_ms:.1f}ms) - padding applied"
+                    )
+
             padded_audios = []
 
             for audio, weight, model_id in stem_audios:
