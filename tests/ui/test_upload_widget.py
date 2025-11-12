@@ -103,16 +103,18 @@ def test_upload_widget_queue_signal(qapp, reset_singletons, mock_audio_file):
     
     # Connect signal spy
     signal_emitted = []
-    widget.file_queued.connect(lambda f, m: signal_emitted.append((f, m)))
-    
+    widget.file_queued.connect(lambda f, m, ue, ec: signal_emitted.append((f, m, ue, ec)))
+
     # Click queue button
     widget._on_queue_clicked()
-    
+
     # Signal should have been emitted
     assert len(signal_emitted) == 1
-    file_path, model_id = signal_emitted[0]
+    file_path, model_id, use_ensemble, ensemble_config = signal_emitted[0]
     assert file_path == mock_audio_file
     assert model_id is not None
+    assert use_ensemble == False  # Default should be False
+    assert ensemble_config == ''  # Default should be empty
 
 
 @pytest.mark.unit
