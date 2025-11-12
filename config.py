@@ -31,26 +31,41 @@ EXPORT_BIT_DEPTH = 16  # 16, 24, oder 32 bit
 # Model-Konfiguration
 # model_filename entspricht dem audio-separator Modell-Dateinamen
 MODELS = {
+    'mel-roformer': {
+        'name': 'Mel-Band RoFormer',
+        'stems': 4,
+        'size_mb': 100,
+        'description': '🎤 Best for vocals - Fast & specialized (SDR 13.0)',
+        'model_filename': 'mel_band_roformer_vocals.ckpt',
+        'recommendation': 'Perfect for karaoke & vocal extraction',
+        'strength': 'vocals'  # Primary strength
+    },
     'bs-roformer': {
         'name': 'BS-RoFormer',
         'stems': 4,
         'size_mb': 300,
-        'description': 'Best quality, slower processing',
-        'model_filename': 'model_bs_roformer_ep_317_sdr_12.9755.ckpt'  # Standard BS-RoFormer
+        'description': '🏆 State-of-the-art quality - Balanced (SDR 12.98)',
+        'model_filename': 'model_bs_roformer_ep_317_sdr_12.9755.ckpt',
+        'recommendation': 'Best for professional work',
+        'strength': 'balanced'  # Good for all stems
     },
     'demucs_6s': {
         'name': 'Demucs v4 (6-stem)',
         'stems': 6,
         'size_mb': 240,
-        'description': 'Vocals, Drums, Bass, Piano, Guitar, Other',
-        'model_filename': 'htdemucs_6s.yaml'
+        'description': '🎸 Most versatile - 6 stems (Vocals, Drums, Bass, Piano, Guitar, Other)',
+        'model_filename': 'htdemucs_6s.yaml',
+        'recommendation': 'Best for detailed separation',
+        'strength': 'versatile'  # Most stems
     },
     'demucs_4s': {
         'name': 'Demucs v4 (4-stem)',
         'stems': 4,
         'size_mb': 160,
-        'description': 'Vocals, Drums, Bass, Other - balanced',
-        'model_filename': 'htdemucs.yaml'
+        'description': '⚡ Fast & high quality - Balanced (Vocals, Drums, Bass, Other)',
+        'model_filename': 'htdemucs.yaml',
+        'recommendation': 'Best for most users',
+        'strength': 'drums'  # Particularly good for drums
     }
 }
 
@@ -120,6 +135,57 @@ QUALITY_PRESETS = {
 
 # Default Quality Preset
 DEFAULT_QUALITY_PRESET = 'balanced'
+
+# Ensemble-Konfiguration für Model-Kombinationen
+# Kombiniert mehrere Modelle für höchste Qualität
+ENSEMBLE_CONFIGS = {
+    'balanced': {
+        'name': 'Balanced Ensemble',
+        'description': '2 Models - Good quality, reasonable speed',
+        'models': ['bs-roformer', 'demucs_4s'],
+        'time_multiplier': 2.0,
+        'quality_gain': '+0.5-0.7 dB SDR',
+        # Stem-spezifische Gewichte: welches Modell ist für welchen Stem besser
+        'weights': {
+            'vocals': [0.6, 0.4],     # BS-RoFormer besser für Vocals
+            'drums': [0.4, 0.6],      # Demucs besser für Drums
+            'bass': [0.5, 0.5],       # Ausgeglichen
+            'other': [0.5, 0.5],      # Ausgeglichen
+            'instrumental': [0.45, 0.55]  # Für 2-stem Modelle
+        }
+    },
+    'quality': {
+        'name': 'Quality Ensemble',
+        'description': '3 Models - Best quality, slower (Phase 2)',
+        'models': ['mel-roformer', 'bs-roformer', 'demucs_4s'],
+        'time_multiplier': 3.0,
+        'quality_gain': '+0.8-1.0 dB SDR',
+        'weights': {
+            'vocals': [0.45, 0.35, 0.20],      # Mel-RoFormer beste für Vocals
+            'drums': [0.15, 0.35, 0.50],       # Demucs beste für Drums
+            'bass': [0.20, 0.40, 0.40],        # BS-RoFormer & Demucs
+            'other': [0.25, 0.40, 0.35],       # BS-RoFormer leicht besser
+            'instrumental': [0.40, 0.35, 0.25] # Ausgeglichener
+        }
+    },
+    'vocals_focus': {
+        'name': 'Vocals Focus Ensemble',
+        'description': '2 Models specialized for vocals/karaoke',
+        'models': ['mel-roformer', 'bs-roformer'],
+        'time_multiplier': 2.0,
+        'quality_gain': '+0.6-0.8 dB (vocals only)',
+        'weights': {
+            'vocals': [0.55, 0.45],            # Mel-RoFormer Schwerpunkt
+            'instrumental': [0.45, 0.55],      # BS-RoFormer für Instrumental
+            'drums': [0.45, 0.55],
+            'bass': [0.40, 0.60],
+            'other': [0.45, 0.55]
+        }
+    }
+}
+
+# Default Ensemble Config
+DEFAULT_ENSEMBLE_CONFIG = 'balanced'
 
 # GPU/CPU Konfiguration
 USE_GPU = True  # Automatisch auf MPS (Apple Silicon) oder CUDA falls verfügbar
