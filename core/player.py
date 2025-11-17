@@ -428,23 +428,40 @@ class AudioPlayer:
         # Transpose to (samples, channels) for rtmixer and ensure C-contiguous
         chunk_for_playback = np.ascontiguousarray(mixed_audio.T, dtype=np.float32)
 
-        self.logger.info(f"Playing mixed audio: {chunk_for_playback.shape[0]} samples "
+        self.logger.info(f"Prepared mixed audio: {chunk_for_playback.shape[0]} samples "
                        f"({chunk_for_playback.shape[0] / self.sample_rate:.2f}s), "
                        f"peak level: {np.max(np.abs(chunk_for_playback)):.3f}")
 
-        # Play buffer through rtmixer
+        # Create ringbuffer for streaming
         try:
-            # Note: rtmixer channels are 1-indexed, not 0-indexed
-            action = self._mixer.play_buffer(
-                chunk_for_playback,
+            # Clear any existing ringbuffer
+            if self._ringbuffer:
+                self._ringbuffer = None
+
+            # Create ringbuffer with size for the entire audio
+            # Ringbuffer size should be large enough to hold all audio data
+            buffer_size_bytes = np.float32().itemsize * chunk_for_playback.size
+            self.logger.info(f"Creating ringbuffer with {buffer_size_bytes} bytes "
+                           f"({buffer_size_bytes / 1024 / 1024:.2f} MB)")
+
+            self._ringbuffer = self._rtmixer_module.RingBuffer(buffer_size_bytes)
+
+            # Write all audio data to ringbuffer
+            written = self._ringbuffer.write(chunk_for_playback.tobytes())
+            self.logger.info(f"Wrote {written} bytes to ringbuffer")
+
+            # Start playback from ringbuffer
+            action = self._mixer.play_ringbuffer(
+                self._ringbuffer,
                 channels=[1, 2],
                 start=0,
-                allow_belated=True  # Allow playback even if timing can't be met exactly
+                allow_belated=True
             )
             self._active_actions.append(action)
-            self.logger.info(f"Successfully queued audio buffer for playback")
+            self.logger.info(f"Successfully started ringbuffer playback")
+
         except Exception as e:
-            self.logger.error(f"Failed to play buffer: {e}", exc_info=True)
+            self.logger.error(f"Failed to play via ringbuffer: {e}", exc_info=True)
 
     def _position_update_loop(self):
         """Thread loop for updating position (runs separately from audio)"""
@@ -646,6 +663,10 @@ class AudioPlayer:
             # The context manager handles cleanup
             # Actions are already canceled by stop()
             self._mixer = None
+
+        # Clear ringbuffer
+        if self._ringbuffer:
+            self._ringbuffer = None
 
         self.stems.clear()
         self.stem_settings.clear()
