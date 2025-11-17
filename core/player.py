@@ -452,12 +452,13 @@ class AudioPlayer:
                     chunk_for_playback,
                     channels=[1, 2],
                     start=0,
-                    allow_belated=False
+                    allow_belated=True  # Allow playback even if timing can't be met exactly
                 )
                 self._active_actions.append(action)
-                self.logger.debug(f"Playing {stem_name}: {chunk_for_playback.shape[0]} samples")
+                self.logger.info(f"Playing {stem_name}: {chunk_for_playback.shape[0]} samples "
+                               f"({chunk_for_playback.shape[0] / self.sample_rate:.2f}s)")
             except Exception as e:
-                self.logger.error(f"Failed to play buffer for {stem_name}: {e}")
+                self.logger.error(f"Failed to play buffer for {stem_name}: {e}", exc_info=True)
 
     def _position_update_loop(self):
         """Thread loop for updating position (runs separately from audio)"""
@@ -482,8 +483,8 @@ class AudioPlayer:
                         self.logger.info("Reached end of audio")
                         self.state = PlaybackState.STOPPED
                         self.position_samples = 0
-                        if self.state_callback:
-                            self.state_callback(self.state)
+                        # Don't call state_callback from worker thread to avoid deadlock
+                        # The callback will be triggered when stop() is called
                         break
 
                 # Call position callback
@@ -499,33 +500,41 @@ class AudioPlayer:
     def pause(self):
         """Pause playback"""
         if self.state == PlaybackState.PLAYING:
-            # Stop position updates
+            # Stop position updates first
             self._stop_update.set()
-            if self._update_thread:
-                self._update_thread.join(timeout=1.0)
 
             # Cancel playback (rtmixer doesn't have pause, so we stop)
             self._cancel_all_actions()
 
+            # Now wait for thread to finish
+            if self._update_thread:
+                self._update_thread.join(timeout=1.0)
+
             self.state = PlaybackState.PAUSED
+
+            # Call state callback after thread has finished to avoid deadlock
             if self.state_callback:
                 self.state_callback(self.state)
+
             self.logger.info("Paused playback")
 
     def stop(self):
         """Stop playback"""
         if self.state in [PlaybackState.PLAYING, PlaybackState.PAUSED]:
-            # Stop position updates
+            # Stop position updates first
             self._stop_update.set()
+
+            # Cancel playback before waiting for thread
+            self._cancel_all_actions()
+
+            # Now wait for thread to finish (it won't call callbacks anymore)
             if self._update_thread:
                 self._update_thread.join(timeout=1.0)
-
-            # Cancel playback
-            self._cancel_all_actions()
 
             self.state = PlaybackState.STOPPED
             self.position_samples = 0
 
+            # Call state callback after thread has finished to avoid deadlock
             if self.state_callback:
                 self.state_callback(self.state)
 
