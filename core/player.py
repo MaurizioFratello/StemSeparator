@@ -440,23 +440,30 @@ class AudioPlayer:
 
             # Create ringbuffer with size for the entire audio
             # RingBuffer size must be a power of 2
-            # Use elementsize=1 for bytes (we'll write with tobytes())
-            audio_bytes = chunk_for_playback.tobytes()
-            bytes_needed = len(audio_bytes)
+            # elementsize must be the size of one frame (channels * bytes_per_sample)
+            # For stereo float32: 2 channels * 4 bytes = 8 bytes per frame
+            channels = 2
+            bytes_per_sample = np.float32().itemsize  # 4 bytes
+            frame_size = channels * bytes_per_sample  # 8 bytes per frame
+
+            num_frames = chunk_for_playback.shape[0]  # Number of stereo frames
 
             # Round up to next power of 2
             import math
-            power = math.ceil(math.log2(bytes_needed))
+            power = math.ceil(math.log2(num_frames))
             ringbuffer_size = 2 ** power
 
-            self.logger.info(f"Creating ringbuffer: {ringbuffer_size} bytes (2^{power}, rounded up from {bytes_needed}) "
-                           f"= {ringbuffer_size / 1024 / 1024:.2f} MB")
+            buffer_size_bytes = ringbuffer_size * frame_size
 
-            self._ringbuffer = self._rtmixer_module.RingBuffer(elementsize=1, size=ringbuffer_size)
+            self.logger.info(f"Creating ringbuffer: {ringbuffer_size} frames (2^{power}, rounded up from {num_frames}) "
+                           f"× {frame_size} bytes/frame = {buffer_size_bytes} bytes ({buffer_size_bytes / 1024 / 1024:.2f} MB)")
+
+            self._ringbuffer = self._rtmixer_module.RingBuffer(elementsize=frame_size, size=ringbuffer_size)
 
             # Write all audio data to ringbuffer
+            audio_bytes = chunk_for_playback.tobytes()
             written = self._ringbuffer.write(audio_bytes)
-            self.logger.info(f"Wrote {written} bytes to ringbuffer (expected {bytes_needed})")
+            self.logger.info(f"Wrote {written} bytes to ringbuffer ({num_frames} frames × {frame_size} bytes/frame = {num_frames * frame_size} bytes expected)")
 
             # Start playback from ringbuffer
             action = self._mixer.play_ringbuffer(
