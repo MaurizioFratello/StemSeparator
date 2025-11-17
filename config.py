@@ -35,8 +35,8 @@ MODELS = {
         'name': 'Mel-Band RoFormer',
         'stems': 4,
         'size_mb': 100,
-        'description': '🎤 Best for vocals - Fast & specialized (SDR 13.0)',
-        'model_filename': 'mel_band_roformer_vocals.ckpt',
+        'description': '🎤 Best for vocals - Fast & specialized (SDR 11.4)',
+        'model_filename': 'model_mel_band_roformer_ep_3005_sdr_11.4360.ckpt',
         'recommendation': 'Perfect for karaoke & vocal extraction',
         'strength': 'vocals'  # Primary strength
     },
