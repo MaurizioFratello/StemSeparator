@@ -1,9 +1,9 @@
 """
-Audio Player - Real-time playback and mixing of separated stems using rtmixer
+Audio Player - Real-time playback and mixing of separated stems
 
-PURPOSE: Provides professional low-latency audio playback with per-stem volume/mute/solo controls
-CONTEXT: Uses rtmixer (C-level callback) for GIL-free audio output with sounddevice/PortAudio
-MIGRATION: Migrated from soundcard to rtmixer for better performance and lower latency
+PURPOSE: Provides audio playback with per-stem volume/mute/solo controls
+CONTEXT: Uses sounddevice for simple, reliable audio playback of pre-loaded audio
+MIGRATION: Migrated from rtmixer to sounddevice.play() for simpler implementation
 """
 from pathlib import Path
 from typing import Optional, Dict, Callable
@@ -45,21 +45,20 @@ class PlaybackInfo:
 
 class AudioPlayer:
     """
-    Real-time audio player with stem mixing capabilities using rtmixer
+    Audio player with stem mixing capabilities using sounddevice
 
     Features:
     - Load multiple stems (audio files)
-    - Real-time playback with rtmixer (C-level, GIL-free)
+    - Simple playback with sounddevice.play()
     - Per-stem volume, mute, solo
     - Master volume control
     - Position seeking
     - Callbacks for position updates
 
-    PERFORMANCE IMPROVEMENTS over previous soundcard implementation:
-    - C-level audio callback (no Python GIL blocking)
-    - Lower latency (~20-50ms vs ~170ms)
-    - More reliable playback without stuttering
-    - Better CPU efficiency
+    IMPLEMENTATION:
+    - Uses sounddevice.play() for straightforward playback of pre-loaded audio
+    - All stems are mixed in memory before playback
+    - Non-blocking playback with position tracking thread
     """
 
     def __init__(self, sample_rate: int = RECORDING_SAMPLE_RATE):
@@ -255,7 +254,7 @@ class AudioPlayer:
             self.position_samples = position_samples
 
             # If playing, restart playback from new position
-            if self.state == PlaybackState.PLAYING and self._mixer is not None:
+            if self.state == PlaybackState.PLAYING and self._sounddevice_module is not None:
                 self.logger.debug(f"Seeking from {old_position} to {position_samples} samples")
                 # Cancel all current playback
                 self._cancel_all_actions()
@@ -321,12 +320,12 @@ class AudioPlayer:
             self.logger.warning("Already playing")
             return False
 
-        if not self._rtmixer_module:
-            self.logger.error("rtmixer not available")
+        if not self._sounddevice_module:
+            self.logger.error("sounddevice not available")
             return False
 
         if self.state == PlaybackState.PAUSED:
-            # Resume from pause - not supported in rtmixer, need to restart
+            # Resume from pause - restart playback from current position
             self.logger.info("Resuming playback from paused position")
             # Keep current position and start playback
             pass
@@ -460,7 +459,7 @@ class AudioPlayer:
             # Stop position updates first
             self._stop_update.set()
 
-            # Cancel playback (rtmixer doesn't have pause, so we stop)
+            # Cancel playback (sounddevice doesn't have pause, so we stop)
             self._cancel_all_actions()
 
             # Now wait for thread to finish
