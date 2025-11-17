@@ -186,16 +186,18 @@ Die Hauptkonfiguration befindet sich in `config.py`:
 
 ### Mel-Band RoFormer
 - **Größe**: ~100 MB
-- **Stems**: 4 (Vocals, Drums, Bass, Other)
-- **Qualität**: Beste verfügbare Qualität
+- **Stems**: 2 (Vocals, Instrumental)
+- **Qualität**: Beste verfügbare Qualität für Vocal Separation
 - **Geschwindigkeit**: Schnell
+- **Verwendung**: Optimal für reine Vocal-Isolation
 - **Status**: State-of-the-art für Vocal Separation
 
 ### BS-RoFormer
 - **Größe**: ~300 MB
-- **Stems**: 4 (Vocals, Drums, Bass, Other)
-- **Qualität**: Excellente Qualität
+- **Stems**: 2 (Vocals, Instrumental)
+- **Qualität**: Excellente Qualität für Vocal Separation
 - **Geschwindigkeit**: Mittel
+- **Verwendung**: Hochwertige Vocal-Isolation
 - **Status**: SDX23 Challenge Gewinner
 
 ### Demucs v4 (htdemucs_6s)
