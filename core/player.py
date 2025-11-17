@@ -439,12 +439,15 @@ class AudioPlayer:
                 self._ringbuffer = None
 
             # Create ringbuffer with size for the entire audio
-            # Ringbuffer size should be large enough to hold all audio data
-            buffer_size_bytes = np.float32().itemsize * chunk_for_playback.size
-            self.logger.info(f"Creating ringbuffer with {buffer_size_bytes} bytes "
-                           f"({buffer_size_bytes / 1024 / 1024:.2f} MB)")
+            # RingBuffer size is in number of elements, not bytes
+            elementsize = np.float32().itemsize  # 4 bytes
+            num_elements = chunk_for_playback.size  # Total number of float32 values
+            buffer_size_bytes = elementsize * num_elements
 
-            self._ringbuffer = self._rtmixer_module.RingBuffer(buffer_size_bytes)
+            self.logger.info(f"Creating ringbuffer: {num_elements} elements × {elementsize} bytes = "
+                           f"{buffer_size_bytes} bytes ({buffer_size_bytes / 1024 / 1024:.2f} MB)")
+
+            self._ringbuffer = self._rtmixer_module.RingBuffer(elementsize=elementsize, size=num_elements)
 
             # Write all audio data to ringbuffer
             written = self._ringbuffer.write(chunk_for_playback.tobytes())
