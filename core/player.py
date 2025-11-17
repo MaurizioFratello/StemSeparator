@@ -88,6 +88,8 @@ class AudioPlayer:
         # RTMixer
         self._mixer = None
         self._ringbuffer = None
+        self._rtmixer_module = None
+        self._sounddevice_module = None
         self._active_actions = []  # Track active playback actions for cancellation
         self._import_rtmixer()
 
@@ -97,19 +99,34 @@ class AudioPlayer:
         """Import rtmixer library"""
         try:
             import rtmixer
+            import sounddevice as sd
             self._rtmixer_module = rtmixer
+            self._sounddevice_module = sd
             self.logger.info("rtmixer library loaded for playback")
+
+            # Log default audio device information
+            try:
+                default_device = sd.default.device
+                device_info = sd.query_devices(default_device[1])  # [1] is output device
+                self.logger.info(f"Default audio output device: {device_info['name']}")
+                self.logger.info(f"Device details: {device_info['max_output_channels']} channels, "
+                               f"{device_info['default_samplerate']} Hz")
+            except Exception as e:
+                self.logger.debug(f"Could not query audio device info: {e}")
+
             return True
-        except ImportError:
-            self.logger.warning("rtmixer not installed. Playback will not work.")
+        except ImportError as e:
+            self.logger.warning(f"rtmixer or sounddevice not installed: {e}")
             self.logger.warning("Install with: pip install rtmixer")
             self._rtmixer_module = None
+            self._sounddevice_module = None
             return False
         except OSError as e:
             # PortAudio not available (common in headless environments)
             self.logger.warning(f"rtmixer initialization failed: {e}")
             self.logger.warning("This is normal in headless environments or without audio devices")
             self._rtmixer_module = None
+            self._sounddevice_module = None
             return False
 
     def load_stems(self, stem_files: Dict[str, Path]) -> bool:
@@ -325,7 +342,19 @@ class AudioPlayer:
         try:
             # Create mixer if not exists
             if self._mixer is None:
+                # Get default output device
+                default_output_device = None
+                if self._sounddevice_module:
+                    try:
+                        default_output_device = self._sounddevice_module.default.device[1]
+                        device_info = self._sounddevice_module.query_devices(default_output_device)
+                        self.logger.info(f"Using audio output device: {device_info['name']}")
+                    except Exception as e:
+                        self.logger.debug(f"Could not get default device info: {e}")
+
+                # Create mixer with explicit device parameter (or None for default)
                 self._mixer = self._rtmixer_module.Mixer(
+                    device=default_output_device,  # Explicitly use default output device
                     channels=2,
                     blocksize=2048,  # Optimal buffer size for low latency
                     samplerate=self.sample_rate
