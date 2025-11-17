@@ -107,12 +107,14 @@ class AudioPlayer:
             # Log default audio device information
             try:
                 default_device = sd.default.device
+                self.logger.info(f"sounddevice default devices: input={default_device[0]}, output={default_device[1]}")
                 device_info = sd.query_devices(default_device[1])  # [1] is output device
-                self.logger.info(f"Default audio output device: {device_info['name']}")
-                self.logger.info(f"Device details: {device_info['max_output_channels']} channels, "
-                               f"{device_info['default_samplerate']} Hz")
+                self.logger.info(f"Default audio output device: '{device_info['name']}'")
+                self.logger.info(f"  - Max output channels: {device_info['max_output_channels']}")
+                self.logger.info(f"  - Default sample rate: {device_info['default_samplerate']} Hz")
+                self.logger.info(f"  - Host API: {sd.query_hostapis(device_info['hostapi'])['name']}")
             except Exception as e:
-                self.logger.debug(f"Could not query audio device info: {e}")
+                self.logger.warning(f"Could not query audio device info: {e}", exc_info=True)
 
             return True
         except ImportError as e:
@@ -344,22 +346,27 @@ class AudioPlayer:
             if self._mixer is None:
                 # Get default output device
                 default_output_device = None
+                device_name = "system default"
                 if self._sounddevice_module:
                     try:
                         default_output_device = self._sounddevice_module.default.device[1]
                         device_info = self._sounddevice_module.query_devices(default_output_device)
-                        self.logger.info(f"Using audio output device: {device_info['name']}")
+                        device_name = device_info['name']
+                        self.logger.info(f"Creating mixer for audio output device #{default_output_device}: '{device_name}'")
                     except Exception as e:
-                        self.logger.debug(f"Could not get default device info: {e}")
+                        self.logger.warning(f"Could not get default device info: {e}", exc_info=True)
 
                 # Create mixer with explicit device parameter (or None for default)
+                self.logger.info(f"Initializing rtmixer.Mixer with: device={default_output_device}, "
+                               f"samplerate={self.sample_rate}Hz, channels=2, blocksize=2048")
+
                 self._mixer = self._rtmixer_module.Mixer(
                     device=default_output_device,  # Explicitly use default output device
                     channels=2,
                     blocksize=2048,  # Optimal buffer size for low latency
                     samplerate=self.sample_rate
                 )
-                self.logger.info(f"Created rtmixer.Mixer: {self.sample_rate}Hz, 2ch, blocksize=2048")
+                self.logger.info(f"✓ Created rtmixer.Mixer successfully for '{device_name}'")
 
             # Start playback from current position
             self._start_playback_from_position()
@@ -411,54 +418,33 @@ class AudioPlayer:
         with self._position_lock:
             start_sample = self.position_samples
 
-        # Check if any stem is solo
-        any_solo = any(
-            settings.is_solo
-            for settings in self.stem_settings.values()
-        )
+        # Mix all stems from current position to end
+        mixed_audio = self._mix_stems(start_sample, self.duration_samples)
 
-        # Mix and play each stem
-        for stem_name, audio_data in self.stems.items():
-            settings = self.stem_settings[stem_name]
+        if mixed_audio.shape[1] == 0:
+            self.logger.warning("No audio to play (empty buffer)")
+            return
 
-            # Skip if muted
-            if settings.is_muted:
-                continue
+        # Transpose to (samples, channels) for rtmixer and ensure C-contiguous
+        chunk_for_playback = np.ascontiguousarray(mixed_audio.T, dtype=np.float32)
 
-            # Skip if not solo and another stem is solo
-            if any_solo and not settings.is_solo:
-                continue
+        self.logger.info(f"Playing mixed audio: {chunk_for_playback.shape[0]} samples "
+                       f"({chunk_for_playback.shape[0] / self.sample_rate:.2f}s), "
+                       f"peak level: {np.max(np.abs(chunk_for_playback)):.3f}")
 
-            # Get audio chunk from current position to end
-            chunk = audio_data[:, start_sample:].copy()
-
-            # Apply stem volume and master volume
-            total_volume = settings.volume * self.master_volume
-            chunk = chunk * total_volume
-
-            # Soft clipping to prevent distortion
-            peak = np.max(np.abs(chunk))
-            if peak > 1.0:
-                chunk = chunk * (0.95 / peak)
-            chunk = np.clip(chunk, -1.0, 1.0)
-
-            # Transpose to (samples, channels) for rtmixer and ensure C-contiguous
-            chunk_for_playback = np.ascontiguousarray(chunk.T, dtype=np.float32)
-
-            # Play buffer through rtmixer
-            try:
-                # Note: rtmixer channels are 1-indexed, not 0-indexed
-                action = self._mixer.play_buffer(
-                    chunk_for_playback,
-                    channels=[1, 2],
-                    start=0,
-                    allow_belated=True  # Allow playback even if timing can't be met exactly
-                )
-                self._active_actions.append(action)
-                self.logger.info(f"Playing {stem_name}: {chunk_for_playback.shape[0]} samples "
-                               f"({chunk_for_playback.shape[0] / self.sample_rate:.2f}s)")
-            except Exception as e:
-                self.logger.error(f"Failed to play buffer for {stem_name}: {e}", exc_info=True)
+        # Play buffer through rtmixer
+        try:
+            # Note: rtmixer channels are 1-indexed, not 0-indexed
+            action = self._mixer.play_buffer(
+                chunk_for_playback,
+                channels=[1, 2],
+                start=0,
+                allow_belated=True  # Allow playback even if timing can't be met exactly
+            )
+            self._active_actions.append(action)
+            self.logger.info(f"Successfully queued audio buffer for playback")
+        except Exception as e:
+            self.logger.error(f"Failed to play buffer: {e}", exc_info=True)
 
     def _position_update_loop(self):
         """Thread loop for updating position (runs separately from audio)"""
