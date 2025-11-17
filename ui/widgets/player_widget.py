@@ -339,9 +339,9 @@ class PlayerWidget(QWidget):
             success = self.player.load_stems(self.stem_files)
 
             if success:
-                # Enable controls
+                # Enable controls (but Play button will check rtmixer availability)
                 self.btn_play.setEnabled(True)
-                self.btn_export.setEnabled(True)
+                self.btn_export.setEnabled(True)  # Export works without rtmixer
                 self.position_slider.setEnabled(True)
 
                 # Update duration
@@ -355,6 +355,23 @@ class PlayerWidget(QWidget):
                 )
 
                 self.ctx.logger().info(f"Loaded {len(self.stem_files)} stems for playback")
+
+                # Check if playback is available and warn user if not
+                is_available, error_msg = self.player.is_playback_available()
+                if not is_available:
+                    # Show warning but don't block loading
+                    QMessageBox.warning(
+                        self,
+                        "Playback Not Available",
+                        f"Stems loaded successfully, but playback is not available:\n\n{error_msg}\n\n"
+                        "You can still export mixed audio, but cannot play it back in the app."
+                    )
+                    # Update info label to reflect this
+                    self.info_label.setText(
+                        f"✓ Loaded {len(self.stem_files)} stems. "
+                        f"Duration: {self._format_time(duration)}\n"
+                        "⚠ Playback unavailable (rtmixer not installed)"
+                    )
             else:
                 QMessageBox.critical(
                     self,
@@ -390,6 +407,18 @@ class PlayerWidget(QWidget):
     @Slot()
     def _on_play(self):
         """Start playback"""
+        # Check if playback is available first
+        is_available, error_msg = self.player.is_playback_available()
+
+        if not is_available:
+            QMessageBox.critical(
+                self,
+                "Playback Not Available",
+                error_msg
+            )
+            return
+
+        # Try to start playback
         success = self.player.play()
 
         if not success:

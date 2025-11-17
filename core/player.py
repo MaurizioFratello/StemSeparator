@@ -270,6 +270,29 @@ class AudioPlayer:
         """Set master volume (0.0 to 1.0)"""
         self.master_volume = max(0.0, min(1.0, volume))
 
+    def is_playback_available(self) -> tuple[bool, str]:
+        """
+        Check if playback is available
+
+        Returns:
+            Tuple of (is_available, error_message)
+            - (True, "") if playback is available
+            - (False, "error message") if playback is not available
+        """
+        if not self._rtmixer_module:
+            return (False,
+                    "rtmixer library is not available. "
+                    "Please install it with: pip install rtmixer\n\n"
+                    "Note: rtmixer requires PortAudio to be installed on your system.\n"
+                    "On Linux: sudo apt-get install portaudio19-dev\n"
+                    "On macOS: brew install portaudio\n"
+                    "On Windows: PortAudio is usually included with rtmixer")
+
+        if not self.stems:
+            return (False, "No stems loaded. Please load audio files first.")
+
+        return (True, "")
+
     def play(self) -> bool:
         """
         Start playback
