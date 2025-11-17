@@ -1,9 +1,8 @@
 """
-Audio Player - Real-time playback and mixing of separated stems using rtmixer
+Audio Player - Real-time playback and mixing of separated stems
 
-PURPOSE: Provides professional low-latency audio playback with per-stem volume/mute/solo controls
-CONTEXT: Uses rtmixer (C-level callback) for GIL-free audio output with sounddevice/PortAudio
-MIGRATION: Migrated from soundcard to rtmixer for better performance and lower latency
+PURPOSE: Provides real-time audio playback with per-stem volume/mute/solo controls
+CONTEXT: Uses soundcard for cross-platform audio output
 """
 from pathlib import Path
 from typing import Optional, Dict, Callable
@@ -45,21 +44,15 @@ class PlaybackInfo:
 
 class AudioPlayer:
     """
-    Real-time audio player with stem mixing capabilities using rtmixer
+    Real-time audio player with stem mixing capabilities
 
     Features:
     - Load multiple stems (audio files)
-    - Real-time playback with rtmixer (C-level, GIL-free)
+    - Real-time playback with soundcard
     - Per-stem volume, mute, solo
     - Master volume control
     - Position seeking
     - Callbacks for position updates
-
-    PERFORMANCE IMPROVEMENTS over previous soundcard implementation:
-    - C-level audio callback (no Python GIL blocking)
-    - Lower latency (~20-50ms vs ~170ms)
-    - More reliable playback without stuttering
-    - Better CPU efficiency
     """
 
     def __init__(self, sample_rate: int = RECORDING_SAMPLE_RATE):
@@ -76,39 +69,31 @@ class AudioPlayer:
         self.stem_settings: Dict[str, StemSettings] = {}
         self.master_volume: float = 1.0
 
-        # Threading for position updates
-        self._position_lock = threading.Lock()
-        self._update_thread: Optional[threading.Thread] = None
-        self._stop_update = threading.Event()
+        # Threading
+        self.playback_thread: Optional[threading.Thread] = None
+        self._stop_event = threading.Event()
+        self._pause_event = threading.Event()
+        self._position_lock = threading.Lock()  # Lock for thread-safe seeking
 
         # Callbacks
         self.position_callback: Optional[Callable[[float, float], None]] = None  # (position, duration)
         self.state_callback: Optional[Callable[[PlaybackState], None]] = None
 
-        # RTMixer
-        self._mixer = None
-        self._ringbuffer = None
-        self._import_rtmixer()
+        # Soundcard
+        self._soundcard = None
+        self._import_soundcard()
 
-        self.logger.info("AudioPlayer initialized with rtmixer")
+        self.logger.info("AudioPlayer initialized")
 
-    def _import_rtmixer(self) -> bool:
-        """Import rtmixer library"""
+    def _import_soundcard(self) -> bool:
+        """Import soundcard library"""
         try:
-            import rtmixer
-            self._rtmixer_module = rtmixer
-            self.logger.info("rtmixer library loaded for playback")
+            import soundcard as sc
+            self._soundcard = sc
+            self.logger.info("SoundCard library loaded for playback")
             return True
         except ImportError:
-            self.logger.warning("rtmixer not installed. Playback will not work.")
-            self.logger.warning("Install with: pip install rtmixer")
-            self._rtmixer_module = None
-            return False
-        except OSError as e:
-            # PortAudio not available (common in headless environments)
-            self.logger.warning(f"rtmixer initialization failed: {e}")
-            self.logger.warning("This is normal in headless environments or without audio devices")
-            self._rtmixer_module = None
+            self.logger.error("SoundCard not installed. Playback will not work.")
             return False
 
     def load_stems(self, stem_files: Dict[str, Path]) -> bool:
@@ -230,7 +215,7 @@ class AudioPlayer:
 
     def set_position(self, position_seconds: float):
         """
-        Seek to position
+        Seek to position (thread-safe)
 
         Args:
             position_seconds: Target position in seconds
@@ -238,17 +223,7 @@ class AudioPlayer:
         with self._position_lock:
             position_samples = int(position_seconds * self.sample_rate)
             position_samples = max(0, min(position_samples, self.duration_samples))
-            old_position = self.position_samples
             self.position_samples = position_samples
-
-            # If playing, restart playback from new position
-            if self.state == PlaybackState.PLAYING and self._mixer is not None:
-                self.logger.debug(f"Seeking from {old_position} to {position_samples} samples")
-                # Cancel all current playback
-                self._mixer.cancel()
-                # Start playback from new position
-                self._start_playback_from_position()
-
             self.logger.info(f"Seeked to {position_seconds:.2f}s ({position_samples} samples)")
 
     def set_stem_volume(self, stem_name: str, volume: float):
@@ -285,158 +260,41 @@ class AudioPlayer:
             self.logger.warning("Already playing")
             return False
 
-        if not self._rtmixer_module:
-            self.logger.error("rtmixer not available")
+        if not self._soundcard:
+            self.logger.error("SoundCard not available")
             return False
 
         if self.state == PlaybackState.PAUSED:
-            # Resume from pause - not supported in rtmixer, need to restart
-            self.logger.info("Resuming playback from paused position")
-            # Keep current position and start playback
-            pass
-        else:
-            # Start new playback from beginning
-            self.position_samples = 0
-
-        try:
-            # Create mixer if not exists
-            if self._mixer is None:
-                self._mixer = self._rtmixer_module.Mixer(
-                    channels=2,
-                    blocksize=2048,  # Optimal buffer size for low latency
-                    samplerate=self.sample_rate
-                )
-                self.logger.info(f"Created rtmixer.Mixer: {self.sample_rate}Hz, 2ch, blocksize=2048")
-
-            # Start playback from current position
-            self._start_playback_from_position()
-
+            # Resume from pause
+            self._pause_event.set()
             self.state = PlaybackState.PLAYING
-
             if self.state_callback:
                 self.state_callback(self.state)
-
-            # Start position update thread
-            self._stop_update.clear()
-            self._update_thread = threading.Thread(
-                target=self._position_update_loop,
-                daemon=True
-            )
-            self._update_thread.start()
-
-            self.logger.info("Started playback with rtmixer")
+            self.logger.info("Resumed playback")
             return True
 
-        except Exception as e:
-            self.logger.error(f"Failed to start playback: {e}", exc_info=True)
-            self.state = PlaybackState.STOPPED
-            if self.state_callback:
-                self.state_callback(self.state)
-            return False
+        # Start new playback
+        self._stop_event.clear()
+        self._pause_event.set()
+        self.state = PlaybackState.PLAYING
 
-    def _start_playback_from_position(self):
-        """Start playback from current position (internal helper)"""
-        if self._mixer is None:
-            return
+        if self.state_callback:
+            self.state_callback(self.state)
 
-        with self._position_lock:
-            start_sample = self.position_samples
-
-        # Check if any stem is solo
-        any_solo = any(
-            settings.is_solo
-            for settings in self.stem_settings.values()
+        # Start playback thread
+        self.playback_thread = threading.Thread(
+            target=self._playback_loop,
+            daemon=True
         )
+        self.playback_thread.start()
 
-        # Mix and play each stem
-        for stem_name, audio_data in self.stems.items():
-            settings = self.stem_settings[stem_name]
-
-            # Skip if muted
-            if settings.is_muted:
-                continue
-
-            # Skip if not solo and another stem is solo
-            if any_solo and not settings.is_solo:
-                continue
-
-            # Get audio chunk from current position to end
-            chunk = audio_data[:, start_sample:].copy()
-
-            # Apply stem volume and master volume
-            total_volume = settings.volume * self.master_volume
-            chunk = chunk * total_volume
-
-            # Soft clipping to prevent distortion
-            peak = np.max(np.abs(chunk))
-            if peak > 1.0:
-                chunk = chunk * (0.95 / peak)
-            chunk = np.clip(chunk, -1.0, 1.0)
-
-            # Transpose to (samples, channels) for rtmixer
-            chunk_for_playback = chunk.T.astype(np.float32)
-
-            # Play buffer through rtmixer
-            try:
-                self._mixer.play_buffer(
-                    chunk_for_playback,
-                    channels=[0, 1],
-                    start=0,
-                    allow_belated=False
-                )
-                self.logger.debug(f"Playing {stem_name}: {chunk_for_playback.shape[0]} samples")
-            except Exception as e:
-                self.logger.error(f"Failed to play buffer for {stem_name}: {e}")
-
-    def _position_update_loop(self):
-        """Thread loop for updating position (runs separately from audio)"""
-        try:
-            start_time = time.time()
-            start_position = self.position_samples
-
-            while not self._stop_update.is_set():
-                # Calculate elapsed time
-                elapsed = time.time() - start_time
-                elapsed_samples = int(elapsed * self.sample_rate)
-
-                with self._position_lock:
-                    self.position_samples = min(
-                        start_position + elapsed_samples,
-                        self.duration_samples
-                    )
-                    current_pos = self.position_samples
-
-                    # Check if reached end
-                    if current_pos >= self.duration_samples:
-                        self.logger.info("Reached end of audio")
-                        self.state = PlaybackState.STOPPED
-                        self.position_samples = 0
-                        if self.state_callback:
-                            self.state_callback(self.state)
-                        break
-
-                # Call position callback
-                if self.position_callback:
-                    self.position_callback(self.get_position(), self.get_duration())
-
-                # Update every 50ms
-                time.sleep(0.05)
-
-        except Exception as e:
-            self.logger.error(f"Error in position update loop: {e}", exc_info=True)
+        self.logger.info("Started playback")
+        return True
 
     def pause(self):
         """Pause playback"""
         if self.state == PlaybackState.PLAYING:
-            # Stop position updates
-            self._stop_update.set()
-            if self._update_thread:
-                self._update_thread.join(timeout=1.0)
-
-            # Cancel playback (rtmixer doesn't have pause, so we stop)
-            if self._mixer:
-                self._mixer.cancel()
-
+            self._pause_event.clear()
             self.state = PlaybackState.PAUSED
             if self.state_callback:
                 self.state_callback(self.state)
@@ -445,14 +303,11 @@ class AudioPlayer:
     def stop(self):
         """Stop playback"""
         if self.state in [PlaybackState.PLAYING, PlaybackState.PAUSED]:
-            # Stop position updates
-            self._stop_update.set()
-            if self._update_thread:
-                self._update_thread.join(timeout=1.0)
+            self._stop_event.set()
+            self._pause_event.set()  # Wake up if paused
 
-            # Cancel playback
-            if self._mixer:
-                self._mixer.cancel()
+            if self.playback_thread and self.playback_thread.is_alive():
+                self.playback_thread.join(timeout=2.0)
 
             self.state = PlaybackState.STOPPED
             self.position_samples = 0
@@ -462,9 +317,81 @@ class AudioPlayer:
 
             self.logger.info("Stopped playback")
 
+    def _playback_loop(self):
+        """Main playback loop (runs in separate thread)"""
+        try:
+            # Get default speaker
+            speaker = self._soundcard.default_speaker()
+
+            # Buffer size (samples per buffer)
+            # Balance between latency and smooth playback
+            # At 48kHz: 8192 samples = ~170ms latency
+            buffer_size = 8192
+
+            self.logger.info(
+                f"Playback started - Sample rate: {self.sample_rate} Hz, "
+                f"Buffer size: {buffer_size} samples"
+            )
+
+            while not self._stop_event.is_set():
+                # Check pause
+                self._pause_event.wait()
+
+                if self._stop_event.is_set():
+                    break
+
+                # Get current position (thread-safe)
+                with self._position_lock:
+                    current_pos = self.position_samples
+
+                # Check if reached end
+                if current_pos >= self.duration_samples:
+                    self.logger.info("Reached end of audio")
+                    self._stop_event.set()
+                    break
+
+                # Calculate buffer bounds
+                end_sample = min(
+                    current_pos + buffer_size,
+                    self.duration_samples
+                )
+
+                # Mix audio
+                mixed_audio = self._mix_stems(current_pos, end_sample)
+
+                # Transpose to (samples, channels) for soundcard
+                playback_data = mixed_audio.T
+
+                # Play buffer - this blocks until buffer is played
+                # CRITICAL: samplerate must match the actual sample rate of the audio
+                speaker.play(playback_data, samplerate=self.sample_rate)
+
+                # Update position (thread-safe)
+                with self._position_lock:
+                    self.position_samples = end_sample
+
+                # Position callback
+                if self.position_callback:
+                    self.position_callback(self.get_position(), self.get_duration())
+
+            # Playback finished
+            self.state = PlaybackState.STOPPED
+            self.position_samples = 0
+
+            if self.state_callback:
+                self.state_callback(self.state)
+
+            self.logger.debug("Playback loop finished")
+
+        except Exception as e:
+            self.logger.error(f"Error in playback loop: {e}", exc_info=True)
+            self.state = PlaybackState.STOPPED
+            if self.state_callback:
+                self.state_callback(self.state)
+
     def _mix_stems(self, start_sample: int, end_sample: int) -> np.ndarray:
         """
-        Mix stems with current settings (used for export)
+        Mix stems with current settings
 
         Args:
             start_sample: Start sample index
@@ -508,6 +435,7 @@ class AudioPlayer:
         mixed = mixed * self.master_volume
 
         # Soft clipping to prevent harsh distortion
+        # Use tanh for smooth limiting instead of hard clipping
         peak = np.max(np.abs(mixed))
         if peak > 1.0:
             # Normalize to prevent clipping, with some headroom
@@ -575,17 +503,6 @@ class AudioPlayer:
     def cleanup(self):
         """Cleanup resources"""
         self.stop()
-
-        # Close mixer
-        if self._mixer:
-            try:
-                self._mixer.cancel()
-                # Note: rtmixer.Mixer doesn't have explicit close method
-                # The context manager handles cleanup
-            except:
-                pass
-            self._mixer = None
-
         self.stems.clear()
         self.stem_settings.clear()
 

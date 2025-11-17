@@ -35,6 +35,8 @@ class QueueTask:
     file_path: Path
     model_id: str
     output_dir: Optional[Path] = None
+    use_ensemble: bool = False
+    ensemble_config: Optional[str] = None
     status: TaskStatus = TaskStatus.PENDING
     progress: int = 0
     result: Optional[SeparationResult] = None
@@ -81,20 +83,34 @@ class QueueWorker(QRunnable):
                 # Progress callback for this task
                 def progress_callback(message: str, percent: int):
                     self.signals.task_progress.emit(index, message, percent)
-                
+
                 # Get quality preset from settings
                 settings_mgr = self.ctx.settings_manager()
                 quality_preset = settings_mgr.get_quality_preset()
 
-                # Run separation
-                result = separator.separate(
-                    audio_file=task.file_path,
-                    model_id=task.model_id,
-                    output_dir=task.output_dir,
-                    quality_preset=quality_preset,
-                    progress_callback=progress_callback
-                )
-                
+                # Run separation (ensemble or single model)
+                if task.use_ensemble:
+                    # Use ensemble separator
+                    from core.ensemble_separator import get_ensemble_separator
+                    ensemble_separator = get_ensemble_separator()
+
+                    result = ensemble_separator.separate_ensemble(
+                        audio_file=task.file_path,
+                        ensemble_config=task.ensemble_config or 'balanced',
+                        output_dir=task.output_dir,
+                        quality_preset=quality_preset,
+                        progress_callback=progress_callback
+                    )
+                else:
+                    # Use single model separator
+                    result = separator.separate(
+                        audio_file=task.file_path,
+                        model_id=task.model_id,
+                        output_dir=task.output_dir,
+                        quality_preset=quality_preset,
+                        progress_callback=progress_callback
+                    )
+
                 self.signals.task_finished.emit(index, result)
                 
             except Exception as e:
@@ -199,47 +215,57 @@ class QueueWidget(QWidget):
         self.btn_clear.clicked.connect(self._on_clear_queue)
         self.btn_remove.clicked.connect(self._on_remove_selected)
     
-    def add_task(self, file_path: Path, model_id: str, output_dir: Optional[Path] = None):
+    def add_task(self, file_path: Path, model_id: str, output_dir: Optional[Path] = None,
+                 use_ensemble: bool = False, ensemble_config: Optional[str] = None):
         """
         Add task to queue
-        
+
         WHY: External components (upload widget) can queue files for batch processing
         """
         task = QueueTask(
             file_path=file_path,
             model_id=model_id,
-            output_dir=output_dir
+            output_dir=output_dir,
+            use_ensemble=use_ensemble,
+            ensemble_config=ensemble_config
         )
-        
+
         self.tasks.append(task)
         self._add_table_row(task)
         self._update_status()
-        
-        self.ctx.logger().info(f"Task added to queue: {file_path.name}")
+
+        mode = f"ensemble ({ensemble_config})" if use_ensemble else f"model ({model_id})"
+        self.ctx.logger().info(f"Task added to queue: {file_path.name} with {mode}")
     
     def _add_table_row(self, task: QueueTask):
         """Add task to table"""
         row = self.queue_table.rowCount()
         self.queue_table.insertRow(row)
-        
+
         # File name
         self.queue_table.setItem(row, 0, QTableWidgetItem(task.file_path.name))
-        
-        # Model
-        model_manager = self.ctx.model_manager()
-        model_info = model_manager.get_model_info(task.model_id)
-        model_name = model_info.name if model_info else task.model_id
-        self.queue_table.setItem(row, 1, QTableWidgetItem(model_name))
-        
+
+        # Model or Ensemble
+        if task.use_ensemble:
+            from config import ENSEMBLE_CONFIGS
+            ensemble_name = ENSEMBLE_CONFIGS.get(task.ensemble_config, {}).get('name', task.ensemble_config)
+            model_display = f"🎭 Ensemble: {ensemble_name}"
+        else:
+            model_manager = self.ctx.model_manager()
+            model_info = model_manager.get_model_info(task.model_id)
+            model_display = model_info.name if model_info else task.model_id
+
+        self.queue_table.setItem(row, 1, QTableWidgetItem(model_display))
+
         # Status
         self.queue_table.setItem(row, 2, QTableWidgetItem(task.status.value))
-        
+
         # Progress bar
         progress_bar = QProgressBar()
         progress_bar.setRange(0, 100)
         progress_bar.setValue(0)
         self.queue_table.setCellWidget(row, 3, progress_bar)
-        
+
         # Result
         self.queue_table.setItem(row, 4, QTableWidgetItem(""))
     

@@ -61,16 +61,16 @@ def test_audio_files():
 
 
 @pytest.fixture
-def mock_soundcard():
-    """Mock soundcard module"""
+def mock_rtmixer():
+    """Mock rtmixer module"""
     with patch('core.player.logger') as mock_logger:
         player = AudioPlayer()
-        # Mock soundcard
-        mock_sc = MagicMock()
-        mock_speaker = MagicMock()
-        mock_sc.default_speaker.return_value = mock_speaker
-        player._soundcard = mock_sc
-        yield player, mock_speaker
+        # Mock rtmixer
+        mock_mixer = MagicMock()
+        mock_mixer.play_buffer = MagicMock()
+        mock_mixer.cancel = MagicMock()
+        player._mixer = mock_mixer
+        yield player, mock_mixer
 
 
 @pytest.mark.unit
@@ -297,31 +297,31 @@ class TestAudioPlayer:
         # (exact values depend on mixing, but should be scaled)
         assert np.max(np.abs(mixed)) <= 0.5
 
-    def test_play_without_stems(self, mock_soundcard):
+    def test_play_without_stems(self, mock_rtmixer):
         """Test play without loaded stems"""
-        player, _ = mock_soundcard
+        player, _ = mock_rtmixer
         success = player.play()
 
         assert success is False
         assert player.state == PlaybackState.STOPPED
 
-    def test_play_with_stems(self, mock_soundcard, test_audio_files):
+    def test_play_with_stems(self, mock_rtmixer, test_audio_files):
         """Test play with loaded stems"""
-        player, mock_speaker = mock_soundcard
+        player, mock_mixer = mock_rtmixer
         player.load_stems(test_audio_files)
 
         success = player.play()
 
         assert success is True
         assert player.state == PlaybackState.PLAYING
-        assert player.playback_thread is not None
+        assert player._update_thread is not None
 
         # Stop immediately
         player.stop()
 
-    def test_pause(self, mock_soundcard, test_audio_files):
+    def test_pause(self, mock_rtmixer, test_audio_files):
         """Test pause"""
-        player, _ = mock_soundcard
+        player, _ = mock_rtmixer
         player.load_stems(test_audio_files)
 
         player.play()
@@ -331,9 +331,9 @@ class TestAudioPlayer:
 
         player.stop()
 
-    def test_stop(self, mock_soundcard, test_audio_files):
+    def test_stop(self, mock_rtmixer, test_audio_files):
         """Test stop"""
-        player, _ = mock_soundcard
+        player, _ = mock_rtmixer
         player.load_stems(test_audio_files)
 
         player.play()
@@ -342,9 +342,9 @@ class TestAudioPlayer:
         assert player.state == PlaybackState.STOPPED
         assert player.position_samples == 0
 
-    def test_resume_from_pause(self, mock_soundcard, test_audio_files):
+    def test_resume_from_pause(self, mock_rtmixer, test_audio_files):
         """Test resume from pause"""
-        player, _ = mock_soundcard
+        player, _ = mock_rtmixer
         player.load_stems(test_audio_files)
 
         player.play()
@@ -356,9 +356,9 @@ class TestAudioPlayer:
 
         player.stop()
 
-    def test_callbacks(self, mock_soundcard, test_audio_files):
+    def test_callbacks(self, mock_rtmixer, test_audio_files):
         """Test position and state callbacks"""
-        player, _ = mock_soundcard
+        player, _ = mock_rtmixer
         player.load_stems(test_audio_files)
 
         position_calls = []
@@ -374,6 +374,9 @@ class TestAudioPlayer:
         player.state_callback = state_cb
 
         player.play()
+        # Give it a moment to start
+        import time
+        time.sleep(0.1)
         player.stop()
 
         # State callback should have been called

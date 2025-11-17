@@ -11,7 +11,7 @@ import numpy as np
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
     QComboBox, QLineEdit, QProgressBar, QListWidget, QListWidgetItem,
-    QFileDialog, QMessageBox, QGroupBox
+    QFileDialog, QMessageBox, QGroupBox, QCheckBox
 )
 from PySide6.QtCore import Qt, Signal, QRunnable, QThreadPool, Slot, QObject
 from PySide6.QtGui import QDragEnterEvent, QDropEvent
@@ -19,6 +19,7 @@ from PySide6.QtGui import QDragEnterEvent, QDropEvent
 from ui.app_context import AppContext
 from core.separator import SeparationResult
 from ui.widgets.waveform_widget import WaveformWidget
+from config import ENSEMBLE_CONFIGS
 
 
 class SeparationSignals(QObject):
@@ -35,38 +36,55 @@ class SeparationSignals(QObject):
 class SeparationWorker(QRunnable):
     """
     Worker for running separation in background thread
-    
+
     WHY: Separation is CPU/GPU intensive and blocks GUI if run on main thread
     """
-    
-    def __init__(self, audio_file: Path, model_id: str, output_dir: Optional[Path] = None):
+
+    def __init__(self, audio_file: Path, model_id: str, output_dir: Optional[Path] = None,
+                 use_ensemble: bool = False, ensemble_config: Optional[str] = None):
         super().__init__()
         self.audio_file = audio_file
         self.model_id = model_id
         self.output_dir = output_dir
+        self.use_ensemble = use_ensemble
+        self.ensemble_config = ensemble_config or 'balanced'
         self.signals = SeparationSignals()
         self.ctx = AppContext()
         
     def run(self):
         """Execute separation in background thread"""
         try:
-            separator = self.ctx.separator()
-
             # Get quality preset from settings
             settings_mgr = self.ctx.settings_manager()
             quality_preset = settings_mgr.get_quality_preset()
 
             # Run separation with progress callback
-            result = separator.separate(
-                audio_file=self.audio_file,
-                model_id=self.model_id,
-                output_dir=self.output_dir,
-                quality_preset=quality_preset,
-                progress_callback=self._on_progress
-            )
-            
+            if self.use_ensemble:
+                # Use ensemble separator
+                from core.ensemble_separator import get_ensemble_separator
+                ensemble_separator = get_ensemble_separator()
+
+                result = ensemble_separator.separate_ensemble(
+                    audio_file=self.audio_file,
+                    ensemble_config=self.ensemble_config,
+                    output_dir=self.output_dir,
+                    quality_preset=quality_preset,
+                    progress_callback=self._on_progress
+                )
+            else:
+                # Use single model separator
+                separator = self.ctx.separator()
+
+                result = separator.separate(
+                    audio_file=self.audio_file,
+                    model_id=self.model_id,
+                    output_dir=self.output_dir,
+                    quality_preset=quality_preset,
+                    progress_callback=self._on_progress
+                )
+
             self.signals.finished.emit(result)
-            
+
         except Exception as e:
             self.ctx.logger().error(f"Separation worker error: {e}", exc_info=True)
             self.signals.error.emit(str(e))
@@ -90,7 +108,7 @@ class UploadWidget(QWidget):
     """
     
     # Signal emitted when user wants to queue a file
-    file_queued = Signal(Path, str)  # (file_path, model_id)
+    file_queued = Signal(Path, str, bool, str)  # (file_path, model_id, use_ensemble, ensemble_config)
     
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -148,7 +166,34 @@ class UploadWidget(QWidget):
         self.model_combo = QComboBox()
         model_layout.addWidget(self.model_combo, stretch=1)
         config_layout.addLayout(model_layout)
-        
+
+        # Ensemble Mode
+        ensemble_layout = QVBoxLayout()
+
+        # Ensemble checkbox
+        self.ensemble_checkbox = QCheckBox("Enable Ensemble Mode (2-3x slower, +0.5-1.0 dB quality)")
+        self.ensemble_checkbox.setToolTip(
+            "Combine multiple AI models for higher quality separation.\n"
+            "Processing time increases but quality improves significantly."
+        )
+        ensemble_layout.addWidget(self.ensemble_checkbox)
+
+        # Ensemble config dropdown (initially hidden)
+        ensemble_config_layout = QHBoxLayout()
+        ensemble_config_layout.addWidget(QLabel("  Ensemble Config:"))
+        self.ensemble_combo = QComboBox()
+        self.ensemble_combo.setEnabled(False)
+
+        # Add ensemble configurations
+        for config_name, config_info in ENSEMBLE_CONFIGS.items():
+            display_name = f"{config_info['name']} - {config_info['description']}"
+            self.ensemble_combo.addItem(display_name, userData=config_name)
+
+        ensemble_config_layout.addWidget(self.ensemble_combo, stretch=1)
+        ensemble_layout.addLayout(ensemble_config_layout)
+
+        config_layout.addLayout(ensemble_layout)
+
         # Output directory
         output_layout = QHBoxLayout()
         output_layout.addWidget(QLabel("Output:"))
@@ -199,6 +244,7 @@ class UploadWidget(QWidget):
         self.btn_queue.clicked.connect(self._on_queue_clicked)
         self.file_list.itemSelectionChanged.connect(self._on_file_selection_changed)
         self.model_combo.currentIndexChanged.connect(self._on_model_changed)
+        self.ensemble_checkbox.stateChanged.connect(self._on_ensemble_toggled)
     
     def _load_models(self):
         """Load available models into dropdown"""
@@ -321,6 +367,19 @@ class UploadWidget(QWidget):
             self.output_path.setText(directory)
     
     @Slot()
+    def _on_ensemble_toggled(self, state: int):
+        """Handle ensemble mode checkbox toggle"""
+        is_checked = (state == Qt.CheckState.Checked.value)
+        self.ensemble_combo.setEnabled(is_checked)
+
+        if is_checked:
+            # Disable single model selection when ensemble is enabled
+            self.model_combo.setEnabled(False)
+        else:
+            # Enable single model selection when ensemble is disabled
+            self.model_combo.setEnabled(True)
+
+    @Slot()
     def _on_model_changed(self, index: int):
         """Handle model selection change"""
         if index < 0:
@@ -413,8 +472,13 @@ class UploadWidget(QWidget):
         original_file = selected_items[0].data(Qt.UserRole)
         model_id = self.model_combo.currentData()
 
+        # Get ensemble settings
+        use_ensemble = self.ensemble_checkbox.isChecked()
+        ensemble_config = self.ensemble_combo.currentData() if use_ensemble else ''
+
         # Create trimmed file if trimming is applied
-        self.ctx.logger().info(f"Queueing file: {original_file.name}")
+        mode_desc = f"ensemble ({ensemble_config})" if use_ensemble else f"model ({model_id})"
+        self.ctx.logger().info(f"Queueing file: {original_file.name} with {mode_desc}")
         file_to_queue = self._create_trimmed_file(original_file)
         self.ctx.logger().info(f"File queued: {file_to_queue.name}")
 
@@ -424,7 +488,7 @@ class UploadWidget(QWidget):
         else:
             self.status_label.setText(f"Added {file_to_queue.name} to queue")
 
-        self.file_queued.emit(file_to_queue, model_id)
+        self.file_queued.emit(file_to_queue, model_id, use_ensemble, ensemble_config)
 
     def _create_trimmed_file(self, original_file: Path) -> Optional[Path]:
         """
@@ -496,11 +560,19 @@ class UploadWidget(QWidget):
     def _start_separation(self, file_path: Path, model_id: str, output_dir: Optional[Path]):
         """
         Start separation in background thread
-        
+
         WHY: Separation is long-running; must not block GUI
         """
-        self.ctx.logger().info(f"Starting separation: {file_path.name} with model {model_id}")
-        
+        # Check if ensemble mode is enabled
+        use_ensemble = self.ensemble_checkbox.isChecked()
+        ensemble_config = None
+
+        if use_ensemble:
+            ensemble_config = self.ensemble_combo.currentData()
+            self.ctx.logger().info(f"Starting ensemble separation: {file_path.name} with config {ensemble_config}")
+        else:
+            self.ctx.logger().info(f"Starting separation: {file_path.name} with model {model_id}")
+
         # Disable controls during processing
         self.btn_start.setEnabled(False)
         self.btn_queue.setEnabled(False)
@@ -508,9 +580,9 @@ class UploadWidget(QWidget):
         self.progress_bar.setVisible(True)
         self.progress_bar.setValue(0)
         self.status_label.setText("Initializing...")
-        
+
         # Create and start worker
-        worker = SeparationWorker(file_path, model_id, output_dir)
+        worker = SeparationWorker(file_path, model_id, output_dir, use_ensemble, ensemble_config)
         worker.signals.progress.connect(self._on_separation_progress)
         worker.signals.finished.connect(self._on_separation_finished)
         worker.signals.error.connect(self._on_separation_error)

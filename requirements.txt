@@ -6,6 +6,7 @@ audio-separator>=0.20.0
 
 # System Audio Recording
 soundcard>=0.4.2
+rtmixer>=0.1.7
 
 # Audio Processing
 numpy>=1.24.0
@@ -13,6 +14,7 @@ soundfile>=0.12.1
 librosa>=0.10.0
 pydub>=0.25.1
 resampy>=0.4.2
+scipy>=1.11.0  # For signal resampling in ensemble mode
 
 # ML Models
 torch>=2.0.0
