@@ -440,24 +440,23 @@ class AudioPlayer:
 
             # Create ringbuffer with size for the entire audio
             # RingBuffer size must be a power of 2
-            elementsize = np.float32().itemsize  # 4 bytes
-            num_elements = chunk_for_playback.size  # Total number of float32 values
+            # Use elementsize=1 for bytes (we'll write with tobytes())
+            audio_bytes = chunk_for_playback.tobytes()
+            bytes_needed = len(audio_bytes)
 
             # Round up to next power of 2
             import math
-            power = math.ceil(math.log2(num_elements))
+            power = math.ceil(math.log2(bytes_needed))
             ringbuffer_size = 2 ** power
 
-            buffer_size_bytes = elementsize * ringbuffer_size
+            self.logger.info(f"Creating ringbuffer: {ringbuffer_size} bytes (2^{power}, rounded up from {bytes_needed}) "
+                           f"= {ringbuffer_size / 1024 / 1024:.2f} MB")
 
-            self.logger.info(f"Creating ringbuffer: {ringbuffer_size} elements (2^{power}, rounded up from {num_elements}) "
-                           f"× {elementsize} bytes = {buffer_size_bytes} bytes ({buffer_size_bytes / 1024 / 1024:.2f} MB)")
-
-            self._ringbuffer = self._rtmixer_module.RingBuffer(elementsize=elementsize, size=ringbuffer_size)
+            self._ringbuffer = self._rtmixer_module.RingBuffer(elementsize=1, size=ringbuffer_size)
 
             # Write all audio data to ringbuffer
-            written = self._ringbuffer.write(chunk_for_playback.tobytes())
-            self.logger.info(f"Wrote {written} bytes to ringbuffer")
+            written = self._ringbuffer.write(audio_bytes)
+            self.logger.info(f"Wrote {written} bytes to ringbuffer (expected {bytes_needed})")
 
             # Start playback from ringbuffer
             action = self._mixer.play_ringbuffer(
