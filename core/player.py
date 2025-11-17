@@ -413,8 +413,8 @@ class AudioPlayer:
                 chunk = chunk * (0.95 / peak)
             chunk = np.clip(chunk, -1.0, 1.0)
 
-            # Transpose to (samples, channels) for rtmixer
-            chunk_for_playback = chunk.T.astype(np.float32)
+            # Transpose to (samples, channels) for rtmixer and ensure C-contiguous
+            chunk_for_playback = np.ascontiguousarray(chunk.T, dtype=np.float32)
 
             # Play buffer through rtmixer
             try:
