@@ -339,9 +339,9 @@ class PlayerWidget(QWidget):
             success = self.player.load_stems(self.stem_files)
 
             if success:
-                # Enable controls (but Play button will check rtmixer availability)
+                # Enable controls (but Play button will check sounddevice availability)
                 self.btn_play.setEnabled(True)
-                self.btn_export.setEnabled(True)  # Export works without rtmixer
+                self.btn_export.setEnabled(True)  # Export works without sounddevice
                 self.position_slider.setEnabled(True)
 
                 # Update duration
@@ -370,7 +370,7 @@ class PlayerWidget(QWidget):
                     self.info_label.setText(
                         f"✓ Loaded {len(self.stem_files)} stems. "
                         f"Duration: {self._format_time(duration)}\n"
-                        "⚠ Playback unavailable (rtmixer not installed)"
+                        "⚠ Playback unavailable (sounddevice not installed)"
                     )
             else:
                 QMessageBox.critical(
