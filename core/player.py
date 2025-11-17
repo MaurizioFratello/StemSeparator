@@ -88,6 +88,7 @@ class AudioPlayer:
         # RTMixer
         self._mixer = None
         self._ringbuffer = None
+        self._active_actions = []  # Track active playback actions for cancellation
         self._import_rtmixer()
 
         self.logger.info("AudioPlayer initialized with rtmixer")
@@ -245,7 +246,7 @@ class AudioPlayer:
             if self.state == PlaybackState.PLAYING and self._mixer is not None:
                 self.logger.debug(f"Seeking from {old_position} to {position_samples} samples")
                 # Cancel all current playback
-                self._mixer.cancel()
+                self._cancel_all_actions()
                 # Start playback from new position
                 self._start_playback_from_position()
 
@@ -357,10 +358,26 @@ class AudioPlayer:
                 self.state_callback(self.state)
             return False
 
+    def _cancel_all_actions(self):
+        """Cancel all active playback actions"""
+        if self._mixer is None:
+            return
+
+        for action in self._active_actions:
+            try:
+                self._mixer.cancel(action)
+            except Exception as e:
+                self.logger.debug(f"Error canceling action: {e}")
+
+        self._active_actions.clear()
+
     def _start_playback_from_position(self):
         """Start playback from current position (internal helper)"""
         if self._mixer is None:
             return
+
+        # Clear previous actions
+        self._active_actions.clear()
 
         with self._position_lock:
             start_sample = self.position_samples
@@ -401,12 +418,14 @@ class AudioPlayer:
 
             # Play buffer through rtmixer
             try:
-                self._mixer.play_buffer(
+                # Note: rtmixer channels are 1-indexed, not 0-indexed
+                action = self._mixer.play_buffer(
                     chunk_for_playback,
-                    channels=[0, 1],
+                    channels=[1, 2],
                     start=0,
                     allow_belated=False
                 )
+                self._active_actions.append(action)
                 self.logger.debug(f"Playing {stem_name}: {chunk_for_playback.shape[0]} samples")
             except Exception as e:
                 self.logger.error(f"Failed to play buffer for {stem_name}: {e}")
@@ -457,8 +476,7 @@ class AudioPlayer:
                 self._update_thread.join(timeout=1.0)
 
             # Cancel playback (rtmixer doesn't have pause, so we stop)
-            if self._mixer:
-                self._mixer.cancel()
+            self._cancel_all_actions()
 
             self.state = PlaybackState.PAUSED
             if self.state_callback:
@@ -474,8 +492,7 @@ class AudioPlayer:
                 self._update_thread.join(timeout=1.0)
 
             # Cancel playback
-            if self._mixer:
-                self._mixer.cancel()
+            self._cancel_all_actions()
 
             self.state = PlaybackState.STOPPED
             self.position_samples = 0
@@ -601,12 +618,9 @@ class AudioPlayer:
 
         # Close mixer
         if self._mixer:
-            try:
-                self._mixer.cancel()
-                # Note: rtmixer.Mixer doesn't have explicit close method
-                # The context manager handles cleanup
-            except:
-                pass
+            # Note: rtmixer.Mixer doesn't have explicit close method
+            # The context manager handles cleanup
+            # Actions are already canceled by stop()
             self._mixer = None
 
         self.stems.clear()
