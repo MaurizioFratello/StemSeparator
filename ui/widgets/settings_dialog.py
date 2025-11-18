@@ -21,14 +21,14 @@ from config import QUALITY_PRESETS
 class SettingsDialog(QDialog):
     """
     Dialog for configuring application settings
-    
+
     Features:
-    - Language selection
     - Default model
     - GPU usage toggle
     - Chunk size configuration
     - Output directory
     - Recording settings
+    - Diagnostics (log file access)
     """
     
     # Signal emitted when settings are saved
@@ -80,27 +80,7 @@ class SettingsDialog(QDialog):
         """Create general settings tab"""
         widget = QWidget()
         layout = QVBoxLayout(widget)
-        
-        # Language
-        lang_group = QGroupBox("Language")
-        lang_layout = QVBoxLayout()
-        
-        lang_select = QHBoxLayout()
-        lang_select.addWidget(QLabel("Interface Language:"))
-        self.language_combo = QComboBox()
-        self.language_combo.addItem("Deutsch", userData="de")
-        self.language_combo.addItem("English", userData="en")
-        lang_select.addWidget(self.language_combo)
-        lang_select.addStretch()
-        lang_layout.addLayout(lang_select)
-        
-        lang_info = QLabel("Note: Language change requires restart")
-        lang_info.setStyleSheet("color: gray; font-size: 10pt;")
-        lang_layout.addWidget(lang_info)
-        
-        lang_group.setLayout(lang_layout)
-        layout.addWidget(lang_group)
-        
+
         # Default Model
         model_group = QGroupBox("Default Model")
         model_layout = QVBoxLayout()
@@ -321,13 +301,6 @@ class SettingsDialog(QDialog):
     
     def _load_current_settings(self):
         """Load current settings into UI controls"""
-        # Language
-        lang = self.settings_mgr.get_language()
-        for i in range(self.language_combo.count()):
-            if self.language_combo.itemData(i) == lang:
-                self.language_combo.setCurrentIndex(i)
-                break
-        
         # Model
         model = self.settings_mgr.get_default_model()
         for i in range(self.model_combo.count()):
@@ -386,7 +359,6 @@ class SettingsDialog(QDialog):
     def _on_save(self):
         """Save settings"""
         # Save all settings
-        self.settings_mgr.set_language(self.language_combo.currentData())
         self.settings_mgr.set_default_model(self.model_combo.currentData())
         self.settings_mgr.set_quality_preset(self.quality_combo.currentData())
         self.settings_mgr.set_use_gpu(self.gpu_checkbox.isChecked())
