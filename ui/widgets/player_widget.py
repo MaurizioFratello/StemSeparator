@@ -15,6 +15,7 @@ from PySide6.QtCore import Qt, Signal, Slot, QTimer
 
 from ui.app_context import AppContext
 from core.player import get_player, PlaybackState
+from ui.theme import ThemeManager
 
 
 class StemControl(QWidget):
@@ -49,7 +50,7 @@ class StemControl(QWidget):
         # Mute button
         self.btn_mute = QPushButton("M")
         self.btn_mute.setCheckable(True)
-        self.btn_mute.setMaximumWidth(30)
+        ThemeManager.set_widget_property(self.btn_mute, "buttonStyle", "icon")
         self.btn_mute.setToolTip("Mute this stem")
         self.btn_mute.clicked.connect(self._on_mute_clicked)
         layout.addWidget(self.btn_mute)
@@ -57,7 +58,7 @@ class StemControl(QWidget):
         # Solo button
         self.btn_solo = QPushButton("S")
         self.btn_solo.setCheckable(True)
-        self.btn_solo.setMaximumWidth(30)
+        ThemeManager.set_widget_property(self.btn_solo, "buttonStyle", "icon")
         self.btn_solo.setToolTip("Solo this stem (mute all others)")
         self.btn_solo.clicked.connect(self._on_solo_clicked)
         layout.addWidget(self.btn_solo)
@@ -83,11 +84,20 @@ class StemControl(QWidget):
         self.is_muted = self.btn_mute.isChecked()
         self.mute_changed.emit(self.stem_name, self.is_muted)
 
-        # Update style
+        # Update style with modern theme colors
         if self.is_muted:
-            self.btn_mute.setStyleSheet("background-color: #ff6b6b;")
+            self.btn_mute.setStyleSheet("""
+                QPushButton {
+                    background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #ef4444, stop:1 #dc2626);
+                    color: white;
+                }
+                QPushButton:hover {
+                    background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #f87171, stop:1 #ef4444);
+                }
+            """)
         else:
             self.btn_mute.setStyleSheet("")
+            ThemeManager.set_widget_property(self.btn_mute, "buttonStyle", "icon")
 
     @Slot()
     def _on_solo_clicked(self):
@@ -95,11 +105,20 @@ class StemControl(QWidget):
         self.is_solo = self.btn_solo.isChecked()
         self.solo_changed.emit(self.stem_name, self.is_solo)
 
-        # Update style
+        # Update style with modern theme colors
         if self.is_solo:
-            self.btn_solo.setStyleSheet("background-color: #51cf66;")
+            self.btn_solo.setStyleSheet("""
+                QPushButton {
+                    background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #10b981, stop:1 #059669);
+                    color: white;
+                }
+                QPushButton:hover {
+                    background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #34d399, stop:1 #10b981);
+                }
+            """)
         else:
             self.btn_solo.setStyleSheet("")
+            ThemeManager.set_widget_property(self.btn_solo, "buttonStyle", "icon")
 
     @Slot()
     def _on_volume_changed(self):
@@ -162,8 +181,10 @@ class PlayerWidget(QWidget):
 
         # Load buttons
         load_buttons = QHBoxLayout()
-        self.btn_load_dir = QPushButton("Load from Directory")
-        self.btn_load_files = QPushButton("Load Individual Files")
+        self.btn_load_dir = QPushButton("📁 Load from Directory")
+        ThemeManager.set_widget_property(self.btn_load_dir, "buttonStyle", "secondary")
+        self.btn_load_files = QPushButton("📄 Load Individual Files")
+        ThemeManager.set_widget_property(self.btn_load_files, "buttonStyle", "secondary")
         load_buttons.addWidget(self.btn_load_dir)
         load_buttons.addWidget(self.btn_load_files)
         load_buttons.addStretch()
@@ -207,10 +228,12 @@ class PlayerWidget(QWidget):
         self.position_slider.sliderReleased.connect(self._on_slider_released)
         controls_layout.addWidget(self.position_slider)
 
-        # Time labels
+        # Time labels (monospace for better readability)
         time_layout = QHBoxLayout()
         self.current_time_label = QLabel("00:00")
+        ThemeManager.set_widget_property(self.current_time_label, "labelStyle", "mono")
         self.duration_label = QLabel("00:00")
+        ThemeManager.set_widget_property(self.duration_label, "labelStyle", "mono")
         time_layout.addWidget(self.current_time_label)
         time_layout.addStretch()
         time_layout.addWidget(self.duration_label)
@@ -220,12 +243,19 @@ class PlayerWidget(QWidget):
         buttons_layout = QHBoxLayout()
         self.btn_play = QPushButton("▶ Play")
         self.btn_play.setEnabled(False)
+        ThemeManager.set_widget_property(self.btn_play, "buttonStyle", "success")
+
         self.btn_pause = QPushButton("⏸ Pause")
         self.btn_pause.setEnabled(False)
+        ThemeManager.set_widget_property(self.btn_pause, "buttonStyle", "secondary")
+
         self.btn_stop = QPushButton("⏹ Stop")
         self.btn_stop.setEnabled(False)
+        ThemeManager.set_widget_property(self.btn_stop, "buttonStyle", "danger")
+
         self.btn_export = QPushButton("💾 Export Mixed Audio")
         self.btn_export.setEnabled(False)
+        # Export uses primary style (default)
 
         buttons_layout.addWidget(self.btn_play)
         buttons_layout.addWidget(self.btn_pause)

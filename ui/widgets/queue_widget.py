@@ -18,6 +18,7 @@ from PySide6.QtCore import Qt, Signal, Slot, QRunnable, QThreadPool, QObject
 
 from ui.app_context import AppContext
 from core.separator import SeparationResult
+from ui.theme import ThemeManager
 
 
 class TaskStatus(Enum):
@@ -167,6 +168,7 @@ class QueueWidget(QWidget):
         self.queue_table.horizontalHeader().setStretchLastSection(True)
         self.queue_table.setSelectionBehavior(QTableWidget.SelectRows)
         self.queue_table.setSelectionMode(QTableWidget.SingleSelection)
+        self.queue_table.setAlternatingRowColors(True)  # Modern alternating rows
         
         # Set column widths
         header = self.queue_table.horizontalHeader()
@@ -191,13 +193,20 @@ class QueueWidget(QWidget):
         
         # Buttons
         buttons_layout = QHBoxLayout()
-        self.btn_start = QPushButton("Start Queue")
+        self.btn_start = QPushButton("▶ Start Queue")
         self.btn_start.setEnabled(False)
-        self.btn_stop = QPushButton("Stop Queue")
+        ThemeManager.set_widget_property(self.btn_start, "buttonStyle", "success")
+
+        self.btn_stop = QPushButton("⏹ Stop Queue")
         self.btn_stop.setEnabled(False)
-        self.btn_clear = QPushButton("Clear Queue")
-        self.btn_remove = QPushButton("Remove Selected")
-        
+        ThemeManager.set_widget_property(self.btn_stop, "buttonStyle", "danger")
+
+        self.btn_clear = QPushButton("🗑️ Clear Queue")
+        ThemeManager.set_widget_property(self.btn_clear, "buttonStyle", "secondary")
+
+        self.btn_remove = QPushButton("➖ Remove Selected")
+        ThemeManager.set_widget_property(self.btn_remove, "buttonStyle", "secondary")
+
         buttons_layout.addWidget(self.btn_start)
         buttons_layout.addWidget(self.btn_stop)
         buttons_layout.addWidget(self.btn_clear)

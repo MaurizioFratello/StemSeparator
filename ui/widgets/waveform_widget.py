@@ -13,9 +13,10 @@ from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QSlider, QGroupBox
 )
 from PySide6.QtCore import Qt, Signal, QPointF, QRectF
-from PySide6.QtGui import QPainter, QPen, QColor, QPainterPath
+from PySide6.QtGui import QPainter, QPen, QColor, QPainterPath, QLinearGradient
 
 from ui.app_context import AppContext
+from ui.theme import ColorPalette
 
 
 class WaveformDisplay(QWidget):
@@ -68,16 +69,19 @@ class WaveformDisplay(QWidget):
         self.update()
 
     def paintEvent(self, event):
-        """Render waveform with trim markers"""
+        """Render waveform with trim markers and modern styling"""
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
 
-        # Background
-        painter.fillRect(self.rect(), QColor(40, 40, 40))
+        # Modern gradient background
+        gradient = QLinearGradient(0, 0, 0, self.height())
+        gradient.setColorAt(0, QColor(ColorPalette.WAVEFORM_BACKGROUND))
+        gradient.setColorAt(1, QColor("#0f0f0f"))
+        painter.fillRect(self.rect(), gradient)
 
         if self.waveform_data is None or len(self.waveform_data) == 0:
-            # Show placeholder text
-            painter.setPen(QColor(150, 150, 150))
+            # Show placeholder text with modern styling
+            painter.setPen(QColor(ColorPalette.TEXT_SECONDARY))
             painter.drawText(self.rect(), Qt.AlignCenter, "Select a file to view waveform")
             return
 
@@ -89,20 +93,23 @@ class WaveformDisplay(QWidget):
         # Downsample waveform for display
         samples_per_pixel = max(1, len(self.waveform_data) // width)
 
-        # Draw trimmed-out regions (grayed out)
+        # Draw trimmed-out regions with modern overlay
         if self.trim_start > 0 or self.trim_end < self.duration:
+            overlay_color = QColor(ColorPalette.BACKGROUND_TERTIARY)
+            overlay_color.setAlpha(200)
+
             painter.fillRect(
                 0, 0,
                 int(width * (self.trim_start / self.duration)), height,
-                QColor(60, 60, 60, 180)
+                overlay_color
             )
             painter.fillRect(
                 int(width * (self.trim_end / self.duration)), 0,
                 width, height,
-                QColor(60, 60, 60, 180)
+                overlay_color
             )
 
-        # Draw waveform
+        # Draw waveform with modern accent colors
         path = QPainterPath()
         path.moveTo(0, center_y)
 
@@ -127,20 +134,41 @@ class WaveformDisplay(QWidget):
             path.moveTo(x, max_y)
             path.lineTo(x, min_y)
 
-        painter.setPen(QPen(QColor(100, 200, 255), 1))
+        # Draw waveform with gradient effect
+        waveform_pen = QPen(QColor(ColorPalette.WAVEFORM_PRIMARY), 2)
+        waveform_pen.setCapStyle(Qt.RoundCap)
+        painter.setPen(waveform_pen)
         painter.drawPath(path)
 
-        # Draw center line
-        painter.setPen(QPen(QColor(80, 80, 80), 1))
+        # Draw subtle glow effect
+        painter.setCompositionMode(QPainter.CompositionMode_Plus)
+        glow_pen = QPen(QColor(ColorPalette.WAVEFORM_PRIMARY), 4)
+        glow_color = QColor(ColorPalette.WAVEFORM_PRIMARY)
+        glow_color.setAlpha(30)
+        glow_pen.setColor(glow_color)
+        painter.setPen(glow_pen)
+        painter.drawPath(path)
+        painter.setCompositionMode(QPainter.CompositionMode_SourceOver)
+
+        # Draw center line with modern color
+        painter.setPen(QPen(QColor(ColorPalette.BORDER_DEFAULT), 1))
         painter.drawLine(0, int(center_y), width, int(center_y))
 
-        # Draw trim markers (vertical lines)
+        # Draw trim markers with modern accent colors
         trim_start_x = int(width * (self.trim_start / self.duration))
         trim_end_x = int(width * (self.trim_end / self.duration))
 
-        painter.setPen(QPen(QColor(255, 100, 100), 2))
+        marker_pen = QPen(QColor(ColorPalette.ACCENT_PRIMARY), 3)
+        painter.setPen(marker_pen)
         painter.drawLine(trim_start_x, 0, trim_start_x, height)
         painter.drawLine(trim_end_x, 0, trim_end_x, height)
+
+        # Draw trim marker labels
+        painter.setPen(QColor(ColorPalette.TEXT_PRIMARY))
+        if self.trim_start > 0:
+            painter.drawText(trim_start_x + 5, 20, f"{self.trim_start:.1f}s")
+        if self.trim_end < self.duration:
+            painter.drawText(trim_end_x + 5, 20, f"{self.trim_end:.1f}s")
 
 
 class WaveformWidget(QWidget):

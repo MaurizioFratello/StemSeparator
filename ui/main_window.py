@@ -29,6 +29,7 @@ from ui.widgets.recording_widget import RecordingWidget
 from ui.widgets.queue_widget import QueueWidget
 from ui.widgets.player_widget import PlayerWidget
 from ui.widgets.settings_dialog import SettingsDialog
+from ui.theme import ThemeManager
 
 
 class MainWindow(QMainWindow):
@@ -46,6 +47,9 @@ class MainWindow(QMainWindow):
         self._language_actions: Dict[str, QAction] = {}
         self._icons_cache: Dict[str, QIcon] = {}
 
+        # Apply modern theme
+        self._apply_theme()
+
         self._setup_ui()
         self._setup_menu()
         self._setup_toolbar()
@@ -53,6 +57,19 @@ class MainWindow(QMainWindow):
         self._apply_translations()
 
         self._logger.info("Main window initialised")
+
+    def _apply_theme(self) -> None:
+        """
+        PURPOSE: Apply modern dark theme to the application.
+        CONTEXT: Loads and applies QSS stylesheet for consistent modern look.
+        """
+        try:
+            theme_manager = ThemeManager.instance()
+            stylesheet = theme_manager.load_stylesheet()
+            self.setStyleSheet(stylesheet)
+            self._logger.info("Modern theme applied successfully")
+        except Exception as e:
+            self._logger.warning(f"Failed to load theme: {e}. Using default Qt theme.")
 
     def _setup_ui(self) -> None:
         """
@@ -62,8 +79,11 @@ class MainWindow(QMainWindow):
         """
 
         self.setWindowTitle(APP_NAME)
-        self.resize(1200, 800)
+        self.resize(1400, 900)  # Larger default size for modern displays
         self.setCentralWidget(self._tab_widget)
+
+        # Modern tab widget configuration
+        self._tab_widget.setDocumentMode(True)  # Cleaner look without frame
 
         # WHY: Provide predictable tab indices for upcoming widgets.
         self._upload_widget = UploadWidget(self)

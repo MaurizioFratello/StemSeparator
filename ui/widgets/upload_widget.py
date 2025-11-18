@@ -20,6 +20,7 @@ from ui.app_context import AppContext
 from core.separator import SeparationResult
 from ui.widgets.waveform_widget import WaveformWidget
 from config import ENSEMBLE_CONFIGS
+from ui.theme import ThemeManager
 
 
 class SeparationSignals(QObject):
@@ -143,7 +144,9 @@ class UploadWidget(QWidget):
         # File buttons
         file_buttons = QHBoxLayout()
         self.btn_browse = QPushButton("Browse...")
+        ThemeManager.set_widget_property(self.btn_browse, "buttonStyle", "secondary")
         self.btn_clear = QPushButton("Clear")
+        ThemeManager.set_widget_property(self.btn_clear, "buttonStyle", "secondary")
         file_buttons.addWidget(self.btn_browse)
         file_buttons.addWidget(self.btn_clear)
         file_buttons.addStretch()
@@ -224,10 +227,12 @@ class UploadWidget(QWidget):
         
         # Action Buttons
         action_layout = QHBoxLayout()
-        self.btn_start = QPushButton("Start Separation")
+        self.btn_start = QPushButton("▶ Start Separation")
         self.btn_start.setEnabled(False)
-        self.btn_queue = QPushButton("Add to Queue")
+        # Primary button uses default gradient style
+        self.btn_queue = QPushButton("➕ Add to Queue")
         self.btn_queue.setEnabled(False)
+        ThemeManager.set_widget_property(self.btn_queue, "buttonStyle", "secondary")
         action_layout.addWidget(self.btn_start)
         action_layout.addWidget(self.btn_queue)
         action_layout.addStretch()
