@@ -74,7 +74,7 @@ Thumbs.db
 config_local.py
 
 # PyInstaller / Packaging
-*.spec
+# Note: .spec files ARE tracked (they're build configuration)
 dist/
 build/
 *.dmg
