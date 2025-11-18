@@ -8,6 +8,9 @@ import time
 import re
 import threading
 import gc
+import subprocess
+import json
+import sys
 import numpy as np
 import soundfile as sf
 
@@ -333,6 +336,11 @@ class Separator:
         """
         Führt die eigentliche Separation mit audio-separator aus
 
+        IMPORTANT: Runs separation in isolated subprocess to prevent resource leaks.
+        The audio-separator library has multiprocessing semaphore leaks that cause
+        segfaults on repeated use. Running in subprocess ensures OS cleans up all
+        resources when subprocess exits.
+
         Args:
             audio_file: Audio-Datei
             model_id: Model ID
@@ -375,86 +383,83 @@ class Separator:
             progress_thread = threading.Thread(target=simulate_progress, daemon=True)
             progress_thread.start()
 
-        separator = None  # Initialize to None for cleanup in finally block
         try:
-            # Import audio_separator
-            from audio_separator.separator import Separator as AudioSeparator
-
-            # Hole model filename
+            # Prepare parameters for subprocess
             model_filename = MODELS[model_id]['model_filename']
-
-            # Hole Quality-Preset-Konfiguration
             preset_config = QUALITY_PRESETS[quality_preset]
             preset_params = preset_config.get('params', {}).copy()
             preset_attributes = preset_config.get('attributes', {})
 
-            # Erstelle Separator-Instanz mit grundlegenden Parametern
-            separator = AudioSeparator(
-                log_level=20,  # INFO level
-                model_file_dir=str(self.model_manager.models_dir),
-                output_dir=str(output_dir),
-                **preset_params  # Grundlegende Parameter
+            # Build subprocess parameters
+            subprocess_params = {
+                'audio_file': str(audio_file),
+                'model_id': model_id,
+                'output_dir': str(output_dir),
+                'model_filename': model_filename,
+                'models_dir': str(self.model_manager.models_dir),
+                'preset_params': preset_params,
+                'preset_attributes': preset_attributes,
+                'device': device
+            }
+
+            # Get path to subprocess script
+            subprocess_script = Path(__file__).parent / 'separation_subprocess.py'
+
+            self.logger.info(f"Launching separation subprocess for {model_id}")
+
+            # Launch subprocess
+            process = subprocess.Popen(
+                [sys.executable, str(subprocess_script)],
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True
             )
 
-            # Setze architektur-spezifische Attribute
-            for attr_name, attr_value in preset_attributes.items():
-                setattr(separator, attr_name, attr_value)
-                self.logger.debug(f"Set separator.{attr_name} = {attr_value}")
-
-            # Lade das Modell
-            separator.load_model(model_filename=model_filename)
-
-            self.logger.debug(f"AudioSeparator created with model: {model_filename}")
-
-            # Führe Separation durch
-            output_files = separator.separate(str(audio_file))
+            # Send parameters via stdin
+            params_json = json.dumps(subprocess_params)
+            stdout, stderr = process.communicate(input=params_json)
 
             # Stop progress simulation
             stop_progress.set()
             if progress_thread:
                 progress_thread.join(timeout=1.0)
 
+            # Check return code
+            if process.returncode != 0:
+                error_msg = f"Subprocess failed with code {process.returncode}: {stderr}"
+                self.logger.error(error_msg)
+                raise SeparationError(error_msg)
+
+            # Parse result from stdout
+            try:
+                result = json.loads(stdout)
+            except json.JSONDecodeError as e:
+                error_msg = f"Failed to parse subprocess output: {e}\nOutput: {stdout}"
+                self.logger.error(error_msg)
+                raise SeparationError(error_msg)
+
+            if not result['success']:
+                error_msg = f"Separation failed: {result['error']}"
+                self.logger.error(error_msg)
+                raise SeparationError(error_msg)
+
             if progress_callback:
                 progress_callback("Finalizing separation", 85)
 
-            self.logger.debug(f"Separation complete, output: {output_files}")
+            # Convert string paths back to Path objects
+            stems = {name: Path(path) for name, path in result['stems'].items()}
 
-            # Parse Output-Files
-            stems = {}
-
-            if isinstance(output_files, list):
-                for file_path in output_files:
-                    file_path = Path(file_path)
-
-                    # Wenn Pfad nicht absolut ist, ergänze mit output_dir
-                    if not file_path.is_absolute():
-                        file_path = output_dir / file_path
-
-                    # Extrahiere Stem-Name aus Dateiname
-                    # Format: filename_(stem).wav oder filename_(stem)_modelname.wav
-                    # Stem-Name steht in Klammern, z.B. (Piano), (Vocals), etc.
-                    match = re.search(r'\(([^)]+)\)', file_path.stem)
-                    if match:
-                        stem_name = match.group(1)
-                    else:
-                        # Fallback: letztes Element nach Underscore
-                        stem_name = file_path.stem.split('_')[-1]
-
-                    stems[stem_name] = file_path
-
-                    self.logger.debug(f"Parsed stem: {stem_name} -> {file_path}")
+            self.logger.info(f"Subprocess separation complete: {len(stems)} stems created")
 
             return stems
 
-        except ImportError as e:
+        except SeparationError:
             # Stop progress simulation on error
             stop_progress.set()
             if progress_thread:
                 progress_thread.join(timeout=1.0)
-
-            error_msg = "audio-separator not installed"
-            self.logger.error(error_msg)
-            raise SeparationError(error_msg) from e
+            raise
 
         except Exception as e:
             # Stop progress simulation on error
@@ -465,63 +470,6 @@ class Separator:
             error_msg = f"Separation failed: {str(e)}"
             self.logger.error(error_msg, exc_info=True)
             raise SeparationError(error_msg) from e
-
-        finally:
-            # Clean up resources to prevent memory leaks and segfaults on subsequent runs
-            if separator is not None:
-                try:
-                    # Synchronize MPS/CUDA to ensure all operations are complete
-                    try:
-                        import torch
-                        if torch.backends.mps.is_available():
-                            torch.mps.synchronize()
-                            self.logger.debug("Synchronized MPS operations")
-                        elif torch.cuda.is_available():
-                            torch.cuda.synchronize()
-                            self.logger.debug("Synchronized CUDA operations")
-                    except Exception as sync_error:
-                        self.logger.debug(f"Could not synchronize device: {sync_error}")
-
-                    # Clear all model references thoroughly
-                    if hasattr(separator, 'model'):
-                        separator.model = None
-                    if hasattr(separator, 'models'):
-                        separator.models = None
-                    if hasattr(separator, 'mixer'):
-                        separator.mixer = None
-                    if hasattr(separator, 'audio_separator'):
-                        separator.audio_separator = None
-
-                    # Clear any cached tensors or buffers
-                    if hasattr(separator, 'device_cache'):
-                        separator.device_cache = None
-
-                    self.logger.debug("Cleaned up AudioSeparator instance")
-                except Exception as cleanup_error:
-                    self.logger.warning(f"Error during separator cleanup: {cleanup_error}")
-
-                # Delete the separator instance
-                del separator
-                separator = None
-
-            # Force multiple garbage collection passes to ensure cleanup
-            for _ in range(3):
-                gc.collect()
-
-            # Clear PyTorch/MPS cache if available
-            try:
-                import torch
-                if torch.backends.mps.is_available():
-                    torch.mps.empty_cache()
-                    self.logger.debug("Cleared MPS cache")
-                elif torch.cuda.is_available():
-                    torch.cuda.empty_cache()
-                    self.logger.debug("Cleared CUDA cache")
-            except Exception as torch_cleanup_error:
-                self.logger.debug(f"Could not clear PyTorch cache: {torch_cleanup_error}")
-
-            # Small delay to allow OS to reclaim resources
-            time.sleep(0.1)
 
     def _create_error_result(
         self,
