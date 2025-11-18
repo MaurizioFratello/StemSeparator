@@ -40,10 +40,16 @@ fi
 
 # Check if models are downloaded
 echo -e "${BLUE}Checking for AI models...${NC}"
-MODEL_COUNT=$(find resources/models -name "*.ckpt" -o -name "*.yaml" | wc -l | xargs)
-if [ "$MODEL_COUNT" -lt 3 ]; then
-    echo -e "${YELLOW}Warning: Models may not be fully downloaded (found $MODEL_COUNT files)${NC}"
+MODEL_COUNT=$(find resources/models -type f \( -name "*.ckpt" -o -name "*.yaml" \) 2>/dev/null | wc -l | xargs)
+if [ "$MODEL_COUNT" -eq 0 ]; then
+    echo -e "${RED}ERROR: No models found in resources/models/${NC}"
+    echo -e "${YELLOW}You must download models before building!${NC}"
     echo -e "${YELLOW}Run: python packaging/download_models.py${NC}"
+    echo ""
+    exit 1
+elif [ "$MODEL_COUNT" -lt 6 ]; then
+    echo -e "${YELLOW}Warning: Only found $MODEL_COUNT model files (expected ~10 for all 4 models)${NC}"
+    echo -e "${YELLOW}Some models may be missing. Run: python packaging/download_models.py${NC}"
     read -p "Continue anyway? (y/n) " -n 1 -r
     echo
     if [[ ! $REPLY =~ ^[Yy]$ ]]; then

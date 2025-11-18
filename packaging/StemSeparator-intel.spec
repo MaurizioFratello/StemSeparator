@@ -26,23 +26,27 @@ block_cipher = None
 
 
 # Data files to bundle
-datas = [
-    # Translations
-    (str(resources_dir / 'translations' / '*.json'), 'resources/translations'),
+# Build datas list dynamically to avoid errors with missing files
+datas = []
 
-    # AI Models (all 4 models, ~800MB total)
-    (str(resources_dir / 'models' / '*.ckpt'), 'resources/models'),
-    (str(resources_dir / 'models' / '*.yaml'), 'resources/models'),
-    (str(resources_dir / 'models' / '*.th'), 'resources/models'),
-    (str(resources_dir / 'models' / '*.json'), 'resources/models'),
-    (str(resources_dir / 'models' / '*.txt'), 'resources/models'),
+# Translations
+for json_file in (resources_dir / 'translations').glob('*.json'):
+    datas.append((str(json_file), 'resources/translations'))
 
-    # Theme files
-    (str(ui_dir / 'theme' / 'stylesheet.qss'), 'ui/theme'),
+# AI Models - include all model files if they exist
+for pattern in ['*.ckpt', '*.yaml', '*.th', '*.json', '*.txt']:
+    for model_file in (resources_dir / 'models').glob(pattern):
+        datas.append((str(model_file), 'resources/models'))
 
-    # Icons (if any)
-    (str(resources_dir / 'icons'), 'resources/icons'),
-]
+# Theme files
+theme_qss = ui_dir / 'theme' / 'stylesheet.qss'
+if theme_qss.exists():
+    datas.append((str(theme_qss), 'ui/theme'))
+
+# Icons directory (if exists)
+icons_dir = resources_dir / 'icons'
+if icons_dir.exists() and any(icons_dir.iterdir()):
+    datas.append((str(icons_dir), 'resources/icons'))
 
 
 # Hidden imports that PyInstaller might miss
