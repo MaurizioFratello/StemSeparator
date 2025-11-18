@@ -71,6 +71,10 @@ echo -e "${BLUE}Running PyInstaller (this may take 5-10 minutes)...${NC}"
 echo -e "${BLUE}Spec file: packaging/StemSeparator-arm64.spec${NC}"
 echo ""
 
+# Set environment to avoid OpenMP duplicate library error during PyTorch analysis
+export KMP_DUPLICATE_LIB_OK=TRUE
+export OMP_NUM_THREADS=1
+
 pyinstaller --clean packaging/StemSeparator-arm64.spec
 
 # Check if build succeeded
