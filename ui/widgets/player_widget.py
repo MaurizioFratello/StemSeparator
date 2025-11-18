@@ -9,7 +9,7 @@ from typing import Optional, Dict
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
     QSlider, QGroupBox, QFileDialog, QMessageBox, QListWidget,
-    QListWidgetItem
+    QListWidgetItem, QScrollArea
 )
 from PySide6.QtCore import Qt, Signal, Slot, QTimer
 
@@ -168,7 +168,20 @@ class PlayerWidget(QWidget):
 
     def _setup_ui(self):
         """Setup widget layout"""
-        layout = QVBoxLayout(self)
+        # Create main layout for the widget
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+
+        # Create scroll area
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setFrameShape(QScrollArea.NoFrame)
+        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+
+        # Create container widget for scrollable content
+        container = QWidget()
+        layout = QVBoxLayout(container)
 
         # File Loading Group
         load_group = QGroupBox("Load Stems")
@@ -276,6 +289,12 @@ class PlayerWidget(QWidget):
         layout.addWidget(self.info_label)
 
         layout.addStretch()
+
+        # Set the container in the scroll area
+        scroll_area.setWidget(container)
+
+        # Add scroll area to main layout
+        main_layout.addWidget(scroll_area)
 
     def _connect_signals(self):
         """Connect signals"""

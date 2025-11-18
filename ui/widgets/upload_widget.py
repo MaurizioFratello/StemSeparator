@@ -11,7 +11,7 @@ import numpy as np
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
     QComboBox, QLineEdit, QProgressBar, QListWidget, QListWidgetItem,
-    QFileDialog, QMessageBox, QGroupBox, QCheckBox
+    QFileDialog, QMessageBox, QGroupBox, QCheckBox, QScrollArea
 )
 from PySide6.QtCore import Qt, Signal, QRunnable, QThreadPool, Slot, QObject
 from PySide6.QtGui import QDragEnterEvent, QDropEvent
@@ -126,8 +126,21 @@ class UploadWidget(QWidget):
     
     def _setup_ui(self):
         """Setup widget layout and components"""
-        layout = QVBoxLayout(self)
-        
+        # Create main layout for the widget
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+
+        # Create scroll area
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setFrameShape(QScrollArea.NoFrame)
+        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+
+        # Create container widget for scrollable content
+        container = QWidget()
+        layout = QVBoxLayout(container)
+
         # File Selection Group
         file_group = QGroupBox("Audio File")
         file_layout = QVBoxLayout()
@@ -237,9 +250,15 @@ class UploadWidget(QWidget):
         action_layout.addWidget(self.btn_queue)
         action_layout.addStretch()
         layout.addLayout(action_layout)
-        
+
         layout.addStretch()
-    
+
+        # Set the container in the scroll area
+        scroll_area.setWidget(container)
+
+        # Add scroll area to main layout
+        main_layout.addWidget(scroll_area)
+
     def _connect_signals(self):
         """Connect button signals to handlers"""
         self.btn_browse.clicked.connect(self._on_browse_clicked)

@@ -12,7 +12,7 @@ from collections import deque
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
     QTableWidget, QTableWidgetItem, QHeaderView, QGroupBox,
-    QProgressBar, QMessageBox
+    QProgressBar, QMessageBox, QScrollArea
 )
 from PySide6.QtCore import Qt, Signal, Slot, QRunnable, QThreadPool, QObject
 
@@ -154,8 +154,21 @@ class QueueWidget(QWidget):
     
     def _setup_ui(self):
         """Setup widget layout and components"""
-        layout = QVBoxLayout(self)
-        
+        # Create main layout for the widget
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+
+        # Create scroll area
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setFrameShape(QScrollArea.NoFrame)
+        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+
+        # Create container widget for scrollable content
+        container = QWidget()
+        layout = QVBoxLayout(container)
+
         # Queue Table
         table_group = QGroupBox("Task Queue")
         table_layout = QVBoxLayout()
@@ -216,7 +229,13 @@ class QueueWidget(QWidget):
         
         controls_group.setLayout(controls_layout)
         layout.addWidget(controls_group)
-    
+
+        # Set the container in the scroll area
+        scroll_area.setWidget(container)
+
+        # Add scroll area to main layout
+        main_layout.addWidget(scroll_area)
+
     def _connect_signals(self):
         """Connect button signals"""
         self.btn_start.clicked.connect(self._on_start_queue)
