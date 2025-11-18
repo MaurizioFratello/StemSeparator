@@ -12,12 +12,13 @@ from collections import deque
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
     QTableWidget, QTableWidgetItem, QHeaderView, QGroupBox,
-    QProgressBar, QMessageBox
+    QProgressBar, QMessageBox, QScrollArea
 )
 from PySide6.QtCore import Qt, Signal, Slot, QRunnable, QThreadPool, QObject
 
 from ui.app_context import AppContext
 from core.separator import SeparationResult
+from ui.theme import ThemeManager
 
 
 class TaskStatus(Enum):
@@ -153,8 +154,21 @@ class QueueWidget(QWidget):
     
     def _setup_ui(self):
         """Setup widget layout and components"""
-        layout = QVBoxLayout(self)
-        
+        # Create main layout for the widget
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+
+        # Create scroll area
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setFrameShape(QScrollArea.NoFrame)
+        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+
+        # Create container widget for scrollable content
+        container = QWidget()
+        layout = QVBoxLayout(container)
+
         # Queue Table
         table_group = QGroupBox("Task Queue")
         table_layout = QVBoxLayout()
@@ -167,6 +181,7 @@ class QueueWidget(QWidget):
         self.queue_table.horizontalHeader().setStretchLastSection(True)
         self.queue_table.setSelectionBehavior(QTableWidget.SelectRows)
         self.queue_table.setSelectionMode(QTableWidget.SingleSelection)
+        self.queue_table.setAlternatingRowColors(True)  # Modern alternating rows
         
         # Set column widths
         header = self.queue_table.horizontalHeader()
@@ -191,13 +206,20 @@ class QueueWidget(QWidget):
         
         # Buttons
         buttons_layout = QHBoxLayout()
-        self.btn_start = QPushButton("Start Queue")
+        self.btn_start = QPushButton("▶ Start Queue")
         self.btn_start.setEnabled(False)
-        self.btn_stop = QPushButton("Stop Queue")
+        ThemeManager.set_widget_property(self.btn_start, "buttonStyle", "success")
+
+        self.btn_stop = QPushButton("⏹ Stop Queue")
         self.btn_stop.setEnabled(False)
-        self.btn_clear = QPushButton("Clear Queue")
-        self.btn_remove = QPushButton("Remove Selected")
-        
+        ThemeManager.set_widget_property(self.btn_stop, "buttonStyle", "danger")
+
+        self.btn_clear = QPushButton("🗑️ Clear Queue")
+        ThemeManager.set_widget_property(self.btn_clear, "buttonStyle", "secondary")
+
+        self.btn_remove = QPushButton("➖ Remove Selected")
+        ThemeManager.set_widget_property(self.btn_remove, "buttonStyle", "secondary")
+
         buttons_layout.addWidget(self.btn_start)
         buttons_layout.addWidget(self.btn_stop)
         buttons_layout.addWidget(self.btn_clear)
@@ -207,7 +229,13 @@ class QueueWidget(QWidget):
         
         controls_group.setLayout(controls_layout)
         layout.addWidget(controls_group)
-    
+
+        # Set the container in the scroll area
+        scroll_area.setWidget(container)
+
+        # Add scroll area to main layout
+        main_layout.addWidget(scroll_area)
+
     def _connect_signals(self):
         """Connect button signals"""
         self.btn_start.clicked.connect(self._on_start_queue)

@@ -9,12 +9,13 @@ from typing import Optional, Dict
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
     QSlider, QGroupBox, QFileDialog, QMessageBox, QListWidget,
-    QListWidgetItem
+    QListWidgetItem, QScrollArea
 )
 from PySide6.QtCore import Qt, Signal, Slot, QTimer
 
 from ui.app_context import AppContext
 from core.player import get_player, PlaybackState
+from ui.theme import ThemeManager
 
 
 class StemControl(QWidget):
@@ -49,7 +50,8 @@ class StemControl(QWidget):
         # Mute button
         self.btn_mute = QPushButton("M")
         self.btn_mute.setCheckable(True)
-        self.btn_mute.setMaximumWidth(30)
+        ThemeManager.set_widget_property(self.btn_mute, "buttonStyle", "icon")
+        ThemeManager.set_widget_property(self.btn_mute, "buttonRole", "mute")
         self.btn_mute.setToolTip("Mute this stem")
         self.btn_mute.clicked.connect(self._on_mute_clicked)
         layout.addWidget(self.btn_mute)
@@ -57,7 +59,8 @@ class StemControl(QWidget):
         # Solo button
         self.btn_solo = QPushButton("S")
         self.btn_solo.setCheckable(True)
-        self.btn_solo.setMaximumWidth(30)
+        ThemeManager.set_widget_property(self.btn_solo, "buttonStyle", "icon")
+        ThemeManager.set_widget_property(self.btn_solo, "buttonRole", "solo")
         self.btn_solo.setToolTip("Solo this stem (mute all others)")
         self.btn_solo.clicked.connect(self._on_solo_clicked)
         layout.addWidget(self.btn_solo)
@@ -79,27 +82,17 @@ class StemControl(QWidget):
 
     @Slot()
     def _on_mute_clicked(self):
-        """Handle mute button click"""
+        """Handle mute button click - uses property-based styling for performance"""
         self.is_muted = self.btn_mute.isChecked()
         self.mute_changed.emit(self.stem_name, self.is_muted)
-
-        # Update style
-        if self.is_muted:
-            self.btn_mute.setStyleSheet("background-color: #ff6b6b;")
-        else:
-            self.btn_mute.setStyleSheet("")
+        # Style automatically updates via :checked state in QSS
 
     @Slot()
     def _on_solo_clicked(self):
-        """Handle solo button click"""
+        """Handle solo button click - uses property-based styling for performance"""
         self.is_solo = self.btn_solo.isChecked()
         self.solo_changed.emit(self.stem_name, self.is_solo)
-
-        # Update style
-        if self.is_solo:
-            self.btn_solo.setStyleSheet("background-color: #51cf66;")
-        else:
-            self.btn_solo.setStyleSheet("")
+        # Style automatically updates via :checked state in QSS
 
     @Slot()
     def _on_volume_changed(self):
@@ -149,7 +142,20 @@ class PlayerWidget(QWidget):
 
     def _setup_ui(self):
         """Setup widget layout"""
-        layout = QVBoxLayout(self)
+        # Create main layout for the widget
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+
+        # Create scroll area
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setFrameShape(QScrollArea.NoFrame)
+        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+
+        # Create container widget for scrollable content
+        container = QWidget()
+        layout = QVBoxLayout(container)
 
         # File Loading Group
         load_group = QGroupBox("Load Stems")
@@ -162,8 +168,10 @@ class PlayerWidget(QWidget):
 
         # Load buttons
         load_buttons = QHBoxLayout()
-        self.btn_load_dir = QPushButton("Load from Directory")
-        self.btn_load_files = QPushButton("Load Individual Files")
+        self.btn_load_dir = QPushButton("📁 Load from Directory")
+        ThemeManager.set_widget_property(self.btn_load_dir, "buttonStyle", "secondary")
+        self.btn_load_files = QPushButton("📄 Load Individual Files")
+        ThemeManager.set_widget_property(self.btn_load_files, "buttonStyle", "secondary")
         load_buttons.addWidget(self.btn_load_dir)
         load_buttons.addWidget(self.btn_load_files)
         load_buttons.addStretch()
@@ -207,10 +215,12 @@ class PlayerWidget(QWidget):
         self.position_slider.sliderReleased.connect(self._on_slider_released)
         controls_layout.addWidget(self.position_slider)
 
-        # Time labels
+        # Time labels (monospace for better readability)
         time_layout = QHBoxLayout()
         self.current_time_label = QLabel("00:00")
+        ThemeManager.set_widget_property(self.current_time_label, "labelStyle", "mono")
         self.duration_label = QLabel("00:00")
+        ThemeManager.set_widget_property(self.duration_label, "labelStyle", "mono")
         time_layout.addWidget(self.current_time_label)
         time_layout.addStretch()
         time_layout.addWidget(self.duration_label)
@@ -220,12 +230,19 @@ class PlayerWidget(QWidget):
         buttons_layout = QHBoxLayout()
         self.btn_play = QPushButton("▶ Play")
         self.btn_play.setEnabled(False)
+        ThemeManager.set_widget_property(self.btn_play, "buttonStyle", "success")
+
         self.btn_pause = QPushButton("⏸ Pause")
         self.btn_pause.setEnabled(False)
+        ThemeManager.set_widget_property(self.btn_pause, "buttonStyle", "secondary")
+
         self.btn_stop = QPushButton("⏹ Stop")
         self.btn_stop.setEnabled(False)
+        ThemeManager.set_widget_property(self.btn_stop, "buttonStyle", "danger")
+
         self.btn_export = QPushButton("💾 Export Mixed Audio")
         self.btn_export.setEnabled(False)
+        # Export uses primary style (default)
 
         buttons_layout.addWidget(self.btn_play)
         buttons_layout.addWidget(self.btn_pause)
@@ -246,6 +263,12 @@ class PlayerWidget(QWidget):
         layout.addWidget(self.info_label)
 
         layout.addStretch()
+
+        # Set the container in the scroll area
+        scroll_area.setWidget(container)
+
+        # Add scroll area to main layout
+        main_layout.addWidget(scroll_area)
 
     def _connect_signals(self):
         """Connect signals"""
@@ -311,15 +334,39 @@ class PlayerWidget(QWidget):
             # Try to extract stem name from filename
             # Expected formats:
             # - "songname_(StemName)_modelname.wav"
+            # - "songname_(StemName)_ensemble.wav"  (Ensemble mode)
+            # - "songname_stemname_modelname.wav"
             # - "songname_stemname.wav"
             # - "stemname.wav"
             import re
+
+            # First try: Look for stem name in parentheses (most reliable)
             match = re.search(r'\(([^)]+)\)', file_path.stem)
             if match:
                 stem_name = match.group(1)
             else:
+                # Second try: Parse filename parts, skip model/ensemble suffixes
                 name_parts = file_path.stem.split('_')
-                stem_name = name_parts[-1] if len(name_parts) > 1 else file_path.stem
+
+                # Known suffixes to ignore (model names, ensemble marker)
+                ignore_suffixes = {'ensemble', 'bs-roformer', 'mel-roformer', 'demucs',
+                                   'htdemucs', '4s', '6s', 'v4', 'demucs4s', 'demucs6s'}
+
+                # Filter out ignored suffixes from the end
+                stem_parts = []
+                for part in reversed(name_parts):
+                    part_lower = part.lower()
+                    # Stop when we hit an ignored suffix
+                    if part_lower in ignore_suffixes or any(suffix in part_lower for suffix in ignore_suffixes):
+                        continue
+                    stem_parts.insert(0, part)
+
+                # Use the last meaningful part as stem name
+                if stem_parts:
+                    stem_name = stem_parts[-1]
+                else:
+                    # Fallback: use original last part or whole filename
+                    stem_name = name_parts[-1] if len(name_parts) > 1 else file_path.stem
 
             self.stem_files[stem_name] = file_path
 

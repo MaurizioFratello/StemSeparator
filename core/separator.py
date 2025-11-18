@@ -293,7 +293,8 @@ class Separator:
         for stem_name, chunk_tuples in separated_chunks.items():
             self.logger.info(f"Merging {len(chunk_tuples)} chunks for {stem_name}")
 
-            output_file = output_dir / f"{audio_file.stem}_{stem_name}.wav"
+            # Use parentheses around stem name for consistent naming with ensemble mode
+            output_file = output_dir / f"{audio_file.stem}_({stem_name})_{model_id}.wav"
 
             merged_audio = self.chunk_processor.merge_chunks(
                 chunk_tuples,

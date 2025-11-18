@@ -11,7 +11,7 @@ import numpy as np
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
     QComboBox, QLineEdit, QProgressBar, QListWidget, QListWidgetItem,
-    QFileDialog, QMessageBox, QGroupBox, QCheckBox
+    QFileDialog, QMessageBox, QGroupBox, QCheckBox, QScrollArea
 )
 from PySide6.QtCore import Qt, Signal, QRunnable, QThreadPool, Slot, QObject
 from PySide6.QtGui import QDragEnterEvent, QDropEvent
@@ -20,6 +20,7 @@ from ui.app_context import AppContext
 from core.separator import SeparationResult
 from ui.widgets.waveform_widget import WaveformWidget
 from config import ENSEMBLE_CONFIGS
+from ui.theme import ThemeManager
 
 
 class SeparationSignals(QObject):
@@ -125,8 +126,21 @@ class UploadWidget(QWidget):
     
     def _setup_ui(self):
         """Setup widget layout and components"""
-        layout = QVBoxLayout(self)
-        
+        # Create main layout for the widget
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+
+        # Create scroll area
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setFrameShape(QScrollArea.NoFrame)
+        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+
+        # Create container widget for scrollable content
+        container = QWidget()
+        layout = QVBoxLayout(container)
+
         # File Selection Group
         file_group = QGroupBox("Audio File")
         file_layout = QVBoxLayout()
@@ -143,7 +157,9 @@ class UploadWidget(QWidget):
         # File buttons
         file_buttons = QHBoxLayout()
         self.btn_browse = QPushButton("Browse...")
+        ThemeManager.set_widget_property(self.btn_browse, "buttonStyle", "secondary")
         self.btn_clear = QPushButton("Clear")
+        ThemeManager.set_widget_property(self.btn_clear, "buttonStyle", "secondary")
         file_buttons.addWidget(self.btn_browse)
         file_buttons.addWidget(self.btn_clear)
         file_buttons.addStretch()
@@ -224,17 +240,25 @@ class UploadWidget(QWidget):
         
         # Action Buttons
         action_layout = QHBoxLayout()
-        self.btn_start = QPushButton("Start Separation")
+        self.btn_start = QPushButton("▶ Start Separation")
         self.btn_start.setEnabled(False)
-        self.btn_queue = QPushButton("Add to Queue")
+        # Primary button uses default gradient style
+        self.btn_queue = QPushButton("➕ Add to Queue")
         self.btn_queue.setEnabled(False)
+        ThemeManager.set_widget_property(self.btn_queue, "buttonStyle", "secondary")
         action_layout.addWidget(self.btn_start)
         action_layout.addWidget(self.btn_queue)
         action_layout.addStretch()
         layout.addLayout(action_layout)
-        
+
         layout.addStretch()
-    
+
+        # Set the container in the scroll area
+        scroll_area.setWidget(container)
+
+        # Add scroll area to main layout
+        main_layout.addWidget(scroll_area)
+
     def _connect_signals(self):
         """Connect button signals to handlers"""
         self.btn_browse.clicked.connect(self._on_browse_clicked)
@@ -254,9 +278,14 @@ class UploadWidget(QWidget):
         self.model_combo.clear()
 
         for model_id, model_info in model_manager.available_models.items():
-            # Format: "Model Name (4 stems, 300MB) [Downloaded]"
+            # Format: "✓ Model Name - Stems: Vocals, Drums, Bass, Other"
             status = "✓" if model_info.downloaded else "⚠"
-            text = f"{status} {model_info.name} ({model_info.stems} stems, {model_info.size_mb}MB)"
+            # Get stem names if available, otherwise show count
+            if hasattr(model_info, 'stem_names') and model_info.stem_names:
+                stems_info = ', '.join(model_info.stem_names)
+                text = f"{status} {model_info.name} - {stems_info}"
+            else:
+                text = f"{status} {model_info.name} ({model_info.stems} stems)"
             self.model_combo.addItem(text, userData=model_id)
 
         # Select default model

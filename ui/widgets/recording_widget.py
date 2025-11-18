@@ -8,13 +8,14 @@ from pathlib import Path
 from typing import Optional
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
-    QComboBox, QProgressBar, QGroupBox, QMessageBox
+    QComboBox, QProgressBar, QGroupBox, QMessageBox, QScrollArea
 )
 from PySide6.QtCore import Qt, Signal, Slot, QTimer, QRunnable, QThreadPool, QObject
 from PySide6.QtGui import QPalette, QColor
 
 from ui.app_context import AppContext
 from core.recorder import RecordingState, RecordingInfo
+from ui.theme import ThemeManager
 
 
 class BlackHoleInstallWorker(QRunnable):
@@ -89,8 +90,21 @@ class RecordingWidget(QWidget):
     
     def _setup_ui(self):
         """Setup widget layout and components"""
-        layout = QVBoxLayout(self)
-        
+        # Create main layout for the widget
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+
+        # Create scroll area
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setFrameShape(QScrollArea.NoFrame)
+        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+
+        # Create container widget for scrollable content
+        container = QWidget()
+        layout = QVBoxLayout(container)
+
         # BlackHole Status Group
         status_group = QGroupBox("BlackHole Status")
         status_layout = QVBoxLayout()
@@ -100,8 +114,10 @@ class RecordingWidget(QWidget):
         status_layout.addWidget(self.blackhole_status_label)
         
         status_buttons = QHBoxLayout()
-        self.btn_install_blackhole = QPushButton("Install BlackHole")
-        self.btn_setup_instructions = QPushButton("Setup Instructions")
+        self.btn_install_blackhole = QPushButton("⬇️ Install BlackHole")
+        ThemeManager.set_widget_property(self.btn_install_blackhole, "buttonStyle", "secondary")
+        self.btn_setup_instructions = QPushButton("ℹ️  Setup Instructions")
+        ThemeManager.set_widget_property(self.btn_setup_instructions, "buttonStyle", "secondary")
         status_buttons.addWidget(self.btn_install_blackhole)
         status_buttons.addWidget(self.btn_setup_instructions)
         status_buttons.addStretch()
@@ -118,7 +134,8 @@ class RecordingWidget(QWidget):
         device_select.addWidget(QLabel("Device:"))
         self.device_combo = QComboBox()
         device_select.addWidget(self.device_combo, stretch=1)
-        self.btn_refresh_devices = QPushButton("Refresh")
+        self.btn_refresh_devices = QPushButton("🔄 Refresh")
+        ThemeManager.set_widget_property(self.btn_refresh_devices, "buttonStyle", "secondary")
         device_select.addWidget(self.btn_refresh_devices)
         device_layout.addLayout(device_select)
         
@@ -141,20 +158,20 @@ class RecordingWidget(QWidget):
         )
         meter_layout.addWidget(meter_label)
         self.level_meter = QProgressBar()
+        ThemeManager.set_widget_property(self.level_meter, "progressStyle", "large")
         self.level_meter.setRange(0, 100)
         self.level_meter.setValue(0)
         self.level_meter.setTextVisible(True)
         self.level_meter.setFormat("Silence")
-        self.level_meter.setMinimumHeight(30)  # Taller for better text visibility
-        self.level_meter.setMaximumHeight(30)
         meter_layout.addWidget(self.level_meter)
         controls_layout.addLayout(meter_layout)
         
-        # Duration display
+        # Duration display (monospace for better readability)
         self.duration_label = QLabel("Duration: 00:00.0")
         self.duration_label.setAlignment(Qt.AlignCenter)
+        ThemeManager.set_widget_property(self.duration_label, "labelStyle", "mono")
         font = self.duration_label.font()
-        font.setPointSize(14)
+        font.setPointSize(16)
         font.setBold(True)
         self.duration_label.setFont(font)
         controls_layout.addWidget(self.duration_label)
@@ -166,14 +183,21 @@ class RecordingWidget(QWidget):
         
         # Control buttons
         buttons_layout = QHBoxLayout()
-        self.btn_start = QPushButton("Start Recording")
-        self.btn_pause = QPushButton("Pause")
+        self.btn_start = QPushButton("🔴 Start Recording")
+        ThemeManager.set_widget_property(self.btn_start, "buttonStyle", "success")
+
+        self.btn_pause = QPushButton("⏸ Pause")
         self.btn_pause.setEnabled(False)
-        self.btn_stop = QPushButton("Stop & Save")
+        ThemeManager.set_widget_property(self.btn_pause, "buttonStyle", "secondary")
+
+        self.btn_stop = QPushButton("💾 Stop & Save")
         self.btn_stop.setEnabled(False)
-        self.btn_cancel = QPushButton("Cancel")
+        # Stop uses primary style (default)
+
+        self.btn_cancel = QPushButton("❌ Cancel")
         self.btn_cancel.setEnabled(False)
-        
+        ThemeManager.set_widget_property(self.btn_cancel, "buttonStyle", "danger")
+
         buttons_layout.addWidget(self.btn_start)
         buttons_layout.addWidget(self.btn_pause)
         buttons_layout.addWidget(self.btn_stop)
@@ -182,9 +206,15 @@ class RecordingWidget(QWidget):
         
         controls_group.setLayout(controls_layout)
         layout.addWidget(controls_group)
-        
+
         layout.addStretch()
-    
+
+        # Set the container in the scroll area
+        scroll_area.setWidget(container)
+
+        # Add scroll area to main layout
+        main_layout.addWidget(scroll_area)
+
     def _connect_signals(self):
         """Connect button signals to handlers"""
         self.btn_install_blackhole.clicked.connect(self._on_install_blackhole)
@@ -473,7 +503,8 @@ class RecordingWidget(QWidget):
 
         self.level_meter.setValue(0)
         self.level_meter.setFormat("Silence")
-        self.level_meter.setStyleSheet("")  # Reset to default style
+        from ui.theme import ThemeManager
+        ThemeManager.set_widget_property(self.level_meter, "meterLevel", "safe")  # Reset to default
         self.duration_label.setText("Duration: 00:00.0")
         self.state_label.setText("Ready")
     
@@ -523,31 +554,20 @@ class RecordingWidget(QWidget):
 
         self.level_meter.setTextVisible(True)
 
-        # Color code based on professional audio standards
+        # Color code based on professional audio standards using Qt properties
         # WHY: These thresholds match broadcast and recording industry standards
+        # PERFORMANCE: Using properties instead of setStyleSheet avoids CSS parsing overhead
+        from ui.theme import ThemeManager
+
         if level > 0.95:  # Above -3 dBFS
             # RED: Danger zone - very close to clipping
-            # At this level, audio transients can easily clip
-            stylesheet = """
-                QProgressBar::chunk { background-color: #ff0000; }
-                QProgressBar { color: white; font-weight: bold; }
-            """
+            ThemeManager.set_widget_property(self.level_meter, "meterLevel", "danger")
         elif level > 0.80:  # Above -12 dBFS
             # YELLOW/ORANGE: High level - still safe but approaching limit
-            # Professional recordings typically peak around -6 to -12 dBFS for headroom
-            stylesheet = """
-                QProgressBar::chunk { background-color: #ff8800; }
-                QProgressBar { color: black; font-weight: bold; }
-            """
+            ThemeManager.set_widget_property(self.level_meter, "meterLevel", "caution")
         else:  # Below -12 dBFS
             # GREEN: Normal operating range
-            # Plenty of headroom, no risk of clipping
-            stylesheet = """
-                QProgressBar::chunk { background-color: #00cc00; }
-                QProgressBar { color: black; }
-            """
-
-        self.level_meter.setStyleSheet(stylesheet)
+            ThemeManager.set_widget_property(self.level_meter, "meterLevel", "safe")
     
     @Slot()
     def _update_display(self):
