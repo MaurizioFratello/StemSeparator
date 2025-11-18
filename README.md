@@ -44,14 +44,30 @@ KI-gestützte Audio Stem Separation mit modernsten Open-Source-Modellen.
 
 ## Installation
 
-### 1. Repository klonen
+### Option 1: Standalone macOS Application (Recommended for End Users)
+
+**No Python installation required!** Download a pre-built application bundle:
+
+1. Download the appropriate DMG for your Mac:
+   - **Intel Macs**: `StemSeparator-intel.dmg`
+   - **Apple Silicon (M1/M2/M3)**: `StemSeparator-arm64.dmg`
+
+2. Open the DMG file and drag "Stem Separator" to your Applications folder
+
+3. Launch the app (first time: right-click → "Open" to bypass Gatekeeper)
+
+**Building from source:** See [PACKAGING.md](PACKAGING.md) for instructions on creating standalone app bundles.
+
+### Option 2: Development Installation (For Developers)
+
+#### 1. Repository klonen
 
 ```bash
 git clone https://github.com/MaurizioFratello/StemSeparator.git
 cd StemSeparator
 ```
 
-### 2. Conda Environment erstellen
+#### 2. Conda Environment erstellen
 
 ```bash
 # Environment aus environment.yml erstellen
@@ -73,7 +89,7 @@ conda activate stem-separator
 pip install -r requirements.txt
 ```
 
-### 3. Modelle vorbereiten (optional)
+#### 3. Modelle vorbereiten (optional)
 
 Die Modelle werden automatisch beim ersten Gebrauch heruntergeladen.
 Für manuelles Pre-Download:

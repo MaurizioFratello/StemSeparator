@@ -2,16 +2,60 @@
 Zentrale Konfiguration für Stem Separator
 """
 import os
+import sys
 from pathlib import Path
 
+
+def get_base_dir():
+    """
+    Get the base directory for the application.
+
+    When running from PyInstaller bundle, resources are in sys._MEIPASS.
+    When running from source, resources are relative to this file.
+    """
+    if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
+        # Running in PyInstaller bundle
+        return Path(sys._MEIPASS)
+    else:
+        # Running in normal Python environment
+        return Path(__file__).parent
+
+
+def get_user_dir():
+    """
+    Get the user data directory for writable files (logs, temp, etc.).
+
+    In bundled app, we can't write to the app bundle, so use user's home directory.
+    """
+    if getattr(sys, 'frozen', False):
+        # Running in PyInstaller bundle - use user's Application Support
+        if sys.platform == 'darwin':  # macOS
+            user_dir = Path.home() / 'Library' / 'Application Support' / 'StemSeparator'
+        elif sys.platform == 'win32':  # Windows
+            user_dir = Path(os.environ.get('APPDATA', Path.home())) / 'StemSeparator'
+        else:  # Linux
+            user_dir = Path.home() / '.stemseparator'
+
+        user_dir.mkdir(parents=True, exist_ok=True)
+        return user_dir
+    else:
+        # Running from source - use project directory
+        return Path(__file__).parent
+
+
 # Basis-Pfade
-BASE_DIR = Path(__file__).parent
+BASE_DIR = get_base_dir()
+USER_DIR = get_user_dir()
+
+# Resources (read-only, bundled with app)
 RESOURCES_DIR = BASE_DIR / "resources"
 MODELS_DIR = RESOURCES_DIR / "models"
 TRANSLATIONS_DIR = RESOURCES_DIR / "translations"
 ICONS_DIR = RESOURCES_DIR / "icons"
-LOGS_DIR = BASE_DIR / "logs"
-TEMP_DIR = BASE_DIR / "temp"
+
+# User data (writable, in user's home directory when bundled)
+LOGS_DIR = USER_DIR / "logs"
+TEMP_DIR = USER_DIR / "temp"
 
 # Erstelle Verzeichnisse falls nicht vorhanden
 for directory in [MODELS_DIR, LOGS_DIR, TEMP_DIR]:

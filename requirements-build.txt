@@ -1,0 +1,11 @@
+# Build Dependencies for Packaging StemSeparator
+# Install with: pip install -r requirements-build.txt
+
+# PyInstaller for creating standalone executables
+pyinstaller>=6.0.0
+
+# DMG creation for macOS installers
+dmgbuild>=1.6.0
+
+# Pillow for icon conversion (if needed)
+Pillow>=10.0.0

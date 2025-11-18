@@ -403,9 +403,6 @@ class Separator:
                 'device': device
             }
 
-            # Get path to subprocess script
-            subprocess_script = Path(__file__).parent / 'separation_subprocess.py'
-
             self.logger.info(f"Launching separation subprocess for {model_id}")
 
             # Prepare environment with OpenMP fix
@@ -414,8 +411,9 @@ class Separator:
             env['KMP_DUPLICATE_LIB_OK'] = 'TRUE'
 
             # Launch subprocess
+            # Use -m flag to run as module, which works in both development and bundled mode
             process = subprocess.Popen(
-                [sys.executable, str(subprocess_script)],
+                [sys.executable, '-m', 'core.separation_subprocess'],
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
