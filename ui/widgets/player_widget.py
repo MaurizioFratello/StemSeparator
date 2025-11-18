@@ -334,15 +334,39 @@ class PlayerWidget(QWidget):
             # Try to extract stem name from filename
             # Expected formats:
             # - "songname_(StemName)_modelname.wav"
+            # - "songname_(StemName)_ensemble.wav"  (Ensemble mode)
+            # - "songname_stemname_modelname.wav"
             # - "songname_stemname.wav"
             # - "stemname.wav"
             import re
+
+            # First try: Look for stem name in parentheses (most reliable)
             match = re.search(r'\(([^)]+)\)', file_path.stem)
             if match:
                 stem_name = match.group(1)
             else:
+                # Second try: Parse filename parts, skip model/ensemble suffixes
                 name_parts = file_path.stem.split('_')
-                stem_name = name_parts[-1] if len(name_parts) > 1 else file_path.stem
+
+                # Known suffixes to ignore (model names, ensemble marker)
+                ignore_suffixes = {'ensemble', 'bs-roformer', 'mel-roformer', 'demucs',
+                                   'htdemucs', '4s', '6s', 'v4', 'demucs4s', 'demucs6s'}
+
+                # Filter out ignored suffixes from the end
+                stem_parts = []
+                for part in reversed(name_parts):
+                    part_lower = part.lower()
+                    # Stop when we hit an ignored suffix
+                    if part_lower in ignore_suffixes or any(suffix in part_lower for suffix in ignore_suffixes):
+                        continue
+                    stem_parts.insert(0, part)
+
+                # Use the last meaningful part as stem name
+                if stem_parts:
+                    stem_name = stem_parts[-1]
+                else:
+                    # Fallback: use original last part or whole filename
+                    stem_name = name_parts[-1] if len(name_parts) > 1 else file_path.stem
 
             self.stem_files[stem_name] = file_path
 

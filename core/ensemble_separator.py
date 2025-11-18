@@ -179,7 +179,8 @@ class EnsembleSeparator:
 
         final_stems = {}
         for stem_name, audio_data in combined_stems.items():
-            output_file = output_dir / f"{audio_file.stem}_{stem_name}_ensemble.wav"
+            # Use parentheses around stem name for better parsing compatibility
+            output_file = output_dir / f"{audio_file.stem}_({stem_name})_ensemble.wav"
 
             # Transpose to (samples, channels) for soundfile
             audio_to_save = audio_data.T
