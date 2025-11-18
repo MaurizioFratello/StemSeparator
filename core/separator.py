@@ -470,11 +470,31 @@ class Separator:
             # Clean up resources to prevent memory leaks and segfaults on subsequent runs
             if separator is not None:
                 try:
-                    # Clear any model references
+                    # Synchronize MPS/CUDA to ensure all operations are complete
+                    try:
+                        import torch
+                        if torch.backends.mps.is_available():
+                            torch.mps.synchronize()
+                            self.logger.debug("Synchronized MPS operations")
+                        elif torch.cuda.is_available():
+                            torch.cuda.synchronize()
+                            self.logger.debug("Synchronized CUDA operations")
+                    except Exception as sync_error:
+                        self.logger.debug(f"Could not synchronize device: {sync_error}")
+
+                    # Clear all model references thoroughly
                     if hasattr(separator, 'model'):
                         separator.model = None
                     if hasattr(separator, 'models'):
                         separator.models = None
+                    if hasattr(separator, 'mixer'):
+                        separator.mixer = None
+                    if hasattr(separator, 'audio_separator'):
+                        separator.audio_separator = None
+
+                    # Clear any cached tensors or buffers
+                    if hasattr(separator, 'device_cache'):
+                        separator.device_cache = None
 
                     self.logger.debug("Cleaned up AudioSeparator instance")
                 except Exception as cleanup_error:
@@ -482,9 +502,11 @@ class Separator:
 
                 # Delete the separator instance
                 del separator
+                separator = None
 
-            # Force garbage collection to free memory
-            gc.collect()
+            # Force multiple garbage collection passes to ensure cleanup
+            for _ in range(3):
+                gc.collect()
 
             # Clear PyTorch/MPS cache if available
             try:
@@ -497,6 +519,9 @@ class Separator:
                     self.logger.debug("Cleared CUDA cache")
             except Exception as torch_cleanup_error:
                 self.logger.debug(f"Could not clear PyTorch cache: {torch_cleanup_error}")
+
+            # Small delay to allow OS to reclaim resources
+            time.sleep(0.1)
 
     def _create_error_result(
         self,
