@@ -141,7 +141,6 @@ class MainWindow(QMainWindow):
         toolbar = QToolBar(self)
         toolbar.setMovable(False)
         toolbar.addAction(self._open_logs_action)
-        toolbar.addAction(self._open_files_action)
         self.addToolBar(Qt.TopToolBarArea, toolbar)
 
     def _connect_actions(self) -> None:
