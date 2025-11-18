@@ -240,13 +240,7 @@ class SettingsDialog(QDialog):
         ch_select.addWidget(self.channels_combo)
         ch_select.addStretch()
         rec_layout.addLayout(ch_select)
-        
-        # Auto-separate option
-        self.auto_separate_checkbox = QCheckBox(
-            "Automatically separate recordings after saving"
-        )
-        rec_layout.addWidget(self.auto_separate_checkbox)
-        
+
         rec_group.setLayout(rec_layout)
         layout.addWidget(rec_group)
         
@@ -337,11 +331,6 @@ class SettingsDialog(QDialog):
             if self.channels_combo.itemData(i) == ch:
                 self.channels_combo.setCurrentIndex(i)
                 break
-        
-        # Auto-separate
-        self.auto_separate_checkbox.setChecked(
-            self.settings_mgr.get('auto_separate_after_recording', False)
-        )
     
     @Slot()
     def _on_browse_output(self):
@@ -366,8 +355,7 @@ class SettingsDialog(QDialog):
         self.settings_mgr.set_output_directory(Path(self.output_path.text()))
         self.settings_mgr.set('recording_sample_rate', self.sample_rate_combo.currentData())
         self.settings_mgr.set('recording_channels', self.channels_combo.currentData())
-        self.settings_mgr.set('auto_separate_after_recording', self.auto_separate_checkbox.isChecked())
-        
+
         # Persist to file
         if self.settings_mgr.save():
             QMessageBox.information(

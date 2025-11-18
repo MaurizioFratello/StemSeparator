@@ -283,10 +283,10 @@ class MainWindow(QMainWindow):
     def _on_recording_saved(self, file_path: Path) -> None:
         """
         PURPOSE: Handle recording saved signal.
-        CONTEXT: Optionally queue recording for separation or switch to player tab.
+        CONTEXT: Shows notification when recording is saved.
         """
         self._logger.info(f"Recording saved: {file_path}")
-        
+
         # Show notification in status bar
         if self.statusBar():
             self.statusBar().showMessage(

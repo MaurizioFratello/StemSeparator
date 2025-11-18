@@ -42,7 +42,6 @@ class SettingsManager:
             'use_gpu': USE_GPU,
             'chunk_length_seconds': CHUNK_LENGTH_SECONDS,
             'output_directory': str(TEMP_DIR / "separated"),
-            'auto_separate_after_recording': False,
             'recording_sample_rate': 44100,
             'recording_channels': 2,
         }
