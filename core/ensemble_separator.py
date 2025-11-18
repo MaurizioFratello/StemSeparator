@@ -259,21 +259,16 @@ class EnsembleSeparator:
             # Nur so viele Gewichte wie wir Results haben
             stem_weights = stem_weights[:len(results)]
 
-            # Normalisiere Gewichte
-            total_weight = sum(stem_weights)
-            if total_weight > 0:
-                normalized_weights = [w / total_weight for w in stem_weights]
-            else:
-                normalized_weights = [1.0 / len(results)] * len(results)
-
             self.logger.debug(
-                f"Combining {stem_name}: weights={normalized_weights} "
+                f"Processing {stem_name}: initial weights={stem_weights} "
                 f"(models: {model_ids})"
             )
 
             # Sammle Audio von allen Modellen für diesen Stem
+            # WICHTIG: Sammle erst die verfügbaren Stems, dann normalisiere Gewichte
             stem_audios = []
             sample_rates = []
+            available_weights = []  # Track which weights are actually used
 
             for i, result in enumerate(results):
                 stem_file = self._find_stem_file(result, stem_name)
@@ -282,20 +277,43 @@ class EnsembleSeparator:
                     try:
                         audio, sr = sf.read(str(stem_file), always_2d=True, dtype='float32')
                         audio = audio.T.astype(np.float32)  # (channels, samples)
-                        stem_audios.append((audio, normalized_weights[i], model_ids[i], sr))
+                        stem_audios.append((audio, stem_weights[i], model_ids[i], sr))
                         sample_rates.append(sr)
+                        available_weights.append(stem_weights[i])
                     except Exception as e:
                         self.logger.warning(
                             f"Failed to load {stem_name} from {model_ids[i]}: {e}"
                         )
                 else:
-                    self.logger.warning(
-                        f"Stem {stem_name} not found in result from {model_ids[i]}"
+                    self.logger.debug(
+                        f"Stem {stem_name} not found in result from {model_ids[i]} "
+                        f"(weight {stem_weights[i]:.2f} will be redistributed)"
                     )
 
             if not stem_audios:
                 self.logger.warning(f"No audio found for stem: {stem_name}")
                 continue
+
+            # Re-normalisiere Gewichte basierend auf tatsächlich verfügbaren Stems
+            # Dies behebt das Problem, dass fehlende Stems (z.B. Mel-RoFormer ohne Drums)
+            # die Gesamtlautstärke reduzieren würden
+            total_available_weight = sum(available_weights)
+            if total_available_weight > 0:
+                normalized_weights = [w / total_available_weight for w in available_weights]
+            else:
+                normalized_weights = [1.0 / len(stem_audios)] * len(stem_audios)
+
+            self.logger.info(
+                f"Combining {stem_name} from {len(stem_audios)}/{len(results)} models: "
+                f"normalized weights={[f'{w:.3f}' for w in normalized_weights]} "
+                f"(models: {[model_id for _, _, model_id, _ in stem_audios]})"
+            )
+
+            # Update stem_audios with normalized weights
+            stem_audios = [
+                (audio, normalized_weights[i], model_id, sr)
+                for i, (audio, _, model_id, sr) in enumerate(stem_audios)
+            ]
 
             # CRITICAL: Verify sample rates match
             if len(set(sample_rates)) > 1:
