@@ -33,9 +33,10 @@ EXPORT_BIT_DEPTH = 16  # 16, 24, oder 32 bit
 MODELS = {
     'mel-roformer': {
         'name': 'Mel-Band RoFormer',
-        'stems': 4,
+        'stems': 2,
+        'stem_names': ['Vocals', 'Instrumental'],
         'size_mb': 100,
-        'description': '🎤 Best for vocals - Fast & specialized (SDR 11.4)',
+        'description': '🎤 Vocals & Instrumental only (SDR 11.4)',
         'model_filename': 'model_mel_band_roformer_ep_3005_sdr_11.4360.ckpt',
         'recommendation': 'Perfect for karaoke & vocal extraction',
         'strength': 'vocals'  # Primary strength
@@ -43,8 +44,9 @@ MODELS = {
     'bs-roformer': {
         'name': 'BS-RoFormer',
         'stems': 4,
+        'stem_names': ['Vocals', 'Drums', 'Bass', 'Other'],
         'size_mb': 300,
-        'description': '🏆 State-of-the-art quality - Balanced (SDR 12.98)',
+        'description': '🏆 Vocals, Drums, Bass, Other (SDR 12.98)',
         'model_filename': 'model_bs_roformer_ep_317_sdr_12.9755.ckpt',
         'recommendation': 'Best for professional work',
         'strength': 'balanced'  # Good for all stems
@@ -52,8 +54,9 @@ MODELS = {
     'demucs_6s': {
         'name': 'Demucs v4 (6-stem)',
         'stems': 6,
+        'stem_names': ['Vocals', 'Drums', 'Bass', 'Piano', 'Guitar', 'Other'],
         'size_mb': 240,
-        'description': '🎸 Most versatile - 6 stems (Vocals, Drums, Bass, Piano, Guitar, Other)',
+        'description': '🎸 Vocals, Drums, Bass, Piano, Guitar, Other',
         'model_filename': 'htdemucs_6s.yaml',
         'recommendation': 'Best for detailed separation',
         'strength': 'versatile'  # Most stems
@@ -61,8 +64,9 @@ MODELS = {
     'demucs_4s': {
         'name': 'Demucs v4 (4-stem)',
         'stems': 4,
+        'stem_names': ['Vocals', 'Drums', 'Bass', 'Other'],
         'size_mb': 160,
-        'description': '⚡ Fast & high quality - Balanced (Vocals, Drums, Bass, Other)',
+        'description': '⚡ Vocals, Drums, Bass, Other',
         'model_filename': 'htdemucs.yaml',
         'recommendation': 'Best for most users',
         'strength': 'drums'  # Particularly good for drums

@@ -278,9 +278,14 @@ class UploadWidget(QWidget):
         self.model_combo.clear()
 
         for model_id, model_info in model_manager.available_models.items():
-            # Format: "Model Name (4 stems, 300MB) [Downloaded]"
+            # Format: "✓ Model Name - Stems: Vocals, Drums, Bass, Other"
             status = "✓" if model_info.downloaded else "⚠"
-            text = f"{status} {model_info.name} ({model_info.stems} stems, {model_info.size_mb}MB)"
+            # Get stem names if available, otherwise show count
+            if hasattr(model_info, 'stem_names') and model_info.stem_names:
+                stems_info = ', '.join(model_info.stem_names)
+                text = f"{status} {model_info.name} - {stems_info}"
+            else:
+                text = f"{status} {model_info.name} ({model_info.stems} stems)"
             self.model_combo.addItem(text, userData=model_id)
 
         # Select default model

@@ -23,6 +23,7 @@ class ModelInfo:
     model_filename: str  # audio-separator model filename
     downloaded: bool = False
     path: Optional[Path] = None
+    stem_names: Optional[List[str]] = None  # List of stem names (e.g., ['Vocals', 'Instrumental'])
 
 
 class ModelManager:
@@ -43,7 +44,8 @@ class ModelManager:
                 stems=model_config['stems'],
                 size_mb=model_config['size_mb'],
                 description=model_config['description'],
-                model_filename=model_config['model_filename']
+                model_filename=model_config['model_filename'],
+                stem_names=model_config.get('stem_names')  # Optional: list of stem names
             )
 
             # Prüfe ob Modell bereits heruntergeladen ist
