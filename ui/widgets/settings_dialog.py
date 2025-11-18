@@ -10,7 +10,8 @@ from PySide6.QtWidgets import (
     QPushButton, QLabel, QComboBox, QCheckBox, QSpinBox,
     QLineEdit, QGroupBox, QFileDialog, QMessageBox
 )
-from PySide6.QtCore import Qt, Signal, Slot
+from PySide6.QtCore import Qt, Signal, Slot, QUrl
+from PySide6.QtGui import QDesktopServices
 
 from ui.app_context import AppContext
 from ui.settings_manager import get_settings_manager
@@ -276,18 +277,37 @@ class SettingsDialog(QDialog):
         """Create advanced settings tab"""
         widget = QWidget()
         layout = QVBoxLayout(widget)
-        
+
+        # Diagnostics group
+        diag_group = QGroupBox("Diagnostics")
+        diag_layout = QVBoxLayout()
+
+        self.btn_open_logs = QPushButton("Open Log File")
+        self.btn_open_logs.setMaximumWidth(200)
+        diag_layout.addWidget(self.btn_open_logs)
+
+        log_info = QLabel(
+            "View application logs for debugging and diagnostics."
+        )
+        log_info.setStyleSheet("color: gray; font-size: 10pt;")
+        log_info.setWordWrap(True)
+        diag_layout.addWidget(log_info)
+
+        diag_group.setLayout(diag_layout)
+        layout.addWidget(diag_group)
+
+        # Future settings placeholder
         info = QLabel(
-            "Advanced settings coming soon:\n\n"
+            "Additional advanced settings coming soon:\n\n"
             "- Log level configuration\n"
             "- Retry strategies\n"
             "- Model cache management\n"
             "- Export format settings"
         )
-        info.setAlignment(Qt.AlignCenter)
+        info.setStyleSheet("color: gray; font-size: 10pt;")
         info.setWordWrap(True)
         layout.addWidget(info)
-        
+
         layout.addStretch()
         return widget
     
@@ -297,6 +317,7 @@ class SettingsDialog(QDialog):
         self.btn_cancel.clicked.connect(self.reject)
         self.btn_reset.clicked.connect(self._on_reset)
         self.btn_browse_output.clicked.connect(self._on_browse_output)
+        self.btn_open_logs.clicked.connect(self._on_open_logs)
     
     def _load_current_settings(self):
         """Load current settings into UI controls"""
@@ -402,8 +423,30 @@ class SettingsDialog(QDialog):
             "Reset all settings to default values?",
             QMessageBox.Yes | QMessageBox.No
         )
-        
+
         if reply == QMessageBox.Yes:
             self.settings_mgr._load_defaults()
             self._load_current_settings()
+
+    @Slot()
+    def _on_open_logs(self):
+        """Open application log file in the system viewer"""
+        log_path: Path = self.ctx.log_file()
+        if not log_path.exists():
+            self.ctx.logger().warning("Log file %s does not exist yet", log_path)
+            QMessageBox.information(
+                self,
+                "Log File",
+                "Log file not created yet."
+            )
+            return
+
+        opened = QDesktopServices.openUrl(QUrl.fromLocalFile(str(log_path)))
+        if not opened:
+            self.ctx.logger().error("Failed to open log file: %s", log_path)
+            QMessageBox.warning(
+                self,
+                "Log File",
+                "Could not open the log file. Please open it manually."
+            )
 

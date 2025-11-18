@@ -113,9 +113,6 @@ class MainWindow(QMainWindow):
         menubar = self.menuBar()
 
         self._file_menu = menubar.addMenu("")  # Populated in _apply_translations.
-        self._open_logs_action = QAction(self._load_icon("document-open"), "", self)
-        self._file_menu.addAction(self._open_logs_action)
-
         self._open_files_action = QAction(self._load_icon("folder-open"), "", self)
         self._file_menu.addAction(self._open_files_action)
 
@@ -134,13 +131,12 @@ class MainWindow(QMainWindow):
 
     def _setup_toolbar(self) -> None:
         """
-        PURPOSE: Provide a main toolbar with quick-access actions for diagnostics.
+        PURPOSE: Provide a main toolbar with quick-access actions.
         CONTEXT: Toolbar mirrors menu entries to streamline future UX polish.
         """
 
         toolbar = QToolBar(self)
         toolbar.setMovable(False)
-        toolbar.addAction(self._open_logs_action)
         self.addToolBar(Qt.TopToolBarArea, toolbar)
 
     def _connect_actions(self) -> None:
@@ -149,7 +145,6 @@ class MainWindow(QMainWindow):
         CONTEXT: Keeps behaviour declarative and simplifies unit testing by isolating slot logic.
         """
 
-        self._open_logs_action.triggered.connect(self._open_logs)
         self._open_files_action.triggered.connect(self._choose_files)
         self._quit_action.triggered.connect(QApplication.instance().quit)
         self._settings_action.triggered.connect(self._show_settings)
@@ -165,7 +160,6 @@ class MainWindow(QMainWindow):
         self.setWindowTitle(translator("app.title", fallback=APP_NAME))
 
         self._file_menu.setTitle(translator("menu.file", fallback="File"))
-        self._open_logs_action.setText(translator("menu.file.open_logs", fallback="Open Logs"))
         self._open_files_action.setText(translator("menu.file.open_files", fallback="Open Audio Files"))
         self._quit_action.setText(translator("menu.file.quit", fallback="Quit"))
 
@@ -220,35 +214,6 @@ class MainWindow(QMainWindow):
         icon = QIcon(str(candidate)) if candidate.exists() else QIcon()
         self._icons_cache[name] = icon
         return icon
-
-    @Slot()
-    def _open_logs(self) -> None:
-        """
-        PURPOSE: Open application log file in the system viewer.
-        CONTEXT: Provides quick access to diagnostics for users and developers.
-        """
-
-        log_path: Path = self._context.log_file()
-        if not log_path.exists():
-            self._logger.warning("Log file %s does not exist yet", log_path)
-            QMessageBox.information(
-                self,
-                self._context.translate("dialog.logs.title", fallback="Log File"),
-                self._context.translate("dialog.logs.missing", fallback="Log file not created yet."),
-            )
-            return
-
-        opened = QDesktopServices.openUrl(QUrl.fromLocalFile(str(log_path)))
-        if not opened:
-            self._logger.error("Failed to open log file: %s", log_path)
-            QMessageBox.warning(
-                self,
-                self._context.translate("dialog.logs.title", fallback="Log File"),
-                self._context.translate(
-                    "dialog.logs.failed",
-                    fallback="Could not open the log file. Please open it manually.",
-                ),
-            )
 
     @Slot()
     def _choose_files(self) -> None:
