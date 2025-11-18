@@ -503,7 +503,8 @@ class RecordingWidget(QWidget):
 
         self.level_meter.setValue(0)
         self.level_meter.setFormat("Silence")
-        self.level_meter.setStyleSheet("")  # Reset to default style
+        from ui.theme import ThemeManager
+        ThemeManager.set_widget_property(self.level_meter, "meterLevel", "safe")  # Reset to default
         self.duration_label.setText("Duration: 00:00.0")
         self.state_label.setText("Ready")
     
@@ -553,31 +554,20 @@ class RecordingWidget(QWidget):
 
         self.level_meter.setTextVisible(True)
 
-        # Color code based on professional audio standards
+        # Color code based on professional audio standards using Qt properties
         # WHY: These thresholds match broadcast and recording industry standards
+        # PERFORMANCE: Using properties instead of setStyleSheet avoids CSS parsing overhead
+        from ui.theme import ThemeManager
+
         if level > 0.95:  # Above -3 dBFS
             # RED: Danger zone - very close to clipping
-            # At this level, audio transients can easily clip
-            stylesheet = """
-                QProgressBar::chunk { background-color: #ff0000; }
-                QProgressBar { color: white; font-weight: bold; }
-            """
+            ThemeManager.set_widget_property(self.level_meter, "meterLevel", "danger")
         elif level > 0.80:  # Above -12 dBFS
             # YELLOW/ORANGE: High level - still safe but approaching limit
-            # Professional recordings typically peak around -6 to -12 dBFS for headroom
-            stylesheet = """
-                QProgressBar::chunk { background-color: #ff8800; }
-                QProgressBar { color: black; font-weight: bold; }
-            """
+            ThemeManager.set_widget_property(self.level_meter, "meterLevel", "caution")
         else:  # Below -12 dBFS
             # GREEN: Normal operating range
-            # Plenty of headroom, no risk of clipping
-            stylesheet = """
-                QProgressBar::chunk { background-color: #00cc00; }
-                QProgressBar { color: black; }
-            """
-
-        self.level_meter.setStyleSheet(stylesheet)
+            ThemeManager.set_widget_property(self.level_meter, "meterLevel", "safe")
     
     @Slot()
     def _update_display(self):

@@ -13,7 +13,7 @@ from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QSlider, QGroupBox
 )
 from PySide6.QtCore import Qt, Signal, QPointF, QRectF
-from PySide6.QtGui import QPainter, QPen, QColor, QPainterPath, QLinearGradient
+from PySide6.QtGui import QPainter, QPen, QColor, QPainterPath, QLinearGradient, QPixmap
 
 from ui.app_context import AppContext
 from ui.theme import ColorPalette
@@ -21,9 +21,10 @@ from ui.theme import ColorPalette
 
 class WaveformDisplay(QWidget):
     """
-    Custom widget for rendering audio waveform
+    Custom widget for rendering audio waveform with performance optimizations
 
     WHY: Provides visual feedback of audio content and trim regions
+    PERFORMANCE: Uses QPixmap caching to avoid expensive redraws
     """
 
     def __init__(self, parent=None):
@@ -34,6 +35,10 @@ class WaveformDisplay(QWidget):
         self.trim_end: float = 0.0    # in seconds (0 means end of file)
         self.setMinimumHeight(120)
         self.setMaximumHeight(200)
+
+        # Performance: Cache waveform rendering
+        self._waveform_cache: Optional[QPixmap] = None
+        self._cache_size: tuple = (0, 0)
 
     def set_audio_data(self, audio_data: np.ndarray, sample_rate: int):
         """
@@ -52,6 +57,8 @@ class WaveformDisplay(QWidget):
         self.trim_start = 0.0
         self.trim_end = self.duration
 
+        # Invalidate cache
+        self._waveform_cache = None
         self.update()
 
     def set_trim_range(self, start_sec: float, end_sec: float):
@@ -66,15 +73,22 @@ class WaveformDisplay(QWidget):
         self.duration = 0.0
         self.trim_start = 0.0
         self.trim_end = 0.0
+        self._waveform_cache = None
         self.update()
 
+    def resizeEvent(self, event):
+        """Invalidate cache on resize"""
+        self._waveform_cache = None
+        super().resizeEvent(event)
+
     def paintEvent(self, event):
-        """Render waveform with trim markers and modern styling"""
+        """Render waveform with trim markers and modern styling (optimized with caching)"""
         painter = QPainter(self)
-        painter.setRenderHint(QPainter.Antialiasing)
+        width = self.width()
+        height = self.height()
 
         # Modern gradient background
-        gradient = QLinearGradient(0, 0, 0, self.height())
+        gradient = QLinearGradient(0, 0, 0, height)
         gradient.setColorAt(0, QColor(ColorPalette.WAVEFORM_BACKGROUND))
         gradient.setColorAt(1, QColor("#0f0f0f"))
         painter.fillRect(self.rect(), gradient)
@@ -85,33 +99,76 @@ class WaveformDisplay(QWidget):
             painter.drawText(self.rect(), Qt.AlignCenter, "Select a file to view waveform")
             return
 
-        # Calculate drawing parameters
-        width = self.width()
-        height = self.height()
-        center_y = height / 2
+        # Use cached waveform if available and size hasn't changed
+        if self._waveform_cache is None or self._cache_size != (width, height):
+            self._render_waveform_to_cache()
 
-        # Downsample waveform for display
-        samples_per_pixel = max(1, len(self.waveform_data) // width)
+        # Draw cached waveform
+        if self._waveform_cache:
+            painter.drawPixmap(0, 0, self._waveform_cache)
+
+        # Draw dynamic overlays (not cached to allow smooth updates)
+        center_y = height / 2
 
         # Draw trimmed-out regions with modern overlay
         if self.trim_start > 0 or self.trim_end < self.duration:
             overlay_color = QColor(ColorPalette.BACKGROUND_TERTIARY)
             overlay_color.setAlpha(200)
 
-            painter.fillRect(
-                0, 0,
-                int(width * (self.trim_start / self.duration)), height,
-                overlay_color
-            )
-            painter.fillRect(
-                int(width * (self.trim_end / self.duration)), 0,
-                width, height,
-                overlay_color
-            )
+            if self.trim_start > 0:
+                painter.fillRect(
+                    0, 0,
+                    int(width * (self.trim_start / self.duration)), height,
+                    overlay_color
+                )
+            if self.trim_end < self.duration:
+                painter.fillRect(
+                    int(width * (self.trim_end / self.duration)), 0,
+                    width, height,
+                    overlay_color
+                )
 
-        # Draw waveform with modern accent colors
-        path = QPainterPath()
-        path.moveTo(0, center_y)
+        # Draw trim markers with modern accent colors
+        trim_start_x = int(width * (self.trim_start / self.duration))
+        trim_end_x = int(width * (self.trim_end / self.duration))
+
+        marker_pen = QPen(QColor(ColorPalette.ACCENT_PRIMARY), 3)
+        painter.setPen(marker_pen)
+        painter.drawLine(trim_start_x, 0, trim_start_x, height)
+        painter.drawLine(trim_end_x, 0, trim_end_x, height)
+
+        # Draw trim marker labels
+        painter.setPen(QColor(ColorPalette.TEXT_PRIMARY))
+        if self.trim_start > 0:
+            painter.drawText(trim_start_x + 5, 20, f"{self.trim_start:.1f}s")
+        if self.trim_end < self.duration:
+            painter.drawText(trim_end_x + 5, 20, f"{self.trim_end:.1f}s")
+
+    def _render_waveform_to_cache(self):
+        """Render waveform to cached pixmap (performance optimization)"""
+        width = self.width()
+        height = self.height()
+
+        if width <= 0 or height <= 0:
+            return
+
+        # Create pixmap for caching
+        self._waveform_cache = QPixmap(width, height)
+        self._waveform_cache.fill(Qt.transparent)
+        self._cache_size = (width, height)
+
+        painter = QPainter(self._waveform_cache)
+        # Disable antialiasing for better performance
+        # painter.setRenderHint(QPainter.Antialiasing, False)
+
+        center_y = height / 2
+
+        # Downsample waveform for display
+        samples_per_pixel = max(1, len(self.waveform_data) // width)
+
+        # Draw waveform using lines (faster than path)
+        waveform_pen = QPen(QColor(ColorPalette.WAVEFORM_PRIMARY), 1)
+        painter.setPen(waveform_pen)
 
         for x in range(width):
             # Get chunk of samples for this pixel
@@ -130,45 +187,14 @@ class WaveformDisplay(QWidget):
             max_y = center_y - (max_val * center_y * 0.9)
             min_y = center_y - (min_val * center_y * 0.9)
 
-            # Draw vertical line from min to max
-            path.moveTo(x, max_y)
-            path.lineTo(x, min_y)
-
-        # Draw waveform with gradient effect
-        waveform_pen = QPen(QColor(ColorPalette.WAVEFORM_PRIMARY), 2)
-        waveform_pen.setCapStyle(Qt.RoundCap)
-        painter.setPen(waveform_pen)
-        painter.drawPath(path)
-
-        # Draw subtle glow effect
-        painter.setCompositionMode(QPainter.CompositionMode_Plus)
-        glow_pen = QPen(QColor(ColorPalette.WAVEFORM_PRIMARY), 4)
-        glow_color = QColor(ColorPalette.WAVEFORM_PRIMARY)
-        glow_color.setAlpha(30)
-        glow_pen.setColor(glow_color)
-        painter.setPen(glow_pen)
-        painter.drawPath(path)
-        painter.setCompositionMode(QPainter.CompositionMode_SourceOver)
+            # Draw vertical line from min to max (direct line, no path)
+            painter.drawLine(x, int(max_y), x, int(min_y))
 
         # Draw center line with modern color
         painter.setPen(QPen(QColor(ColorPalette.BORDER_DEFAULT), 1))
         painter.drawLine(0, int(center_y), width, int(center_y))
 
-        # Draw trim markers with modern accent colors
-        trim_start_x = int(width * (self.trim_start / self.duration))
-        trim_end_x = int(width * (self.trim_end / self.duration))
-
-        marker_pen = QPen(QColor(ColorPalette.ACCENT_PRIMARY), 3)
-        painter.setPen(marker_pen)
-        painter.drawLine(trim_start_x, 0, trim_start_x, height)
-        painter.drawLine(trim_end_x, 0, trim_end_x, height)
-
-        # Draw trim marker labels
-        painter.setPen(QColor(ColorPalette.TEXT_PRIMARY))
-        if self.trim_start > 0:
-            painter.drawText(trim_start_x + 5, 20, f"{self.trim_start:.1f}s")
-        if self.trim_end < self.duration:
-            painter.drawText(trim_end_x + 5, 20, f"{self.trim_end:.1f}s")
+        painter.end()
 
 
 class WaveformWidget(QWidget):

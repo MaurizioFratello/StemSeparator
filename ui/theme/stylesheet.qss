@@ -147,6 +147,26 @@ QPushButton[buttonStyle="icon"] {
     border-radius: 6px;
 }
 
+/* Mute button checked state - performance optimized */
+QPushButton[buttonStyle="icon"]:checked[buttonRole="mute"] {
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #ef4444, stop:1 #dc2626);
+    color: white;
+}
+
+QPushButton[buttonStyle="icon"]:checked[buttonRole="mute"]:hover {
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #f87171, stop:1 #ef4444);
+}
+
+/* Solo button checked state - performance optimized */
+QPushButton[buttonStyle="icon"]:checked[buttonRole="solo"] {
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #10b981, stop:1 #059669);
+    color: white;
+}
+
+QPushButton[buttonStyle="icon"]:checked[buttonRole="solo"]:hover {
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #34d399, stop:1 #10b981);
+}
+
 /* ---- COMBO BOXES (Dropdowns) ---- */
 QComboBox {
     background-color: #3d3d3d;
@@ -271,6 +291,33 @@ QProgressBar[progressStyle="large"] {
     max-height: 32px;
     font-size: 13px;
     border-radius: 6px;
+}
+
+/* Level meter color variants - performance optimized */
+QProgressBar[meterLevel="safe"]::chunk {
+    background-color: #00cc00;
+}
+
+QProgressBar[meterLevel="safe"] {
+    color: black;
+}
+
+QProgressBar[meterLevel="caution"]::chunk {
+    background-color: #ff8800;
+}
+
+QProgressBar[meterLevel="caution"] {
+    color: black;
+    font-weight: bold;
+}
+
+QProgressBar[meterLevel="danger"]::chunk {
+    background-color: #ff0000;
+}
+
+QProgressBar[meterLevel="danger"] {
+    color: white;
+    font-weight: bold;
 }
 
 /* ---- SLIDERS ---- */

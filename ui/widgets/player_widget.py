@@ -51,6 +51,7 @@ class StemControl(QWidget):
         self.btn_mute = QPushButton("M")
         self.btn_mute.setCheckable(True)
         ThemeManager.set_widget_property(self.btn_mute, "buttonStyle", "icon")
+        ThemeManager.set_widget_property(self.btn_mute, "buttonRole", "mute")
         self.btn_mute.setToolTip("Mute this stem")
         self.btn_mute.clicked.connect(self._on_mute_clicked)
         layout.addWidget(self.btn_mute)
@@ -59,6 +60,7 @@ class StemControl(QWidget):
         self.btn_solo = QPushButton("S")
         self.btn_solo.setCheckable(True)
         ThemeManager.set_widget_property(self.btn_solo, "buttonStyle", "icon")
+        ThemeManager.set_widget_property(self.btn_solo, "buttonRole", "solo")
         self.btn_solo.setToolTip("Solo this stem (mute all others)")
         self.btn_solo.clicked.connect(self._on_solo_clicked)
         layout.addWidget(self.btn_solo)
@@ -80,45 +82,17 @@ class StemControl(QWidget):
 
     @Slot()
     def _on_mute_clicked(self):
-        """Handle mute button click"""
+        """Handle mute button click - uses property-based styling for performance"""
         self.is_muted = self.btn_mute.isChecked()
         self.mute_changed.emit(self.stem_name, self.is_muted)
-
-        # Update style with modern theme colors
-        if self.is_muted:
-            self.btn_mute.setStyleSheet("""
-                QPushButton {
-                    background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #ef4444, stop:1 #dc2626);
-                    color: white;
-                }
-                QPushButton:hover {
-                    background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #f87171, stop:1 #ef4444);
-                }
-            """)
-        else:
-            self.btn_mute.setStyleSheet("")
-            ThemeManager.set_widget_property(self.btn_mute, "buttonStyle", "icon")
+        # Style automatically updates via :checked state in QSS
 
     @Slot()
     def _on_solo_clicked(self):
-        """Handle solo button click"""
+        """Handle solo button click - uses property-based styling for performance"""
         self.is_solo = self.btn_solo.isChecked()
         self.solo_changed.emit(self.stem_name, self.is_solo)
-
-        # Update style with modern theme colors
-        if self.is_solo:
-            self.btn_solo.setStyleSheet("""
-                QPushButton {
-                    background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #10b981, stop:1 #059669);
-                    color: white;
-                }
-                QPushButton:hover {
-                    background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #34d399, stop:1 #10b981);
-                }
-            """)
-        else:
-            self.btn_solo.setStyleSheet("")
-            ThemeManager.set_widget_property(self.btn_solo, "buttonStyle", "icon")
+        # Style automatically updates via :checked state in QSS
 
     @Slot()
     def _on_volume_changed(self):
