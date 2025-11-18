@@ -10,12 +10,42 @@ from PySide6.QtWidgets import (
     QPushButton, QLabel, QComboBox, QCheckBox, QSpinBox,
     QLineEdit, QGroupBox, QFileDialog, QMessageBox
 )
-from PySide6.QtCore import Qt, Signal, Slot, QUrl
+from PySide6.QtCore import Qt, Signal, Slot, QUrl, QRunnable, QThreadPool, QObject
 from PySide6.QtGui import QDesktopServices
 
 from ui.app_context import AppContext
 from ui.settings_manager import get_settings_manager
+from ui.theme import ThemeManager
 from config import QUALITY_PRESETS
+
+
+class BlackHoleInstallWorker(QRunnable):
+    """
+    Background worker for BlackHole installation
+
+    PURPOSE: Install BlackHole without blocking GUI thread
+    CONTEXT: Installation can take minutes and requires shell commands
+    """
+
+    class Signals(QObject):
+        progress = Signal(str)  # message
+        finished = Signal(bool, str)  # success, error_msg
+
+    def __init__(self, blackhole_installer):
+        super().__init__()
+        self.blackhole_installer = blackhole_installer
+        self.signals = self.Signals()
+
+    def run(self):
+        """Execute installation in background"""
+        try:
+            def progress_callback(message: str):
+                self.signals.progress.emit(message)
+
+            success, error_msg = self.blackhole_installer.install_blackhole(progress_callback)
+            self.signals.finished.emit(success, error_msg or "")
+        except Exception as e:
+            self.signals.finished.emit(False, str(e))
 
 
 class SettingsDialog(QDialog):
@@ -38,15 +68,19 @@ class SettingsDialog(QDialog):
         super().__init__(parent)
         self.ctx = AppContext()
         self.settings_mgr = get_settings_manager()
-        
+        self.blackhole_installer = self.ctx.blackhole_installer()
+
+        # Thread pool for background tasks
+        self.thread_pool = QThreadPool.globalInstance()
+
         self.setWindowTitle("Settings")
         self.setModal(True)
         self.resize(600, 500)
-        
+
         self._setup_ui()
         self._load_current_settings()
         self._connect_signals()
-        
+
         self.ctx.logger().info("SettingsDialog initialized")
     
     def _setup_ui(self):
@@ -252,6 +286,34 @@ class SettingsDialog(QDialog):
         widget = QWidget()
         layout = QVBoxLayout(widget)
 
+        # BlackHole Status Group
+        blackhole_group = QGroupBox("BlackHole Status")
+        blackhole_layout = QVBoxLayout()
+
+        self.blackhole_status_label = QLabel("")
+        self.blackhole_status_label.setWordWrap(True)
+        blackhole_layout.addWidget(self.blackhole_status_label)
+
+        blackhole_buttons = QHBoxLayout()
+        self.btn_install_blackhole = QPushButton("⬇️ Install BlackHole")
+        ThemeManager.set_widget_property(self.btn_install_blackhole, "buttonStyle", "secondary")
+        self.btn_setup_instructions = QPushButton("ℹ️  Setup Instructions")
+        ThemeManager.set_widget_property(self.btn_setup_instructions, "buttonStyle", "secondary")
+        blackhole_buttons.addWidget(self.btn_install_blackhole)
+        blackhole_buttons.addWidget(self.btn_setup_instructions)
+        blackhole_buttons.addStretch()
+        blackhole_layout.addLayout(blackhole_buttons)
+
+        blackhole_info = QLabel(
+            "BlackHole is required for system audio recording on macOS."
+        )
+        blackhole_info.setStyleSheet("color: gray; font-size: 10pt;")
+        blackhole_info.setWordWrap(True)
+        blackhole_layout.addWidget(blackhole_info)
+
+        blackhole_group.setLayout(blackhole_layout)
+        layout.addWidget(blackhole_group)
+
         # Diagnostics group
         diag_group = QGroupBox("Diagnostics")
         diag_layout = QVBoxLayout()
@@ -283,6 +345,10 @@ class SettingsDialog(QDialog):
         layout.addWidget(info)
 
         layout.addStretch()
+
+        # Check BlackHole status after UI is set up
+        self._check_blackhole_status()
+
         return widget
     
     def _connect_signals(self):
@@ -292,6 +358,8 @@ class SettingsDialog(QDialog):
         self.btn_reset.clicked.connect(self._on_reset)
         self.btn_browse_output.clicked.connect(self._on_browse_output)
         self.btn_open_logs.clicked.connect(self._on_open_logs)
+        self.btn_install_blackhole.clicked.connect(self._on_install_blackhole)
+        self.btn_setup_instructions.clicked.connect(self._on_setup_instructions)
     
     def _load_current_settings(self):
         """Load current settings into UI controls"""
@@ -409,4 +477,126 @@ class SettingsDialog(QDialog):
                 "Log File",
                 "Could not open the log file. Please open it manually."
             )
+
+    def _check_blackhole_status(self):
+        """
+        Check BlackHole installation status
+
+        WHY: User must have BlackHole installed for system audio recording on macOS
+        """
+        status = self.blackhole_installer.get_status()
+
+        if not status.installed:
+            self.blackhole_status_label.setText(
+                "⚠ BlackHole not installed. System audio recording requires BlackHole."
+            )
+            self.blackhole_status_label.setStyleSheet("color: orange;")
+            self.btn_install_blackhole.setEnabled(status.homebrew_available)
+        elif not status.device_found:
+            self.blackhole_status_label.setText(
+                f"✓ BlackHole {status.version} installed, but device not configured. "
+                "Click 'Setup Instructions' below."
+            )
+            self.blackhole_status_label.setStyleSheet("color: orange;")
+            self.btn_install_blackhole.setEnabled(False)
+        else:
+            self.blackhole_status_label.setText(
+                f"✓ BlackHole {status.version} ready for system audio recording"
+            )
+            self.blackhole_status_label.setStyleSheet("color: green;")
+            self.btn_install_blackhole.setEnabled(False)
+
+    @Slot()
+    def _on_install_blackhole(self):
+        """Install BlackHole via Homebrew in background thread"""
+        reply = QMessageBox.question(
+            self,
+            "Install BlackHole",
+            "This will install BlackHole via Homebrew.\n\n"
+            "This may take a few minutes and requires admin privileges.\n\n"
+            "Continue?",
+            QMessageBox.Yes | QMessageBox.No
+        )
+
+        if reply != QMessageBox.Yes:
+            return
+
+        # Disable button during installation
+        self.btn_install_blackhole.setEnabled(False)
+        self.blackhole_status_label.setText("Installing BlackHole...")
+
+        # Create and configure worker
+        worker = BlackHoleInstallWorker(self.blackhole_installer)
+        worker.signals.progress.connect(self._on_install_progress)
+        worker.signals.finished.connect(self._on_install_finished)
+
+        # Start installation in background
+        self.thread_pool.start(worker)
+
+    @Slot(str)
+    def _on_install_progress(self, message: str):
+        """Update progress label during installation"""
+        self.blackhole_status_label.setText(message)
+
+    @Slot(bool, str)
+    def _on_install_finished(self, success: bool, error_msg: str):
+        """Handle installation completion"""
+        self.btn_install_blackhole.setEnabled(True)
+
+        if success:
+            QMessageBox.information(
+                self,
+                "Installation Complete",
+                "BlackHole has been installed via Homebrew.\n\n"
+                "⚠️ IMPORTANT - Manual Step Required:\n\n"
+                "BlackHole needs admin privileges to install the audio driver.\n"
+                "Please run this command in Terminal:\n\n"
+                "    brew install --cask blackhole-2ch\n\n"
+                "After installation:\n"
+                "1. Restart this application\n"
+                "2. Refresh device list\n"
+                "3. Follow setup instructions"
+            )
+            self._check_blackhole_status()
+        else:
+            # Check if it's a password issue
+            if "sudo" in error_msg.lower() or "password" in error_msg.lower():
+                QMessageBox.warning(
+                    self,
+                    "Manual Installation Required",
+                    "BlackHole installation requires admin privileges.\n\n"
+                    "Please install manually via Terminal:\n\n"
+                    "    brew install --cask blackhole-2ch\n\n"
+                    "After installation, restart this app and refresh devices."
+                )
+            else:
+                QMessageBox.critical(
+                    self,
+                    "Installation Failed",
+                    f"Failed to install BlackHole:\n{error_msg}\n\n"
+                    "You may need to install it manually:\n"
+                    "brew install --cask blackhole-2ch"
+                )
+            self.blackhole_status_label.setText("❌ Manual installation required")
+
+    @Slot()
+    def _on_setup_instructions(self):
+        """Show BlackHole setup instructions"""
+        instructions = self.blackhole_installer.get_setup_instructions()
+
+        msg = QMessageBox(self)
+        msg.setWindowTitle("BlackHole Setup")
+        msg.setText("Follow these steps to configure BlackHole for system audio recording:")
+        msg.setDetailedText(instructions)
+        msg.setIcon(QMessageBox.Information)
+
+        # Add button to open Audio MIDI Setup
+        open_btn = msg.addButton("Open Audio MIDI Setup", QMessageBox.ActionRole)
+        msg.addButton(QMessageBox.Ok)
+
+        msg.exec()
+
+        # Check if user clicked the open button
+        if msg.clickedButton() == open_btn:
+            self.blackhole_installer.open_audio_midi_setup()
 
