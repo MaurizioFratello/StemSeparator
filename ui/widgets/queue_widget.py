@@ -40,6 +40,7 @@ class QueueTask:
     ensemble_config: Optional[str] = None
     status: TaskStatus = TaskStatus.PENDING
     progress: int = 0
+    progress_message: str = ""
     result: Optional[SeparationResult] = None
     error_message: Optional[str] = None
 
@@ -292,6 +293,8 @@ class QueueWidget(QWidget):
         progress_bar = QProgressBar()
         progress_bar.setRange(0, 100)
         progress_bar.setValue(0)
+        progress_bar.setTextVisible(True)
+        progress_bar.setFormat("%p%")  # Default format showing percentage
         self.queue_table.setCellWidget(row, 3, progress_bar)
 
         # Result
@@ -313,6 +316,11 @@ class QueueWidget(QWidget):
         progress_bar = self.queue_table.cellWidget(index, 3)
         if isinstance(progress_bar, QProgressBar):
             progress_bar.setValue(task.progress)
+            # Show detailed progress message if available
+            if task.progress_message:
+                progress_bar.setFormat(f"%p% - {task.progress_message}")
+            else:
+                progress_bar.setFormat("%p%")
         
         # Result
         result_text = ""
@@ -427,6 +435,7 @@ class QueueWidget(QWidget):
         """Handle task progress update"""
         if index < len(self.tasks):
             self.tasks[index].progress = percent
+            self.tasks[index].progress_message = message
             self._update_table_row(index)
             self.status_label.setText(f"Processing {index + 1}/{len(self.tasks)}: {message}")
     
@@ -436,14 +445,16 @@ class QueueWidget(QWidget):
         if index < len(self.tasks):
             task = self.tasks[index]
             task.result = result
-            
+
             if result.success:
                 task.status = TaskStatus.COMPLETED
                 task.progress = 100
+                task.progress_message = ""  # Clear progress message on completion
             else:
                 task.status = TaskStatus.FAILED
                 task.error_message = result.error_message
-            
+                task.progress_message = ""  # Clear progress message on failure
+
             self._update_table_row(index)
             self._update_status()
     
@@ -453,6 +464,7 @@ class QueueWidget(QWidget):
         if index < len(self.tasks):
             self.tasks[index].status = TaskStatus.FAILED
             self.tasks[index].error_message = error_message
+            self.tasks[index].progress_message = ""  # Clear progress message on error
             self._update_table_row(index)
             self._update_status()
     

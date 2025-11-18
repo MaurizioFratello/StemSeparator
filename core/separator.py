@@ -6,6 +6,12 @@ from typing import Optional, Dict, Callable, List
 from dataclasses import dataclass
 import time
 import re
+import threading
+import gc
+import subprocess
+import json
+import sys
+import os
 import numpy as np
 import soundfile as sf
 
@@ -331,6 +337,11 @@ class Separator:
         """
         Führt die eigentliche Separation mit audio-separator aus
 
+        IMPORTANT: Runs separation in isolated subprocess to prevent resource leaks.
+        The audio-separator library has multiprocessing semaphore leaks that cause
+        segfaults on repeated use. Running in subprocess ensures OS cleans up all
+        resources when subprocess exits.
+
         Args:
             audio_file: Audio-Datei
             model_id: Model ID
@@ -354,74 +365,115 @@ class Separator:
         if progress_callback:
             progress_callback(f"Separating with {model_id} on {device}", 50)
 
+        # Setup simulated progress during separation
+        stop_progress = threading.Event()
+        current_progress = [50]  # Use list to allow modification in thread
+
+        def simulate_progress():
+            """Simulate gradual progress from 50% to 80% during separation"""
+            while not stop_progress.is_set() and current_progress[0] < 80:
+                time.sleep(0.5)  # Update every 0.5 seconds
+                if not stop_progress.is_set():
+                    current_progress[0] = min(80, current_progress[0] + 1)
+                    if progress_callback:
+                        progress_callback(f"Processing audio with {model_id}", current_progress[0])
+
+        # Start progress simulation thread
+        progress_thread = None
+        if progress_callback:
+            progress_thread = threading.Thread(target=simulate_progress, daemon=True)
+            progress_thread.start()
+
         try:
-            # Import audio_separator
-            from audio_separator.separator import Separator as AudioSeparator
-
-            # Hole model filename
+            # Prepare parameters for subprocess
             model_filename = MODELS[model_id]['model_filename']
-
-            # Hole Quality-Preset-Konfiguration
             preset_config = QUALITY_PRESETS[quality_preset]
             preset_params = preset_config.get('params', {}).copy()
             preset_attributes = preset_config.get('attributes', {})
 
-            # Erstelle Separator-Instanz mit grundlegenden Parametern
-            separator = AudioSeparator(
-                log_level=20,  # INFO level
-                model_file_dir=str(self.model_manager.models_dir),
-                output_dir=str(output_dir),
-                **preset_params  # Grundlegende Parameter
+            # Build subprocess parameters
+            subprocess_params = {
+                'audio_file': str(audio_file),
+                'model_id': model_id,
+                'output_dir': str(output_dir),
+                'model_filename': model_filename,
+                'models_dir': str(self.model_manager.models_dir),
+                'preset_params': preset_params,
+                'preset_attributes': preset_attributes,
+                'device': device
+            }
+
+            # Get path to subprocess script
+            subprocess_script = Path(__file__).parent / 'separation_subprocess.py'
+
+            self.logger.info(f"Launching separation subprocess for {model_id}")
+
+            # Prepare environment with OpenMP fix
+            # Allow multiple OpenMP runtimes (needed for subprocess isolation)
+            env = os.environ.copy()
+            env['KMP_DUPLICATE_LIB_OK'] = 'TRUE'
+
+            # Launch subprocess
+            process = subprocess.Popen(
+                [sys.executable, str(subprocess_script)],
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                env=env
             )
 
-            # Setze architektur-spezifische Attribute
-            for attr_name, attr_value in preset_attributes.items():
-                setattr(separator, attr_name, attr_value)
-                self.logger.debug(f"Set separator.{attr_name} = {attr_value}")
+            # Send parameters via stdin
+            params_json = json.dumps(subprocess_params)
+            stdout, stderr = process.communicate(input=params_json)
 
-            # Lade das Modell
-            separator.load_model(model_filename=model_filename)
+            # Stop progress simulation
+            stop_progress.set()
+            if progress_thread:
+                progress_thread.join(timeout=1.0)
 
-            self.logger.debug(f"AudioSeparator created with model: {model_filename}")
+            # Check return code
+            if process.returncode != 0:
+                error_msg = f"Subprocess failed with code {process.returncode}: {stderr}"
+                self.logger.error(error_msg)
+                raise SeparationError(error_msg)
 
-            # Führe Separation durch
-            output_files = separator.separate(str(audio_file))
+            # Parse result from stdout
+            try:
+                result = json.loads(stdout)
+            except json.JSONDecodeError as e:
+                error_msg = f"Failed to parse subprocess output: {e}\nOutput: {stdout}"
+                self.logger.error(error_msg)
+                raise SeparationError(error_msg)
 
-            self.logger.debug(f"Separation complete, output: {output_files}")
+            if not result['success']:
+                error_msg = f"Separation failed: {result['error']}"
+                self.logger.error(error_msg)
+                raise SeparationError(error_msg)
 
-            # Parse Output-Files
-            stems = {}
+            if progress_callback:
+                progress_callback("Finalizing separation", 85)
 
-            if isinstance(output_files, list):
-                for file_path in output_files:
-                    file_path = Path(file_path)
+            # Convert string paths back to Path objects
+            stems = {name: Path(path) for name, path in result['stems'].items()}
 
-                    # Wenn Pfad nicht absolut ist, ergänze mit output_dir
-                    if not file_path.is_absolute():
-                        file_path = output_dir / file_path
-
-                    # Extrahiere Stem-Name aus Dateiname
-                    # Format: filename_(stem).wav oder filename_(stem)_modelname.wav
-                    # Stem-Name steht in Klammern, z.B. (Piano), (Vocals), etc.
-                    match = re.search(r'\(([^)]+)\)', file_path.stem)
-                    if match:
-                        stem_name = match.group(1)
-                    else:
-                        # Fallback: letztes Element nach Underscore
-                        stem_name = file_path.stem.split('_')[-1]
-
-                    stems[stem_name] = file_path
-
-                    self.logger.debug(f"Parsed stem: {stem_name} -> {file_path}")
+            self.logger.info(f"Subprocess separation complete: {len(stems)} stems created")
 
             return stems
 
-        except ImportError as e:
-            error_msg = "audio-separator not installed"
-            self.logger.error(error_msg)
-            raise SeparationError(error_msg) from e
+        except SeparationError:
+            # Stop progress simulation on error
+            stop_progress.set()
+            if progress_thread:
+                progress_thread.join(timeout=1.0)
+            raise
 
         except Exception as e:
+            # Stop progress simulation on error
+            stop_progress.set()
+            if progress_thread:
+                progress_thread.join(timeout=1.0)
+
             error_msg = f"Separation failed: {str(e)}"
             self.logger.error(error_msg, exc_info=True)
             raise SeparationError(error_msg) from e

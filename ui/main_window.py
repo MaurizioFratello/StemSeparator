@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Dict
 
 from PySide6.QtCore import QUrl, Qt, Slot
-from PySide6.QtGui import QAction, QActionGroup, QCloseEvent, QIcon
+from PySide6.QtGui import QAction, QCloseEvent, QIcon
 from PySide6.QtWidgets import (
     QApplication,
     QFileDialog,
@@ -44,7 +44,6 @@ class MainWindow(QMainWindow):
         self._context: AppContext = get_app_context()
         self._logger = self._context.logger()
         self._tab_widget = QTabWidget()
-        self._language_actions: Dict[str, QAction] = {}
         self._icons_cache: Dict[str, QIcon] = {}
 
         # Apply modern theme
@@ -114,9 +113,6 @@ class MainWindow(QMainWindow):
         menubar = self.menuBar()
 
         self._file_menu = menubar.addMenu("")  # Populated in _apply_translations.
-        self._open_logs_action = QAction(self._load_icon("document-open"), "", self)
-        self._file_menu.addAction(self._open_logs_action)
-
         self._open_files_action = QAction(self._load_icon("folder-open"), "", self)
         self._file_menu.addAction(self._open_files_action)
 
@@ -128,16 +124,6 @@ class MainWindow(QMainWindow):
         self._view_menu = menubar.addMenu("")
         self._settings_action = QAction(self._load_icon("preferences-system"), "", self)
         self._view_menu.addAction(self._settings_action)
-        self._view_menu.addSeparator()
-        language_group = QActionGroup(self)
-        language_group.setExclusive(True)
-        for language_code in ("de", "en"):
-            action = QAction(language_group)
-            action.setCheckable(True)
-            action.setData(language_code)
-            self._view_menu.addAction(action)
-            self._language_actions[language_code] = action
-        self._language_actions[self._context.get_language()].setChecked(True)
 
         self._help_menu = menubar.addMenu("")
         self._about_action = QAction(self._load_icon("help-about"), "", self)
@@ -145,17 +131,12 @@ class MainWindow(QMainWindow):
 
     def _setup_toolbar(self) -> None:
         """
-        PURPOSE: Provide a main toolbar with quick-access actions for diagnostics and language.
+        PURPOSE: Provide a main toolbar with quick-access actions.
         CONTEXT: Toolbar mirrors menu entries to streamline future UX polish.
         """
 
         toolbar = QToolBar(self)
         toolbar.setMovable(False)
-        toolbar.addAction(self._open_logs_action)
-        toolbar.addAction(self._open_files_action)
-        toolbar.addSeparator()
-        for action in self._language_actions.values():
-            toolbar.addAction(action)
         self.addToolBar(Qt.TopToolBarArea, toolbar)
 
     def _connect_actions(self) -> None:
@@ -164,12 +145,9 @@ class MainWindow(QMainWindow):
         CONTEXT: Keeps behaviour declarative and simplifies unit testing by isolating slot logic.
         """
 
-        self._open_logs_action.triggered.connect(self._open_logs)
         self._open_files_action.triggered.connect(self._choose_files)
         self._quit_action.triggered.connect(QApplication.instance().quit)
         self._settings_action.triggered.connect(self._show_settings)
-        for action in self._language_actions.values():
-            action.triggered.connect(self._on_language_selected)
         self._about_action.triggered.connect(self._show_about_dialog)
 
     def _apply_translations(self) -> None:
@@ -182,15 +160,11 @@ class MainWindow(QMainWindow):
         self.setWindowTitle(translator("app.title", fallback=APP_NAME))
 
         self._file_menu.setTitle(translator("menu.file", fallback="File"))
-        self._open_logs_action.setText(translator("menu.file.open_logs", fallback="Open Logs"))
         self._open_files_action.setText(translator("menu.file.open_files", fallback="Open Audio Files"))
         self._quit_action.setText(translator("menu.file.quit", fallback="Quit"))
 
         self._view_menu.setTitle(translator("menu.view", fallback="View"))
         self._settings_action.setText(translator("menu.view.settings", fallback="Settings"))
-        for code, action in self._language_actions.items():
-            label = translator(f"menu.view.language.{code}", fallback=code.upper())
-            action.setText(label)
 
         self._help_menu.setTitle(translator("menu.help", fallback="Help"))
         self._about_action.setText(translator("menu.help.about", fallback="About"))
@@ -242,35 +216,6 @@ class MainWindow(QMainWindow):
         return icon
 
     @Slot()
-    def _open_logs(self) -> None:
-        """
-        PURPOSE: Open application log file in the system viewer.
-        CONTEXT: Provides quick access to diagnostics for users and developers.
-        """
-
-        log_path: Path = self._context.log_file()
-        if not log_path.exists():
-            self._logger.warning("Log file %s does not exist yet", log_path)
-            QMessageBox.information(
-                self,
-                self._context.translate("dialog.logs.title", fallback="Log File"),
-                self._context.translate("dialog.logs.missing", fallback="Log file not created yet."),
-            )
-            return
-
-        opened = QDesktopServices.openUrl(QUrl.fromLocalFile(str(log_path)))
-        if not opened:
-            self._logger.error("Failed to open log file: %s", log_path)
-            QMessageBox.warning(
-                self,
-                self._context.translate("dialog.logs.title", fallback="Log File"),
-                self._context.translate(
-                    "dialog.logs.failed",
-                    fallback="Could not open the log file. Please open it manually.",
-                ),
-            )
-
-    @Slot()
     def _choose_files(self) -> None:
         """
         PURPOSE: Allow selecting audio files before the upload widget is implemented.
@@ -301,24 +246,6 @@ class MainWindow(QMainWindow):
                 ),
                 5000,
             )
-
-    @Slot()
-    def _on_language_selected(self) -> None:
-        """
-        PURPOSE: React to language selection actions.
-        CONTEXT: Keeps menus, toolbars, and status messages in sync with the new language.
-        """
-
-        action = self.sender()
-        if not isinstance(action, QAction):
-            return
-
-        language = action.data()
-        if not isinstance(language, str):
-            return
-
-        self._context.set_language(language)
-        self._apply_translations()
 
     @Slot()
     def _show_about_dialog(self) -> None:
@@ -356,10 +283,10 @@ class MainWindow(QMainWindow):
     def _on_recording_saved(self, file_path: Path) -> None:
         """
         PURPOSE: Handle recording saved signal.
-        CONTEXT: Optionally queue recording for separation or switch to player tab.
+        CONTEXT: Shows notification when recording is saved.
         """
         self._logger.info(f"Recording saved: {file_path}")
-        
+
         # Show notification in status bar
         if self.statusBar():
             self.statusBar().showMessage(

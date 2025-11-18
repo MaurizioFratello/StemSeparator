@@ -10,24 +10,55 @@ from PySide6.QtWidgets import (
     QPushButton, QLabel, QComboBox, QCheckBox, QSpinBox,
     QLineEdit, QGroupBox, QFileDialog, QMessageBox
 )
-from PySide6.QtCore import Qt, Signal, Slot
+from PySide6.QtCore import Qt, Signal, Slot, QUrl, QRunnable, QThreadPool, QObject
+from PySide6.QtGui import QDesktopServices
 
 from ui.app_context import AppContext
 from ui.settings_manager import get_settings_manager
+from ui.theme import ThemeManager
 from config import QUALITY_PRESETS
+
+
+class BlackHoleInstallWorker(QRunnable):
+    """
+    Background worker for BlackHole installation
+
+    PURPOSE: Install BlackHole without blocking GUI thread
+    CONTEXT: Installation can take minutes and requires shell commands
+    """
+
+    class Signals(QObject):
+        progress = Signal(str)  # message
+        finished = Signal(bool, str)  # success, error_msg
+
+    def __init__(self, blackhole_installer):
+        super().__init__()
+        self.blackhole_installer = blackhole_installer
+        self.signals = self.Signals()
+
+    def run(self):
+        """Execute installation in background"""
+        try:
+            def progress_callback(message: str):
+                self.signals.progress.emit(message)
+
+            success, error_msg = self.blackhole_installer.install_blackhole(progress_callback)
+            self.signals.finished.emit(success, error_msg or "")
+        except Exception as e:
+            self.signals.finished.emit(False, str(e))
 
 
 class SettingsDialog(QDialog):
     """
     Dialog for configuring application settings
-    
+
     Features:
-    - Language selection
     - Default model
     - GPU usage toggle
     - Chunk size configuration
     - Output directory
     - Recording settings
+    - Diagnostics (log file access)
     """
     
     # Signal emitted when settings are saved
@@ -37,15 +68,19 @@ class SettingsDialog(QDialog):
         super().__init__(parent)
         self.ctx = AppContext()
         self.settings_mgr = get_settings_manager()
-        
+        self.blackhole_installer = self.ctx.blackhole_installer()
+
+        # Thread pool for background tasks
+        self.thread_pool = QThreadPool.globalInstance()
+
         self.setWindowTitle("Settings")
         self.setModal(True)
         self.resize(600, 500)
-        
+
         self._setup_ui()
         self._load_current_settings()
         self._connect_signals()
-        
+
         self.ctx.logger().info("SettingsDialog initialized")
     
     def _setup_ui(self):
@@ -79,27 +114,7 @@ class SettingsDialog(QDialog):
         """Create general settings tab"""
         widget = QWidget()
         layout = QVBoxLayout(widget)
-        
-        # Language
-        lang_group = QGroupBox("Language")
-        lang_layout = QVBoxLayout()
-        
-        lang_select = QHBoxLayout()
-        lang_select.addWidget(QLabel("Interface Language:"))
-        self.language_combo = QComboBox()
-        self.language_combo.addItem("Deutsch", userData="de")
-        self.language_combo.addItem("English", userData="en")
-        lang_select.addWidget(self.language_combo)
-        lang_select.addStretch()
-        lang_layout.addLayout(lang_select)
-        
-        lang_info = QLabel("Note: Language change requires restart")
-        lang_info.setStyleSheet("color: gray; font-size: 10pt;")
-        lang_layout.addWidget(lang_info)
-        
-        lang_group.setLayout(lang_layout)
-        layout.addWidget(lang_group)
-        
+
         # Default Model
         model_group = QGroupBox("Default Model")
         model_layout = QVBoxLayout()
@@ -259,13 +274,7 @@ class SettingsDialog(QDialog):
         ch_select.addWidget(self.channels_combo)
         ch_select.addStretch()
         rec_layout.addLayout(ch_select)
-        
-        # Auto-separate option
-        self.auto_separate_checkbox = QCheckBox(
-            "Automatically separate recordings after saving"
-        )
-        rec_layout.addWidget(self.auto_separate_checkbox)
-        
+
         rec_group.setLayout(rec_layout)
         layout.addWidget(rec_group)
         
@@ -276,19 +285,70 @@ class SettingsDialog(QDialog):
         """Create advanced settings tab"""
         widget = QWidget()
         layout = QVBoxLayout(widget)
-        
+
+        # BlackHole Status Group
+        blackhole_group = QGroupBox("BlackHole Status")
+        blackhole_layout = QVBoxLayout()
+
+        self.blackhole_status_label = QLabel("")
+        self.blackhole_status_label.setWordWrap(True)
+        blackhole_layout.addWidget(self.blackhole_status_label)
+
+        blackhole_buttons = QHBoxLayout()
+        self.btn_install_blackhole = QPushButton("⬇️ Install BlackHole")
+        ThemeManager.set_widget_property(self.btn_install_blackhole, "buttonStyle", "secondary")
+        self.btn_setup_instructions = QPushButton("ℹ️  Setup Instructions")
+        ThemeManager.set_widget_property(self.btn_setup_instructions, "buttonStyle", "secondary")
+        blackhole_buttons.addWidget(self.btn_install_blackhole)
+        blackhole_buttons.addWidget(self.btn_setup_instructions)
+        blackhole_buttons.addStretch()
+        blackhole_layout.addLayout(blackhole_buttons)
+
+        blackhole_info = QLabel(
+            "BlackHole is required for system audio recording on macOS."
+        )
+        blackhole_info.setStyleSheet("color: gray; font-size: 10pt;")
+        blackhole_info.setWordWrap(True)
+        blackhole_layout.addWidget(blackhole_info)
+
+        blackhole_group.setLayout(blackhole_layout)
+        layout.addWidget(blackhole_group)
+
+        # Diagnostics group
+        diag_group = QGroupBox("Diagnostics")
+        diag_layout = QVBoxLayout()
+
+        self.btn_open_logs = QPushButton("Open Log File")
+        self.btn_open_logs.setMaximumWidth(200)
+        diag_layout.addWidget(self.btn_open_logs)
+
+        log_info = QLabel(
+            "View application logs for debugging and diagnostics."
+        )
+        log_info.setStyleSheet("color: gray; font-size: 10pt;")
+        log_info.setWordWrap(True)
+        diag_layout.addWidget(log_info)
+
+        diag_group.setLayout(diag_layout)
+        layout.addWidget(diag_group)
+
+        # Future settings placeholder
         info = QLabel(
-            "Advanced settings coming soon:\n\n"
+            "Additional advanced settings coming soon:\n\n"
             "- Log level configuration\n"
             "- Retry strategies\n"
             "- Model cache management\n"
             "- Export format settings"
         )
-        info.setAlignment(Qt.AlignCenter)
+        info.setStyleSheet("color: gray; font-size: 10pt;")
         info.setWordWrap(True)
         layout.addWidget(info)
-        
+
         layout.addStretch()
+
+        # Check BlackHole status after UI is set up
+        self._check_blackhole_status()
+
         return widget
     
     def _connect_signals(self):
@@ -297,16 +357,12 @@ class SettingsDialog(QDialog):
         self.btn_cancel.clicked.connect(self.reject)
         self.btn_reset.clicked.connect(self._on_reset)
         self.btn_browse_output.clicked.connect(self._on_browse_output)
+        self.btn_open_logs.clicked.connect(self._on_open_logs)
+        self.btn_install_blackhole.clicked.connect(self._on_install_blackhole)
+        self.btn_setup_instructions.clicked.connect(self._on_setup_instructions)
     
     def _load_current_settings(self):
         """Load current settings into UI controls"""
-        # Language
-        lang = self.settings_mgr.get_language()
-        for i in range(self.language_combo.count()):
-            if self.language_combo.itemData(i) == lang:
-                self.language_combo.setCurrentIndex(i)
-                break
-        
         # Model
         model = self.settings_mgr.get_default_model()
         for i in range(self.model_combo.count()):
@@ -343,11 +399,6 @@ class SettingsDialog(QDialog):
             if self.channels_combo.itemData(i) == ch:
                 self.channels_combo.setCurrentIndex(i)
                 break
-        
-        # Auto-separate
-        self.auto_separate_checkbox.setChecked(
-            self.settings_mgr.get('auto_separate_after_recording', False)
-        )
     
     @Slot()
     def _on_browse_output(self):
@@ -365,7 +416,6 @@ class SettingsDialog(QDialog):
     def _on_save(self):
         """Save settings"""
         # Save all settings
-        self.settings_mgr.set_language(self.language_combo.currentData())
         self.settings_mgr.set_default_model(self.model_combo.currentData())
         self.settings_mgr.set_quality_preset(self.quality_combo.currentData())
         self.settings_mgr.set_use_gpu(self.gpu_checkbox.isChecked())
@@ -373,8 +423,7 @@ class SettingsDialog(QDialog):
         self.settings_mgr.set_output_directory(Path(self.output_path.text()))
         self.settings_mgr.set('recording_sample_rate', self.sample_rate_combo.currentData())
         self.settings_mgr.set('recording_channels', self.channels_combo.currentData())
-        self.settings_mgr.set('auto_separate_after_recording', self.auto_separate_checkbox.isChecked())
-        
+
         # Persist to file
         if self.settings_mgr.save():
             QMessageBox.information(
@@ -402,8 +451,152 @@ class SettingsDialog(QDialog):
             "Reset all settings to default values?",
             QMessageBox.Yes | QMessageBox.No
         )
-        
+
         if reply == QMessageBox.Yes:
             self.settings_mgr._load_defaults()
             self._load_current_settings()
+
+    @Slot()
+    def _on_open_logs(self):
+        """Open application log file in the system viewer"""
+        log_path: Path = self.ctx.log_file()
+        if not log_path.exists():
+            self.ctx.logger().warning("Log file %s does not exist yet", log_path)
+            QMessageBox.information(
+                self,
+                "Log File",
+                "Log file not created yet."
+            )
+            return
+
+        opened = QDesktopServices.openUrl(QUrl.fromLocalFile(str(log_path)))
+        if not opened:
+            self.ctx.logger().error("Failed to open log file: %s", log_path)
+            QMessageBox.warning(
+                self,
+                "Log File",
+                "Could not open the log file. Please open it manually."
+            )
+
+    def _check_blackhole_status(self):
+        """
+        Check BlackHole installation status
+
+        WHY: User must have BlackHole installed for system audio recording on macOS
+        """
+        status = self.blackhole_installer.get_status()
+
+        if not status.installed:
+            self.blackhole_status_label.setText(
+                "⚠ BlackHole not installed. System audio recording requires BlackHole."
+            )
+            self.blackhole_status_label.setStyleSheet("color: orange;")
+            self.btn_install_blackhole.setEnabled(status.homebrew_available)
+        elif not status.device_found:
+            self.blackhole_status_label.setText(
+                f"✓ BlackHole {status.version} installed, but device not configured. "
+                "Click 'Setup Instructions' below."
+            )
+            self.blackhole_status_label.setStyleSheet("color: orange;")
+            self.btn_install_blackhole.setEnabled(False)
+        else:
+            self.blackhole_status_label.setText(
+                f"✓ BlackHole {status.version} ready for system audio recording"
+            )
+            self.blackhole_status_label.setStyleSheet("color: green;")
+            self.btn_install_blackhole.setEnabled(False)
+
+    @Slot()
+    def _on_install_blackhole(self):
+        """Install BlackHole via Homebrew in background thread"""
+        reply = QMessageBox.question(
+            self,
+            "Install BlackHole",
+            "This will install BlackHole via Homebrew.\n\n"
+            "This may take a few minutes and requires admin privileges.\n\n"
+            "Continue?",
+            QMessageBox.Yes | QMessageBox.No
+        )
+
+        if reply != QMessageBox.Yes:
+            return
+
+        # Disable button during installation
+        self.btn_install_blackhole.setEnabled(False)
+        self.blackhole_status_label.setText("Installing BlackHole...")
+
+        # Create and configure worker
+        worker = BlackHoleInstallWorker(self.blackhole_installer)
+        worker.signals.progress.connect(self._on_install_progress)
+        worker.signals.finished.connect(self._on_install_finished)
+
+        # Start installation in background
+        self.thread_pool.start(worker)
+
+    @Slot(str)
+    def _on_install_progress(self, message: str):
+        """Update progress label during installation"""
+        self.blackhole_status_label.setText(message)
+
+    @Slot(bool, str)
+    def _on_install_finished(self, success: bool, error_msg: str):
+        """Handle installation completion"""
+        self.btn_install_blackhole.setEnabled(True)
+
+        if success:
+            QMessageBox.information(
+                self,
+                "Installation Complete",
+                "BlackHole has been installed via Homebrew.\n\n"
+                "⚠️ IMPORTANT - Manual Step Required:\n\n"
+                "BlackHole needs admin privileges to install the audio driver.\n"
+                "Please run this command in Terminal:\n\n"
+                "    brew install --cask blackhole-2ch\n\n"
+                "After installation:\n"
+                "1. Restart this application\n"
+                "2. Refresh device list\n"
+                "3. Follow setup instructions"
+            )
+            self._check_blackhole_status()
+        else:
+            # Check if it's a password issue
+            if "sudo" in error_msg.lower() or "password" in error_msg.lower():
+                QMessageBox.warning(
+                    self,
+                    "Manual Installation Required",
+                    "BlackHole installation requires admin privileges.\n\n"
+                    "Please install manually via Terminal:\n\n"
+                    "    brew install --cask blackhole-2ch\n\n"
+                    "After installation, restart this app and refresh devices."
+                )
+            else:
+                QMessageBox.critical(
+                    self,
+                    "Installation Failed",
+                    f"Failed to install BlackHole:\n{error_msg}\n\n"
+                    "You may need to install it manually:\n"
+                    "brew install --cask blackhole-2ch"
+                )
+            self.blackhole_status_label.setText("❌ Manual installation required")
+
+    @Slot()
+    def _on_setup_instructions(self):
+        """Show BlackHole setup instructions"""
+        instructions = self.blackhole_installer.get_setup_instructions()
+
+        msg = QMessageBox(self)
+        msg.setWindowTitle("BlackHole Setup")
+        msg.setText("Follow these steps to configure BlackHole for system audio recording:")
+        msg.setDetailedText(instructions)
+        msg.setIcon(QMessageBox.Information)
+
+        # Add button to open Audio MIDI Setup
+        open_btn = msg.addButton("Open Audio MIDI Setup", QMessageBox.ActionRole)
+        msg.addButton(QMessageBox.Ok)
+
+        msg.exec()
+
+        # Check if user clicked the open button
+        if msg.clickedButton() == open_btn:
+            self.blackhole_installer.open_audio_midi_setup()
 
