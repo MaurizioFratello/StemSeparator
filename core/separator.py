@@ -6,6 +6,7 @@ from typing import Optional, Dict, Callable, List
 from dataclasses import dataclass
 import time
 import re
+import threading
 import numpy as np
 import soundfile as sf
 
@@ -354,6 +355,25 @@ class Separator:
         if progress_callback:
             progress_callback(f"Separating with {model_id} on {device}", 50)
 
+        # Setup simulated progress during separation
+        stop_progress = threading.Event()
+        current_progress = [50]  # Use list to allow modification in thread
+
+        def simulate_progress():
+            """Simulate gradual progress from 50% to 80% during separation"""
+            while not stop_progress.is_set() and current_progress[0] < 80:
+                time.sleep(0.5)  # Update every 0.5 seconds
+                if not stop_progress.is_set():
+                    current_progress[0] = min(80, current_progress[0] + 1)
+                    if progress_callback:
+                        progress_callback(f"Processing audio with {model_id}", current_progress[0])
+
+        # Start progress simulation thread
+        progress_thread = None
+        if progress_callback:
+            progress_thread = threading.Thread(target=simulate_progress, daemon=True)
+            progress_thread.start()
+
         try:
             # Import audio_separator
             from audio_separator.separator import Separator as AudioSeparator
@@ -387,6 +407,14 @@ class Separator:
             # Führe Separation durch
             output_files = separator.separate(str(audio_file))
 
+            # Stop progress simulation
+            stop_progress.set()
+            if progress_thread:
+                progress_thread.join(timeout=1.0)
+
+            if progress_callback:
+                progress_callback("Finalizing separation", 85)
+
             self.logger.debug(f"Separation complete, output: {output_files}")
 
             # Parse Output-Files
@@ -417,11 +445,21 @@ class Separator:
             return stems
 
         except ImportError as e:
+            # Stop progress simulation on error
+            stop_progress.set()
+            if progress_thread:
+                progress_thread.join(timeout=1.0)
+
             error_msg = "audio-separator not installed"
             self.logger.error(error_msg)
             raise SeparationError(error_msg) from e
 
         except Exception as e:
+            # Stop progress simulation on error
+            stop_progress.set()
+            if progress_thread:
+                progress_thread.join(timeout=1.0)
+
             error_msg = f"Separation failed: {str(e)}"
             self.logger.error(error_msg, exc_info=True)
             raise SeparationError(error_msg) from e
