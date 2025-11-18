@@ -11,6 +11,7 @@ import gc
 import subprocess
 import json
 import sys
+import os
 import numpy as np
 import soundfile as sf
 
@@ -407,13 +408,19 @@ class Separator:
 
             self.logger.info(f"Launching separation subprocess for {model_id}")
 
+            # Prepare environment with OpenMP fix
+            # Allow multiple OpenMP runtimes (needed for subprocess isolation)
+            env = os.environ.copy()
+            env['KMP_DUPLICATE_LIB_OK'] = 'TRUE'
+
             # Launch subprocess
             process = subprocess.Popen(
                 [sys.executable, str(subprocess_script)],
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
-                text=True
+                text=True,
+                env=env
             )
 
             # Send parameters via stdin
