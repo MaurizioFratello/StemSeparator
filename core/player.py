@@ -264,23 +264,53 @@ class AudioPlayer:
             self.logger.info(f"Seeked to {position_seconds:.2f}s ({position_samples} samples)")
 
     def set_stem_volume(self, stem_name: str, volume: float):
-        """Set stem volume (0.0 to 1.0)"""
+        """Set stem volume (0.0 to 1.0) and apply immediately during playback"""
         if stem_name in self.stem_settings:
             self.stem_settings[stem_name].volume = max(0.0, min(1.0, volume))
+            # Restart playback with new mix if currently playing
+            self._restart_playback_if_playing()
 
     def set_stem_mute(self, stem_name: str, is_muted: bool):
-        """Set stem mute state"""
+        """Set stem mute state and apply immediately during playback"""
         if stem_name in self.stem_settings:
             self.stem_settings[stem_name].is_muted = is_muted
+            # Restart playback with new mix if currently playing
+            self._restart_playback_if_playing()
 
     def set_stem_solo(self, stem_name: str, is_solo: bool):
-        """Set stem solo state"""
+        """Set stem solo state and apply immediately during playback"""
         if stem_name in self.stem_settings:
             self.stem_settings[stem_name].is_solo = is_solo
+            # Restart playback with new mix if currently playing
+            self._restart_playback_if_playing()
 
     def set_master_volume(self, volume: float):
-        """Set master volume (0.0 to 1.0)"""
+        """Set master volume (0.0 to 1.0) and apply immediately during playback"""
         self.master_volume = max(0.0, min(1.0, volume))
+        # Restart playback with new mix if currently playing
+        self._restart_playback_if_playing()
+
+    def _restart_playback_if_playing(self):
+        """Restart playback from current position with new mix (if currently playing)"""
+        if self.state == PlaybackState.PLAYING:
+            # Stop position update thread temporarily
+            self._stop_update.set()
+            if self._update_thread and self._update_thread.is_alive():
+                self._update_thread.join(timeout=0.5)
+
+            # Stop current playback
+            self._cancel_all_actions()
+
+            # Restart from current position with new mix
+            self._start_playback_from_position()
+
+            # Restart position update thread
+            self._stop_update.clear()
+            self._update_thread = threading.Thread(
+                target=self._position_update_loop,
+                daemon=True
+            )
+            self._update_thread.start()
 
     def is_playback_available(self) -> tuple[bool, str]:
         """
