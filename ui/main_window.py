@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Dict
 
 from PySide6.QtCore import QUrl, Qt, Slot
-from PySide6.QtGui import QAction, QActionGroup, QCloseEvent, QIcon
+from PySide6.QtGui import QAction, QCloseEvent, QIcon
 from PySide6.QtWidgets import (
     QApplication,
     QFileDialog,
@@ -44,7 +44,6 @@ class MainWindow(QMainWindow):
         self._context: AppContext = get_app_context()
         self._logger = self._context.logger()
         self._tab_widget = QTabWidget()
-        self._language_actions: Dict[str, QAction] = {}
         self._icons_cache: Dict[str, QIcon] = {}
 
         # Apply modern theme
@@ -128,16 +127,6 @@ class MainWindow(QMainWindow):
         self._view_menu = menubar.addMenu("")
         self._settings_action = QAction(self._load_icon("preferences-system"), "", self)
         self._view_menu.addAction(self._settings_action)
-        self._view_menu.addSeparator()
-        language_group = QActionGroup(self)
-        language_group.setExclusive(True)
-        for language_code in ("de", "en"):
-            action = QAction(language_group)
-            action.setCheckable(True)
-            action.setData(language_code)
-            self._view_menu.addAction(action)
-            self._language_actions[language_code] = action
-        self._language_actions[self._context.get_language()].setChecked(True)
 
         self._help_menu = menubar.addMenu("")
         self._about_action = QAction(self._load_icon("help-about"), "", self)
@@ -145,7 +134,7 @@ class MainWindow(QMainWindow):
 
     def _setup_toolbar(self) -> None:
         """
-        PURPOSE: Provide a main toolbar with quick-access actions for diagnostics and language.
+        PURPOSE: Provide a main toolbar with quick-access actions for diagnostics.
         CONTEXT: Toolbar mirrors menu entries to streamline future UX polish.
         """
 
@@ -153,9 +142,6 @@ class MainWindow(QMainWindow):
         toolbar.setMovable(False)
         toolbar.addAction(self._open_logs_action)
         toolbar.addAction(self._open_files_action)
-        toolbar.addSeparator()
-        for action in self._language_actions.values():
-            toolbar.addAction(action)
         self.addToolBar(Qt.TopToolBarArea, toolbar)
 
     def _connect_actions(self) -> None:
@@ -168,8 +154,6 @@ class MainWindow(QMainWindow):
         self._open_files_action.triggered.connect(self._choose_files)
         self._quit_action.triggered.connect(QApplication.instance().quit)
         self._settings_action.triggered.connect(self._show_settings)
-        for action in self._language_actions.values():
-            action.triggered.connect(self._on_language_selected)
         self._about_action.triggered.connect(self._show_about_dialog)
 
     def _apply_translations(self) -> None:
@@ -188,9 +172,6 @@ class MainWindow(QMainWindow):
 
         self._view_menu.setTitle(translator("menu.view", fallback="View"))
         self._settings_action.setText(translator("menu.view.settings", fallback="Settings"))
-        for code, action in self._language_actions.items():
-            label = translator(f"menu.view.language.{code}", fallback=code.upper())
-            action.setText(label)
 
         self._help_menu.setTitle(translator("menu.help", fallback="Help"))
         self._about_action.setText(translator("menu.help.about", fallback="About"))
@@ -301,24 +282,6 @@ class MainWindow(QMainWindow):
                 ),
                 5000,
             )
-
-    @Slot()
-    def _on_language_selected(self) -> None:
-        """
-        PURPOSE: React to language selection actions.
-        CONTEXT: Keeps menus, toolbars, and status messages in sync with the new language.
-        """
-
-        action = self.sender()
-        if not isinstance(action, QAction):
-            return
-
-        language = action.data()
-        if not isinstance(language, str):
-            return
-
-        self._context.set_language(language)
-        self._apply_translations()
 
     @Slot()
     def _show_about_dialog(self) -> None:
