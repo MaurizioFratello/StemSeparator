@@ -7,6 +7,7 @@ from dataclasses import dataclass
 import time
 import re
 import threading
+import gc
 import numpy as np
 import soundfile as sf
 
@@ -374,6 +375,7 @@ class Separator:
             progress_thread = threading.Thread(target=simulate_progress, daemon=True)
             progress_thread.start()
 
+        separator = None  # Initialize to None for cleanup in finally block
         try:
             # Import audio_separator
             from audio_separator.separator import Separator as AudioSeparator
@@ -463,6 +465,38 @@ class Separator:
             error_msg = f"Separation failed: {str(e)}"
             self.logger.error(error_msg, exc_info=True)
             raise SeparationError(error_msg) from e
+
+        finally:
+            # Clean up resources to prevent memory leaks and segfaults on subsequent runs
+            if separator is not None:
+                try:
+                    # Clear any model references
+                    if hasattr(separator, 'model'):
+                        separator.model = None
+                    if hasattr(separator, 'models'):
+                        separator.models = None
+
+                    self.logger.debug("Cleaned up AudioSeparator instance")
+                except Exception as cleanup_error:
+                    self.logger.warning(f"Error during separator cleanup: {cleanup_error}")
+
+                # Delete the separator instance
+                del separator
+
+            # Force garbage collection to free memory
+            gc.collect()
+
+            # Clear PyTorch/MPS cache if available
+            try:
+                import torch
+                if torch.backends.mps.is_available():
+                    torch.mps.empty_cache()
+                    self.logger.debug("Cleared MPS cache")
+                elif torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+                    self.logger.debug("Cleared CUDA cache")
+            except Exception as torch_cleanup_error:
+                self.logger.debug(f"Could not clear PyTorch cache: {torch_cleanup_error}")
 
     def _create_error_result(
         self,
