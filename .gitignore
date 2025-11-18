@@ -72,3 +72,12 @@ Thumbs.db
 # User settings
 .env
 config_local.py
+
+# PyInstaller / Packaging
+# Note: .spec files ARE tracked (they're build configuration)
+dist/
+build/
+*.dmg
+*.app
+packaging/icon.icns
+packaging/dmg/background.png
