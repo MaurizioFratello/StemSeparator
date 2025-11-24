@@ -32,6 +32,7 @@ from ui.widgets.player_widget import PlayerWidget
 from ui.widgets.settings_dialog import SettingsDialog
 from ui.theme import ThemeManager
 from ui.theme.macos_effects import MacOSEffects
+from ui.theme.macos_dialogs import MacOSDialogs
 
 
 class MainWindow(QMainWindow):
@@ -249,10 +250,50 @@ class MainWindow(QMainWindow):
         """
         PURPOSE: Provide a main toolbar with quick-access actions.
         CONTEXT: Toolbar mirrors menu entries to streamline future UX polish.
+                 macOS-optimized with standard icon sizes and styling.
         """
 
         toolbar = QToolBar(self)
         toolbar.setMovable(False)
+        toolbar.setIconSize(QSize(24, 24))  # Standard macOS toolbar icon size
+        toolbar.setToolButtonStyle(Qt.ToolButtonTextUnderIcon)
+
+        # macOS-specific toolbar styling
+        if platform.system() == "Darwin":
+            toolbar.setStyleSheet("""
+                QToolBar {
+                    background: transparent;
+                    border: none;
+                    spacing: 12px;
+                    padding: 8px;
+                }
+                QToolButton {
+                    background: transparent;
+                    border: none;
+                    border-radius: 6px;
+                    padding: 6px;
+                    font-size: 11px;
+                }
+                QToolButton:hover {
+                    background: rgba(255, 255, 255, 0.1);
+                }
+                QToolButton:pressed {
+                    background: rgba(255, 255, 255, 0.15);
+                }
+            """)
+
+        # Add key actions to toolbar
+        toolbar.addAction(self._open_files_action)
+        toolbar.addSeparator()
+        toolbar.addAction(self._settings_action)
+
+        # Add spacer to push help to the right (macOS convention)
+        spacer = QWidget()
+        spacer.setSizePolicy(QWidget.Expanding, QWidget.Expanding)
+        toolbar.addWidget(spacer)
+
+        toolbar.addAction(self._about_action)
+
         self.addToolBar(Qt.TopToolBarArea, toolbar)
 
     def _connect_actions(self) -> None:
@@ -381,13 +422,14 @@ class MainWindow(QMainWindow):
         """
         PURPOSE: Display application metadata and diagnostics hints.
         CONTEXT: Standard part of macOS/Windows desktop UX, helps users confirm version info.
+                 Uses macOS-styled dialogs for native appearance.
         """
 
         info = self._context.translate(
             "dialog.about.body",
             fallback=f"{APP_NAME}\n\nSystem audio stem separation with AI models.",
         )
-        QMessageBox.about(self, self.windowTitle(), info)
+        MacOSDialogs.about(self, self.windowTitle(), info)
 
     @Slot()
     def _show_settings(self) -> None:
@@ -427,8 +469,26 @@ class MainWindow(QMainWindow):
         """
         PURPOSE: Intercept close event for graceful shutdown.
         CONTEXT: Allows future integration of pending-task prompts while ensuring a clean exit now.
+                 On macOS, window close (Cmd+W or red button) hides the window but keeps app running.
+                 Cmd+Q properly quits via the quit action.
         """
 
-        self._logger.info("Application shutdown requested")
-        event.accept()
+        self._logger.info("Close event received")
+
+        # macOS convention: closing window (Cmd+W) should minimize to dock, not quit
+        # The app continues running and can be reopened from dock or Cmd+Tab
+        if platform.system() == "Darwin" and not event.spontaneous():
+            # Non-spontaneous events are programmatic closes (like from quit action)
+            # These should be allowed to close normally
+            self._logger.info("Application shutdown requested (programmatic)")
+            event.accept()
+        elif platform.system() == "Darwin":
+            # Spontaneous close events (user clicking close or Cmd+W) should hide
+            self._logger.info("Window close requested - hiding window (macOS convention)")
+            event.ignore()
+            self.hide()
+        else:
+            # On Windows/Linux, close means quit the application
+            self._logger.info("Application shutdown requested")
+            event.accept()
 
