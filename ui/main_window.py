@@ -468,26 +468,9 @@ class MainWindow(QMainWindow):
         """
         PURPOSE: Intercept close event for graceful shutdown.
         CONTEXT: Allows future integration of pending-task prompts while ensuring a clean exit now.
-                 On macOS, window close (Cmd+W or red button) hides the window but keeps app running.
-                 Cmd+Q properly quits via the quit action.
+                 Close window (red X or Cmd+W) quits the application completely.
         """
 
-        self._logger.info("Close event received")
-
-        # macOS convention: closing window (Cmd+W) should minimize to dock, not quit
-        # The app continues running and can be reopened from dock or Cmd+Tab
-        if platform.system() == "Darwin" and not event.spontaneous():
-            # Non-spontaneous events are programmatic closes (like from quit action)
-            # These should be allowed to close normally
-            self._logger.info("Application shutdown requested (programmatic)")
-            event.accept()
-        elif platform.system() == "Darwin":
-            # Spontaneous close events (user clicking close or Cmd+W) should hide
-            self._logger.info("Window close requested - hiding window (macOS convention)")
-            event.ignore()
-            self.hide()
-        else:
-            # On Windows/Linux, close means quit the application
-            self._logger.info("Application shutdown requested")
-            event.accept()
+        self._logger.info("Application shutdown requested")
+        event.accept()
 
