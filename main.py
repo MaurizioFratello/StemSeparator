@@ -93,8 +93,7 @@ def main():
             sys.exit(app.exec())
         except Exception as gui_error:  # pragma: no cover - GUI bootstrap failure is fatal
             logger.critical(
-                "Failed to start GUI: %s",
-                gui_error,
+                f"Failed to start GUI: {gui_error}",
                 exc_info=True,
             )
             QMessageBox.critical(

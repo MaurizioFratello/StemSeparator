@@ -29,6 +29,15 @@ KI-gestützte Audio Stem Separation mit modernsten Open-Source-Modellen.
   - Audio-Export der gemischten Stems
 - **Queue-System**: Mehrere Dateien nacheinander verarbeiten
 - **Mehrsprachig**: Deutsch/Englisch
+- **Native macOS Integration** ✨ (NEW):
+  - Systemmenü-Integration (Menüleiste erscheint in macOS-Systemleiste)
+  - Standard macOS-Menüs (Edit-Menü mit Undo/Redo/Cut/Copy/Paste)
+  - Native macOS-Tastaturkürzel (Cmd+W, Cmd+M, Cmd+,)
+  - Native macOS-Dateiauswahl (Finder-Dialoge)
+  - macOS-optimierte Schriftarten (SF Pro Text)
+  - Automatische Light/Dark Mode-Anpassung
+  - macOS-natives Fensterverhalten (zentriert, Full-Screen-Button)
+  - Vibrancy-Effekte für Tab-Leiste und Toolbars
 
 ## Systemanforderungen
 
