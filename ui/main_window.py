@@ -284,8 +284,6 @@ class MainWindow(QMainWindow):
             """)
 
         # Add key actions to toolbar
-        toolbar.addAction(self._open_files_action)
-        toolbar.addSeparator()
         toolbar.addAction(self._settings_action)
 
         # Add spacer to push help to the right (macOS convention)
