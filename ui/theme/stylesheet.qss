@@ -542,15 +542,15 @@ QTabWidget::pane {
 }
 
 QTabBar {
-    /* Subtle background to separate tabs from content (Option A) */
-    background-color: rgba(30, 30, 35, 0.8);
+    /* Light gray background for better contrast with black text */
+    background-color: rgba(180, 180, 185, 0.95);
     padding-top: 4px;  /* Add top padding for visual breathing room */
 }
 
 QTabBar::tab {
-    /* Option A: Higher contrast for better readability */
+    /* Black text on light gray background for maximum readability */
     background-color: transparent;
-    color: #B0B0B5;  /* Lighter gray - much more readable than #8E8E93 */
+    color: #000000;  /* Black text for maximum contrast */
     padding: 8px 20px;  /* Tighter padding */
     margin-right: 0px;  /* No gap between tabs */
     border: none;
@@ -562,16 +562,16 @@ QTabBar::tab {
 }
 
 QTabBar::tab:hover {
-    background-color: rgba(255, 255, 255, 0.08);  /* Slightly stronger hover */
-    color: #D0D0D5;  /* Lighter on hover */
+    background-color: rgba(255, 255, 255, 0.4);  /* Light hover highlight */
+    color: #000000;  /* Keep black on hover */
 }
 
 QTabBar::tab:selected {
-    /* Option A: macOS blue with better contrast */
-    background: rgba(0, 122, 255, 0.15);  /* macOS blue tint */
-    color: #FFFFFF;  /* Pure white for selected */
-    font-weight: 500;  /* Medium weight for active */
-    border-bottom: 2px solid #007AFF;  /* macOS blue underline */
+    /* Selected tab with macOS blue on light background */
+    background: rgba(0, 122, 255, 0.2);  /* Slightly stronger blue tint */
+    color: #000000;  /* Black text for consistency */
+    font-weight: 600;  /* Semibold weight for active */
+    border-bottom: 3px solid #007AFF;  /* Thicker macOS blue underline */
 }
 
 QTabBar::tab:!selected {
