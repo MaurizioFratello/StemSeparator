@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QMainWindow,
     QMessageBox,
+    QSizePolicy,
     QStatusBar,
     QTabWidget,
     QToolBar,
@@ -289,7 +290,7 @@ class MainWindow(QMainWindow):
 
         # Add spacer to push help to the right (macOS convention)
         spacer = QWidget()
-        spacer.setSizePolicy(QWidget.Expanding, QWidget.Expanding)
+        spacer.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         toolbar.addWidget(spacer)
 
         toolbar.addAction(self._about_action)
