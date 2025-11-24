@@ -3,32 +3,40 @@ Typography system for StemSeparator GUI
 
 PURPOSE: Consistent font sizing and weights across the application.
 CONTEXT: Uses system fonts with fallbacks for cross-platform compatibility.
+         Optimized for macOS with SF Pro Text/Display font stack.
 """
 
 
 class Typography:
     """Typography scale and font definitions"""
 
-    # Font family stack (system fonts for native look)
-    FONT_FAMILY = "Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif"
-    FONT_FAMILY_MONO = "'SF Mono', Consolas, Monaco, 'Courier New', monospace"
+    # Font family stack (macOS-optimized, system fonts for native look)
+    # WHY: -apple-system first for macOS SF Pro, then cross-platform fallbacks
+    FONT_FAMILY = "-apple-system, 'SF Pro Text', system-ui, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif"
+    FONT_FAMILY_MONO = "'SF Mono', Menlo, Monaco, Consolas, 'Courier New', monospace"
 
-    # Font sizes (in pixels)
-    SIZE_DISPLAY = 28           # Large headings, hero text
-    SIZE_H1 = 22               # Section headers
-    SIZE_H2 = 18               # Subsection headers
-    SIZE_H3 = 16               # Group box titles
-    SIZE_BODY = 14             # Body text, buttons, inputs
-    SIZE_SMALL = 12            # Labels, captions, secondary info
-    SIZE_TINY = 10             # Metadata, timestamps
+    # Font sizes (in pixels) - macOS-optimized
+    # WHY: macOS native apps typically use 13px for body text, not 14px
+    SIZE_DISPLAY = 26           # Large headings (macOS convention: slightly smaller than other platforms)
+    SIZE_H1 = 20                # Section headers (macOS standard for large headers)
+    SIZE_H2 = 17                # Subsection headers (macOS standard for medium headers)
+    SIZE_H3 = 15                # Group box titles (slightly larger than body)
+    SIZE_BODY = 13              # Body text, buttons, inputs (macOS default!)
+    SIZE_SMALL = 11             # Labels, captions, secondary info (macOS small text)
+    SIZE_TINY = 9               # Metadata, timestamps (macOS caption text)
 
-    # Font weights
-    WEIGHT_LIGHT = 300
-    WEIGHT_NORMAL = 400
-    WEIGHT_MEDIUM = 500
-    WEIGHT_SEMIBOLD = 600
-    WEIGHT_BOLD = 700
-    WEIGHT_EXTRABOLD = 800
+    # Font weights - extended for SF Pro compatibility
+    # WHY: SF Pro has more weight variants than standard fonts
+    WEIGHT_ULTRALIGHT = 100     # SF Pro Ultralight
+    WEIGHT_THIN = 200           # SF Pro Thin
+    WEIGHT_LIGHT = 300          # SF Pro Light
+    WEIGHT_NORMAL = 400         # SF Pro Regular
+    WEIGHT_MEDIUM = 500         # SF Pro Medium
+    WEIGHT_SEMIBOLD = 600       # SF Pro Semibold
+    WEIGHT_BOLD = 700           # SF Pro Bold
+    WEIGHT_HEAVY = 800          # SF Pro Heavy
+    WEIGHT_BLACK = 900          # SF Pro Black
+    WEIGHT_EXTRABOLD = 800      # Alias for Heavy (backward compatibility)
 
     # Line heights (relative to font size)
     LINE_HEIGHT_TIGHT = 1.2

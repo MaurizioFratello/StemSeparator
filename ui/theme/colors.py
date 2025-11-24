@@ -3,7 +3,11 @@ Color palette for StemSeparator GUI
 
 PURPOSE: Centralized color definitions for consistent theming across the application.
 CONTEXT: Modern dark theme with purple-blue accents, inspired by professional audio software.
+         Integrates with macOS system colors for native appearance on Mac.
 """
+from __future__ import annotations
+
+from .macos_colors import MacOSColors
 
 
 class ColorPalette:
@@ -55,6 +59,20 @@ class ColorPalette:
     LEVEL_CAUTION = "#f59e0b"           # Orange (-12 to -3 dB)
     LEVEL_DANGER = "#ef4444"            # Red (> -3 dB - risk of clipping)
 
+    # macOS system color integration (NEW)
+    # These adapt to system appearance (light/dark mode) on macOS
+    SYSTEM_WINDOW_BG = MacOSColors.window_background()
+    SYSTEM_CONTROL_BG = MacOSColors.control_background()
+    SYSTEM_TEXT = MacOSColors.text_color()
+    SYSTEM_ACCENT = MacOSColors.accent_color()
+
+    # macOS native colors for semantic purposes
+    MACOS_BLUE = MacOSColors.MACOS_BLUE          # System blue (for focus states)
+    MACOS_GREEN = MacOSColors.MACOS_GREEN        # System green (success)
+    MACOS_RED = MacOSColors.MACOS_RED            # System red (danger)
+    MACOS_ORANGE = MacOSColors.MACOS_ORANGE      # System orange (warning)
+    MACOS_GRAY = MacOSColors.MACOS_GRAY          # System gray (secondary)
+
     # Transparency helpers
     @staticmethod
     def with_alpha(color: str, alpha: float) -> str:
@@ -98,3 +116,30 @@ class ColorPalette:
     def gradient_error(cls) -> str:
         """Error gradient"""
         return f"qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 {cls.ERROR}, stop:1 #dc2626)"
+
+    # macOS-adaptive color methods (NEW)
+    @classmethod
+    def get_adaptive_background(cls, fallback: str = None) -> str:
+        """
+        Get background color that adapts to macOS appearance
+
+        WHY: On macOS, uses system colors that change with light/dark mode.
+             On other platforms, uses fallback or default.
+        """
+        if fallback is None:
+            fallback = cls.BACKGROUND_PRIMARY
+        return MacOSColors.get_adaptive_background(fallback)
+
+    @classmethod
+    def get_adaptive_text(cls, fallback: str = None) -> str:
+        """Get text color that adapts to macOS appearance"""
+        if fallback is None:
+            fallback = cls.TEXT_PRIMARY
+        return MacOSColors.get_adaptive_text(fallback)
+
+    @classmethod
+    def get_adaptive_accent(cls, fallback: str = None) -> str:
+        """Get accent color that adapts to macOS system accent"""
+        if fallback is None:
+            fallback = cls.ACCENT_PRIMARY
+        return MacOSColors.get_adaptive_accent(fallback)

@@ -3,11 +3,12 @@ Main window scaffolding for the Stem Separator GUI.
 """
 from __future__ import annotations
 
+import platform
 from pathlib import Path
 from typing import Dict
 
-from PySide6.QtCore import QUrl, Qt, Slot
-from PySide6.QtGui import QAction, QCloseEvent, QIcon
+from PySide6.QtCore import QUrl, Qt, Slot, QSize
+from PySide6.QtGui import QAction, QCloseEvent, QIcon, QKeySequence
 from PySide6.QtWidgets import (
     QApplication,
     QFileDialog,
@@ -30,6 +31,7 @@ from ui.widgets.queue_widget import QueueWidget
 from ui.widgets.player_widget import PlayerWidget
 from ui.widgets.settings_dialog import SettingsDialog
 from ui.theme import ThemeManager
+from ui.theme.macos_effects import MacOSEffects
 
 
 class MainWindow(QMainWindow):
@@ -75,10 +77,23 @@ class MainWindow(QMainWindow):
         PURPOSE: Configure the central layout and default tabs.
         CONTEXT: Tabs currently use placeholders that will be replaced by concrete widgets in later
                  tasks while preserving tab order and identifiers.
+                 Includes macOS-specific window management and visual effects.
         """
 
         self.setWindowTitle(APP_NAME)
         self.resize(1400, 900)  # Larger default size for modern displays
+
+        # macOS-specific window configuration
+        if platform.system() == "Darwin":
+            # Enable native full-screen button
+            self.setWindowFlag(Qt.WindowFullscreenButtonHint, True)
+
+            # Set minimum size to prevent tiny windows
+            self.setMinimumSize(1000, 700)
+
+            # Center window on screen (macOS convention)
+            self._center_on_screen()
+
         self.setCentralWidget(self._tab_widget)
 
         # Modern tab widget configuration
@@ -89,12 +104,12 @@ class MainWindow(QMainWindow):
         self._recording_widget = RecordingWidget(self)
         self._queue_widget = QueueWidget(self)
         self._player_widget = PlayerWidget(self)
-        
+
         self._tab_widget.addTab(self._upload_widget, "Upload")
         self._tab_widget.addTab(self._recording_widget, "Recording")
         self._tab_widget.addTab(self._queue_widget, "Queue")
         self._tab_widget.addTab(self._player_widget, "Player")
-        
+
         # Wire up signals between widgets
         self._upload_widget.file_queued.connect(self._queue_widget.add_task)
         self._recording_widget.recording_saved.connect(self._on_recording_saved)
@@ -103,31 +118,132 @@ class MainWindow(QMainWindow):
         status_bar.showMessage(self._context.translate("status.ready", fallback="Ready"))
         self.setStatusBar(status_bar)
 
+        # Apply macOS vibrancy effects to tab bar (on macOS only)
+        if platform.system() == "Darwin":
+            MacOSEffects.apply_toolbar_effect(self._tab_widget.tabBar(), dark=True)
+
+    def _center_on_screen(self) -> None:
+        """
+        Center window on primary screen
+
+        WHY: macOS convention - apps should launch centered, not in arbitrary positions
+        """
+        try:
+            from PySide6.QtGui import QScreen
+            screen = QApplication.primaryScreen()
+            if screen:
+                geometry = screen.availableGeometry()
+                self.move(
+                    (geometry.width() - self.width()) // 2,
+                    (geometry.height() - self.height()) // 2
+                )
+        except Exception:
+            # Fail gracefully if screen detection doesn't work
+            pass
+
     def _setup_menu(self) -> None:
         """
         PURPOSE: Build menu bar with placeholders for file/view/help actions.
         CONTEXT: Menus expose core diagnostics (logs), localisation, and about dialogs from the
                  outset to keep workflow consistent as widgets arrive.
+                 Includes macOS-specific native menu bar and standard menus.
         """
 
         menubar = self.menuBar()
 
+        # Enable native macOS menu bar (appears in system menu bar, not in-window)
+        if platform.system() == "Darwin":
+            menubar.setNativeMenuBar(True)
+
+        # File menu
         self._file_menu = menubar.addMenu("")  # Populated in _apply_translations.
         self._open_files_action = QAction(self._load_icon("folder-open"), "", self)
         self._file_menu.addAction(self._open_files_action)
 
         self._file_menu.addSeparator()
+
+        # macOS-specific: Close Window (Cmd+W)
+        if platform.system() == "Darwin":
+            self._close_window_action = QAction("Close Window", self)
+            self._close_window_action.setShortcut(QKeySequence("Ctrl+W"))  # Ctrl = Cmd on Mac
+            self._file_menu.addAction(self._close_window_action)
+
+            # Minimize (Cmd+M)
+            self._minimize_action = QAction("Minimize", self)
+            self._minimize_action.setShortcut(QKeySequence("Ctrl+M"))
+            self._file_menu.addAction(self._minimize_action)
+
+            self._file_menu.addSeparator()
+
         self._quit_action = QAction(self._load_icon("application-exit"), "", self)
-        self._quit_action.setShortcut("Ctrl+Q")
+        self._quit_action.setShortcut(QKeySequence.Quit)  # Cmd+Q on Mac, Ctrl+Q on others
         self._file_menu.addAction(self._quit_action)
 
+        # Edit menu (standard macOS menu)
+        if platform.system() == "Darwin":
+            self._setup_edit_menu(menubar)
+
+        # View menu
         self._view_menu = menubar.addMenu("")
         self._settings_action = QAction(self._load_icon("preferences-system"), "", self)
+        # macOS convention: Settings shortcut is Cmd+,
+        if platform.system() == "Darwin":
+            self._settings_action.setShortcut(QKeySequence("Ctrl+,"))
         self._view_menu.addAction(self._settings_action)
 
+        # Help menu
         self._help_menu = menubar.addMenu("")
         self._about_action = QAction(self._load_icon("help-about"), "", self)
         self._help_menu.addAction(self._about_action)
+
+    def _setup_edit_menu(self, menubar) -> None:
+        """
+        Setup standard Edit menu (macOS convention)
+
+        WHY: macOS apps are expected to have an Edit menu with Undo/Redo/Cut/Copy/Paste
+              even if some actions aren't fully implemented yet
+        """
+        self._edit_menu = menubar.addMenu("Edit")
+
+        # Undo
+        self._undo_action = QAction("Undo", self)
+        self._undo_action.setShortcut(QKeySequence.Undo)
+        self._undo_action.setEnabled(False)  # Disabled for now
+        self._edit_menu.addAction(self._undo_action)
+
+        # Redo
+        self._redo_action = QAction("Redo", self)
+        self._redo_action.setShortcut(QKeySequence.Redo)
+        self._redo_action.setEnabled(False)  # Disabled for now
+        self._edit_menu.addAction(self._redo_action)
+
+        self._edit_menu.addSeparator()
+
+        # Cut
+        self._cut_action = QAction("Cut", self)
+        self._cut_action.setShortcut(QKeySequence.Cut)
+        self._cut_action.setEnabled(False)  # Disabled for now
+        self._edit_menu.addAction(self._cut_action)
+
+        # Copy
+        self._copy_action = QAction("Copy", self)
+        self._copy_action.setShortcut(QKeySequence.Copy)
+        self._copy_action.setEnabled(False)  # Disabled for now
+        self._edit_menu.addAction(self._copy_action)
+
+        # Paste
+        self._paste_action = QAction("Paste", self)
+        self._paste_action.setShortcut(QKeySequence.Paste)
+        self._paste_action.setEnabled(False)  # Disabled for now
+        self._edit_menu.addAction(self._paste_action)
+
+        self._edit_menu.addSeparator()
+
+        # Select All
+        self._select_all_action = QAction("Select All", self)
+        self._select_all_action.setShortcut(QKeySequence.SelectAll)
+        self._select_all_action.setEnabled(False)  # Disabled for now
+        self._edit_menu.addAction(self._select_all_action)
 
     def _setup_toolbar(self) -> None:
         """
@@ -143,12 +259,18 @@ class MainWindow(QMainWindow):
         """
         PURPOSE: Wire UI actions to their respective slots.
         CONTEXT: Keeps behaviour declarative and simplifies unit testing by isolating slot logic.
+                 Includes macOS-specific action connections.
         """
 
         self._open_files_action.triggered.connect(self._choose_files)
         self._quit_action.triggered.connect(QApplication.instance().quit)
         self._settings_action.triggered.connect(self._show_settings)
         self._about_action.triggered.connect(self._show_about_dialog)
+
+        # macOS-specific actions
+        if platform.system() == "Darwin":
+            self._close_window_action.triggered.connect(self.close)
+            self._minimize_action.triggered.connect(self.showMinimized)
 
     def _apply_translations(self) -> None:
         """
@@ -218,13 +340,20 @@ class MainWindow(QMainWindow):
     @Slot()
     def _choose_files(self) -> None:
         """
-        PURPOSE: Allow selecting audio files before the upload widget is implemented.
+        PURPOSE: Allow selecting audio files using native file dialog.
         CONTEXT: Provides early ability to inspect file selection flow and ensures the File menu
                  remains functional during scaffold stage.
+                 Uses native macOS file dialog for better integration.
         """
 
         dialog = QFileDialog(self)
         dialog.setFileMode(QFileDialog.ExistingFiles)
+
+        # Use native macOS file dialog (CRITICAL for native feel)
+        if platform.system() == "Darwin":
+            dialog.setOption(QFileDialog.DontUseNativeDialog, False)
+            dialog.setOption(QFileDialog.DontUseCustomDirectoryIcons, False)
+
         dialog.setNameFilters(
             [
                 self._context.translate(
