@@ -217,10 +217,13 @@ class PlayerWidget(QWidget):
         ThemeManager.set_widget_property(self.btn_load_dir, "buttonStyle", "secondary")
         self.btn_load_files = QPushButton("📄 Load Individual Files")
         ThemeManager.set_widget_property(self.btn_load_files, "buttonStyle", "secondary")
-        self.btn_clear = QPushButton("Clear")
+        self.btn_remove_selected = QPushButton("Remove Selected")
+        ThemeManager.set_widget_property(self.btn_remove_selected, "buttonStyle", "secondary")
+        self.btn_clear = QPushButton("Clear All")
         ThemeManager.set_widget_property(self.btn_clear, "buttonStyle", "secondary")
         load_buttons.addWidget(self.btn_load_dir)
         load_buttons.addWidget(self.btn_load_files)
+        load_buttons.addWidget(self.btn_remove_selected)
         load_buttons.addWidget(self.btn_clear)
         load_buttons.addStretch()
         load_layout.addLayout(load_buttons)
@@ -322,6 +325,7 @@ class PlayerWidget(QWidget):
         """Connect signals"""
         self.btn_load_dir.clicked.connect(self._on_load_dir)
         self.btn_load_files.clicked.connect(self._on_load_files)
+        self.btn_remove_selected.clicked.connect(self._on_remove_selected_clicked)
         self.btn_clear.clicked.connect(self._on_clear_clicked)
         self.stems_list.files_dropped.connect(self._on_files_dropped)
         self.btn_play.clicked.connect(self._on_play)
@@ -387,6 +391,55 @@ class PlayerWidget(QWidget):
             return
 
         self._load_stems(audio_files)
+
+    @Slot()
+    def _on_remove_selected_clicked(self):
+        """Remove selected stem(s) from list and player"""
+        selected_items = self.stems_list.selectedItems()
+        if not selected_items:
+            return
+
+        # Collect stems to remove
+        stems_to_remove = []
+        for item in selected_items:
+            # Extract stem name from list item text (format: "stem_name: filename.wav")
+            item_text = item.text()
+            stem_name = item_text.split(":")[0].strip()
+            stems_to_remove.append(stem_name)
+
+        # Remove items from list
+        for item in selected_items:
+            row = self.stems_list.row(item)
+            self.stems_list.takeItem(row)
+
+        # Remove stems from dictionaries and UI
+        for stem_name in stems_to_remove:
+            if stem_name in self.stem_files:
+                del self.stem_files[stem_name]
+
+            if stem_name in self.stem_controls:
+                control = self.stem_controls[stem_name]
+                control.deleteLater()
+                del self.stem_controls[stem_name]
+
+        # If no stems remain, reset everything
+        if len(self.stem_files) == 0:
+            self._on_clear_clicked()
+        else:
+            # Reload remaining stems into player
+            self.player.load_stems(self.stem_files)
+
+            # Update duration if stems still loaded
+            if self.stem_files:
+                duration = self.player.get_duration()
+                self.duration_label.setText(self._format_time(duration))
+                self.position_slider.setRange(0, int(duration * 1000))
+                self.info_label.setText(
+                    f"✓ Loaded {len(self.stem_files)} stems. "
+                    f"Duration: {self._format_time(duration)}"
+                )
+
+        self.ctx.logger().info(f"Removed {len(stems_to_remove)} stem(s) from player")
 
     @Slot()
     def _on_clear_clicked(self):

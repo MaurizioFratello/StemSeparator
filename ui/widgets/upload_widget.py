@@ -199,9 +199,12 @@ class UploadWidget(QWidget):
         file_buttons = QHBoxLayout()
         self.btn_browse = QPushButton("Browse...")
         ThemeManager.set_widget_property(self.btn_browse, "buttonStyle", "secondary")
-        self.btn_clear = QPushButton("Clear")
+        self.btn_remove_selected = QPushButton("Remove Selected")
+        ThemeManager.set_widget_property(self.btn_remove_selected, "buttonStyle", "secondary")
+        self.btn_clear = QPushButton("Clear All")
         ThemeManager.set_widget_property(self.btn_clear, "buttonStyle", "secondary")
         file_buttons.addWidget(self.btn_browse)
+        file_buttons.addWidget(self.btn_remove_selected)
         file_buttons.addWidget(self.btn_clear)
         file_buttons.addStretch()
         file_layout.addLayout(file_buttons)
@@ -303,6 +306,7 @@ class UploadWidget(QWidget):
     def _connect_signals(self):
         """Connect button signals to handlers"""
         self.btn_browse.clicked.connect(self._on_browse_clicked)
+        self.btn_remove_selected.clicked.connect(self._on_remove_selected_clicked)
         self.btn_clear.clicked.connect(self._on_clear_clicked)
         self.btn_output_browse.clicked.connect(self._on_output_browse_clicked)
         self.btn_start.clicked.connect(self._on_start_clicked)
@@ -396,6 +400,25 @@ class UploadWidget(QWidget):
             for file_path_str in file_paths:
                 self._add_file(Path(file_path_str))
     
+    @Slot()
+    def _on_remove_selected_clicked(self):
+        """Remove selected file(s) from list"""
+        selected_items = self.file_list.selectedItems()
+        if not selected_items:
+            return
+
+        # Remove all selected items
+        for item in selected_items:
+            row = self.file_list.row(item)
+            self.file_list.takeItem(row)
+
+        # Clear waveform if no items remain or no selection
+        if self.file_list.count() == 0 or not self.file_list.selectedItems():
+            self.waveform_widget.clear()
+
+        self._update_button_states()
+        self.ctx.logger().info(f"Removed {len(selected_items)} file(s) from list")
+
     @Slot()
     def _on_clear_clicked(self):
         """Clear file list"""
@@ -726,6 +749,7 @@ class UploadWidget(QWidget):
                 model_info = self.ctx.model_manager().get_model_info(model_id)
                 model_downloaded = model_info.downloaded if model_info else False
 
+        self.btn_remove_selected.setEnabled(has_selection)
         self.btn_clear.setEnabled(has_files)
         self.btn_start.setEnabled(has_selection and self.current_worker is None and model_downloaded)
         self.btn_queue.setEnabled(has_selection and model_downloaded)
