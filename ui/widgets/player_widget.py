@@ -182,6 +182,9 @@ class PlayerWidget(QWidget):
         self._setup_ui()
         self._connect_signals()
         self.apply_translations()
+        
+        # Set initial button states (stems list is empty initially)
+        self._update_button_states()
 
         self.ctx.logger().info("PlayerWidget initialized with real playback")
 
@@ -215,10 +218,23 @@ class PlayerWidget(QWidget):
         load_buttons = QHBoxLayout()
         self.btn_load_dir = QPushButton("📁 Load from Directory")
         ThemeManager.set_widget_property(self.btn_load_dir, "buttonStyle", "secondary")
+        self.btn_load_dir.setToolTip("Load all stems from a separated audio directory")
+        
         self.btn_load_files = QPushButton("📄 Load Individual Files")
         ThemeManager.set_widget_property(self.btn_load_files, "buttonStyle", "secondary")
+        self.btn_load_files.setToolTip("Load individual stem files")
+        
+        self.btn_remove_selected = QPushButton("Remove Selected")
+        ThemeManager.set_widget_property(self.btn_remove_selected, "buttonStyle", "secondary")
+        self.btn_remove_selected.setToolTip("Remove selected stems from list (available when stems are selected)")
+        
+        self.btn_clear = QPushButton("Clear All")
+        ThemeManager.set_widget_property(self.btn_clear, "buttonStyle", "secondary")
+        self.btn_clear.setToolTip("Clear all stems from list (available when stems are present)")
         load_buttons.addWidget(self.btn_load_dir)
         load_buttons.addWidget(self.btn_load_files)
+        load_buttons.addWidget(self.btn_remove_selected)
+        load_buttons.addWidget(self.btn_clear)
         load_buttons.addStretch()
         load_layout.addLayout(load_buttons)
 
@@ -276,14 +292,17 @@ class PlayerWidget(QWidget):
         self.btn_play = QPushButton("▶ Play")
         self.btn_play.setEnabled(False)
         ThemeManager.set_widget_property(self.btn_play, "buttonStyle", "success")
+        self.btn_play.setToolTip("Play stems (available when stems are loaded)")
 
         self.btn_pause = QPushButton("⏸ Pause")
         self.btn_pause.setEnabled(False)
         ThemeManager.set_widget_property(self.btn_pause, "buttonStyle", "secondary")
+        self.btn_pause.setToolTip("Pause playback (available during playback)")
 
         self.btn_stop = QPushButton("⏹ Stop")
         self.btn_stop.setEnabled(False)
         ThemeManager.set_widget_property(self.btn_stop, "buttonStyle", "danger")
+        self.btn_stop.setToolTip("Stop playback (available during playback)")
 
         self.btn_export = QPushButton("💾 Export Mixed Audio")
         self.btn_export.setEnabled(False)
@@ -319,7 +338,10 @@ class PlayerWidget(QWidget):
         """Connect signals"""
         self.btn_load_dir.clicked.connect(self._on_load_dir)
         self.btn_load_files.clicked.connect(self._on_load_files)
+        self.btn_remove_selected.clicked.connect(self._on_remove_selected_clicked)
+        self.btn_clear.clicked.connect(self._on_clear_clicked)
         self.stems_list.files_dropped.connect(self._on_files_dropped)
+        self.stems_list.itemSelectionChanged.connect(self._update_button_states)
         self.btn_play.clicked.connect(self._on_play)
         self.btn_pause.clicked.connect(self._on_pause)
         self.btn_stop.clicked.connect(self._on_stop)
@@ -383,6 +405,97 @@ class PlayerWidget(QWidget):
             return
 
         self._load_stems(audio_files)
+
+    @Slot()
+    def _on_remove_selected_clicked(self):
+        """Remove selected stem(s) from list and player"""
+        selected_items = self.stems_list.selectedItems()
+        if not selected_items:
+            return
+
+        # Collect stems to remove
+        stems_to_remove = []
+        for item in selected_items:
+            # Extract stem name from list item text (format: "stem_name: filename.wav")
+            item_text = item.text()
+            stem_name = item_text.split(":")[0].strip()
+            stems_to_remove.append(stem_name)
+
+        # Remove items from list
+        for item in selected_items:
+            row = self.stems_list.row(item)
+            self.stems_list.takeItem(row)
+
+        # Remove stems from dictionaries and UI
+        for stem_name in stems_to_remove:
+            if stem_name in self.stem_files:
+                del self.stem_files[stem_name]
+
+            if stem_name in self.stem_controls:
+                control = self.stem_controls[stem_name]
+                control.deleteLater()
+                del self.stem_controls[stem_name]
+
+        # If no stems remain, reset everything
+        if len(self.stem_files) == 0:
+            self._on_clear_clicked()
+        else:
+            # Reload remaining stems into player
+            self.player.load_stems(self.stem_files)
+
+            # Update duration if stems still loaded
+            if self.stem_files:
+                duration = self.player.get_duration()
+                self.duration_label.setText(self._format_time(duration))
+                self.position_slider.setRange(0, int(duration * 1000))
+                self.info_label.setText(
+                    f"✓ Loaded {len(self.stem_files)} stems. "
+                    f"Duration: {self._format_time(duration)}"
+                )
+
+        self.ctx.logger().info(f"Removed {len(stems_to_remove)} stem(s) from player")
+        
+        # Update button states
+        self._update_button_states()
+
+    @Slot()
+    def _on_clear_clicked(self):
+        """Clear all loaded stems and reset player"""
+        # Stop playback
+        self.player.stop()
+
+        # Clear stem files dictionary
+        self.stem_files.clear()
+
+        # Remove and delete all stem controls
+        for control in self.stem_controls.values():
+            control.deleteLater()
+        self.stem_controls.clear()
+
+        # Clear stems list widget
+        self.stems_list.clear()
+
+        # Reset player state
+        self.position_slider.setValue(0)
+        self.position_slider.setEnabled(False)
+        self.current_time_label.setText("00:00")
+        self.duration_label.setText("00:00")
+
+        # Disable playback and export buttons
+        self.btn_play.setEnabled(False)
+        self.btn_pause.setEnabled(False)
+        self.btn_stop.setEnabled(False)
+        self.btn_export.setEnabled(False)
+
+        # Reset info label
+        self.info_label.setText(
+            "Load separated stems to use the mixer and playback."
+        )
+
+        self.ctx.logger().info("Cleared all loaded stems")
+        
+        # Update button states (all should be disabled now)
+        self._update_button_states()
 
     def _load_stems(self, file_paths: list[Path]):
         """Load stem files into player"""
@@ -492,6 +605,9 @@ class PlayerWidget(QWidget):
                     "Loading Failed",
                     "Failed to load stems. Check the log for details."
                 )
+        
+        # Update button states based on loaded stems
+        self._update_button_states()
 
     @Slot(str, int)
     def _on_stem_volume_changed(self, stem_name: str, volume: int):
@@ -613,6 +729,19 @@ class PlayerWidget(QWidget):
             self.btn_pause.setEnabled(False)
             self.btn_stop.setEnabled(False)
             self.position_timer.stop()
+
+    def _update_button_states(self):
+        """
+        Update button enabled states based on stem list and selection
+        
+        WHY: Buttons should only be enabled when their action is meaningful.
+             Consistent with UploadWidget behavior.
+        """
+        has_stems = self.stems_list.count() > 0
+        has_selection = len(self.stems_list.selectedItems()) > 0
+
+        self.btn_remove_selected.setEnabled(has_selection)
+        self.btn_clear.setEnabled(has_stems)
 
     @Slot()
     def _update_position(self):

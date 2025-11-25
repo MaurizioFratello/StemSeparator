@@ -31,7 +31,6 @@ from ui.widgets.recording_widget import RecordingWidget
 from ui.widgets.queue_widget import QueueWidget
 from ui.widgets.player_widget import PlayerWidget
 from ui.widgets.settings_dialog import SettingsDialog
-from ui.theme import ThemeManager
 from ui.theme.macos_effects import MacOSEffects
 from ui.theme.macos_dialogs import MacOSDialogs
 
@@ -50,8 +49,7 @@ class MainWindow(QMainWindow):
         self._tab_widget = QTabWidget()
         self._icons_cache: Dict[str, QIcon] = {}
 
-        # Apply modern theme
-        self._apply_theme()
+        # Theme is now applied at application level in main.py
 
         self._setup_ui()
         self._setup_menu()
@@ -60,19 +58,6 @@ class MainWindow(QMainWindow):
         self._apply_translations()
 
         self._logger.info("Main window initialised")
-
-    def _apply_theme(self) -> None:
-        """
-        PURPOSE: Apply modern dark theme to the application.
-        CONTEXT: Loads and applies QSS stylesheet for consistent modern look.
-        """
-        try:
-            theme_manager = ThemeManager.instance()
-            stylesheet = theme_manager.load_stylesheet()
-            self.setStyleSheet(stylesheet)
-            self._logger.info("Modern theme applied successfully")
-        except Exception as e:
-            self._logger.warning(f"Failed to load theme: {e}. Using default Qt theme.")
 
     def _setup_ui(self) -> None:
         """

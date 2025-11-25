@@ -111,6 +111,13 @@ QPushButton[buttonStyle="secondary"]:pressed {
     background: rgba(0, 122, 255, 0.2);
 }
 
+QPushButton[buttonStyle="secondary"]:disabled {
+    background: transparent;
+    border: 1px solid #4d4d4d;  /* Dimmed border */
+    color: #4d4d4d;  /* Dimmed text */
+    opacity: 0.5;  /* Visual indication of disabled state */
+}
+
 /* Danger Button Style */
 QPushButton[buttonStyle="danger"] {
     background: qlineargradient(
@@ -124,6 +131,12 @@ QPushButton[buttonStyle="danger"]:hover {
         x1:0, y1:0, x2:0, y2:1,
         stop:0 #f87171, stop:1 #ef4444
     );
+}
+
+QPushButton[buttonStyle="danger"]:disabled {
+    background: #3d3d3d;
+    color: #707070;
+    opacity: 0.5;
 }
 
 /* Success Button Style */
@@ -141,6 +154,12 @@ QPushButton[buttonStyle="success"]:hover {
     );
 }
 
+QPushButton[buttonStyle="success"]:disabled {
+    background: #3d3d3d;
+    color: #707070;
+    opacity: 0.5;
+}
+
 /* Icon Button Style (small, square buttons like M, S in player) */
 QPushButton[buttonStyle="icon"] {
     min-width: 36px;
@@ -151,6 +170,21 @@ QPushButton[buttonStyle="icon"] {
     font-weight: 700;
     font-size: 13px;
     border-radius: 6px;
+}
+
+QPushButton[buttonStyle="icon"]:hover {
+    /* Subtle lift effect matching default button hover */
+    background: qlineargradient(
+        x1:0, y1:0, x2:0, y2:1,
+        stop:0 #6E8CF2, stop:1 #7B6EB8
+    );
+    border: 0.5px solid rgba(255, 255, 255, 0.1);
+}
+
+QPushButton[buttonStyle="icon"]:disabled {
+    background: #3d3d3d;
+    color: #4d4d4d;
+    opacity: 0.5;
 }
 
 /* Mute button checked state - performance optimized */

@@ -132,18 +132,22 @@ class RecordingWidget(QWidget):
         buttons_layout = QHBoxLayout()
         self.btn_start = QPushButton("🔴 Start Recording")
         ThemeManager.set_widget_property(self.btn_start, "buttonStyle", "success")
+        self.btn_start.setToolTip("Start recording system audio")
 
         self.btn_pause = QPushButton("⏸ Pause")
         self.btn_pause.setEnabled(False)
         ThemeManager.set_widget_property(self.btn_pause, "buttonStyle", "secondary")
+        self.btn_pause.setToolTip("Pause/resume recording (available during recording)")
 
         self.btn_stop = QPushButton("💾 Stop & Save")
         self.btn_stop.setEnabled(False)
         # Stop uses primary style (default)
+        self.btn_stop.setToolTip("Stop recording and save file (available during recording)")
 
         self.btn_cancel = QPushButton("❌ Cancel")
         self.btn_cancel.setEnabled(False)
         ThemeManager.set_widget_property(self.btn_cancel, "buttonStyle", "danger")
+        self.btn_cancel.setToolTip("Cancel recording without saving (available during recording)")
 
         buttons_layout.addWidget(self.btn_start)
         buttons_layout.addWidget(self.btn_pause)

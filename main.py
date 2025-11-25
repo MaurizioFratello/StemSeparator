@@ -82,10 +82,19 @@ def main():
         from PySide6.QtWidgets import QApplication, QMessageBox
 
         from ui.main_window import MainWindow
+        from ui.theme import ThemeManager
 
         app = QApplication(sys.argv)
         app.setApplicationName(APP_NAME)
         app.setApplicationVersion(APP_VERSION)
+
+        # Apply theme at application level for consistent styling
+        try:
+            theme_manager = ThemeManager.instance()
+            theme_manager.apply_to_app(app)
+            logger.info("Application theme applied successfully")
+        except Exception as theme_error:
+            logger.warning(f"Failed to apply theme: {theme_error}. Using default Qt theme.")
 
         try:
             window = MainWindow()
