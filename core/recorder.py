@@ -57,6 +57,11 @@ class Recorder:
         self.recording_thread: Optional[threading.Thread] = None
         self._stop_event = threading.Event()
 
+        # Monitoring (level metering without recording)
+        self.monitoring_thread: Optional[threading.Thread] = None
+        self._monitoring_stop_event = threading.Event()
+        self._is_monitoring = False
+
         # Callbacks
         self.level_callback: Optional[Callable[[float], None]] = None
 
@@ -164,6 +169,11 @@ class Recorder:
         if not self._soundcard:
             self.logger.error("SoundCard not available")
             return False
+
+        # Stop monitoring if active
+        if self._is_monitoring:
+            self.logger.info("Stopping monitoring before starting recording")
+            self.stop_monitoring()
 
         # Finde Device
         if device_name:
@@ -510,6 +520,160 @@ class Recorder:
             # Lösche Chunks
             self.recorded_chunks = []
             self.logger.info("Recording cancelled")
+
+    def start_monitoring(
+        self,
+        device_name: Optional[str] = None,
+        level_callback: Optional[Callable[[float], None]] = None
+    ) -> bool:
+        """
+        Start live audio monitoring (level metering without recording)
+
+        WHY: Allows users to check input levels before starting actual recording
+
+        Args:
+            device_name: Name of the device to monitor (default: BlackHole)
+            level_callback: Callback for audio level updates
+
+        Returns:
+            True if monitoring started successfully
+        """
+        if self._is_monitoring:
+            self.logger.warning("Already monitoring")
+            return False
+
+        if self.state == RecordingState.RECORDING:
+            self.logger.warning("Cannot monitor while recording")
+            return False
+
+        if not self._soundcard:
+            self.logger.error("SoundCard not available")
+            return False
+
+        # Find device
+        if device_name:
+            self.logger.info(f"Looking for monitoring device: '{device_name}'")
+
+            device = None
+            for mic in self._soundcard.all_microphones():
+                if device_name == mic.name or device_name in mic.name or mic.name in device_name:
+                    device = mic
+                    self.logger.info(f"Found matching device: {mic.name}")
+                    break
+        else:
+            # Default: BlackHole
+            device = self.find_blackhole_device()
+
+        if not device:
+            self.logger.error(f"No monitoring device found for: {device_name}")
+            return False
+
+        self.logger.info(f"Starting monitoring from: {device.name}")
+
+        # Setup monitoring
+        self._monitoring_stop_event.clear()
+        self.level_callback = level_callback
+        self.current_level = 0.0  # Reset ballistics filter
+        self._is_monitoring = True
+
+        # Start monitoring thread
+        self.monitoring_thread = threading.Thread(
+            target=self._monitoring_loop,
+            args=(device,),
+            daemon=True
+        )
+        self.monitoring_thread.start()
+
+        return True
+
+    def stop_monitoring(self):
+        """Stop live audio monitoring"""
+        if not self._is_monitoring:
+            return
+
+        self.logger.info("Stopping monitoring...")
+
+        # Signal thread to stop
+        self._monitoring_stop_event.set()
+        self._is_monitoring = False
+
+        # Wait for thread
+        if self.monitoring_thread and self.monitoring_thread.is_alive():
+            self.monitoring_thread.join(timeout=2.0)
+
+        # Reset level meter
+        if self.level_callback:
+            self.level_callback(0.0)
+
+        self.logger.info("Monitoring stopped")
+
+    def is_monitoring(self) -> bool:
+        """Check if currently monitoring"""
+        return self._is_monitoring
+
+    def _monitoring_loop(self, device):
+        """
+        Monitoring loop (runs in separate thread)
+
+        WHY: Similar to _record_loop but only monitors levels without recording
+        """
+        try:
+            blocksize = 512
+            update_interval = 0.05  # 50ms
+            blocks_per_update = max(1, int((update_interval * self.sample_rate) / blocksize))
+
+            self.logger.debug(
+                f"Monitoring with blocksize={blocksize}, "
+                f"blocks_per_update={blocks_per_update}"
+            )
+
+            with device.recorder(
+                samplerate=self.sample_rate,
+                channels=self.channels,
+                blocksize=blocksize
+            ) as recorder:
+
+                block_counter = 0
+                accumulated_blocks = []
+                last_update_time = time.time()
+
+                while not self._monitoring_stop_event.is_set():
+                    # Read audio block (but don't save it)
+                    audio_block = recorder.record(numframes=blocksize)
+
+                    # Accumulate blocks for RMS calculation
+                    accumulated_blocks.append(audio_block)
+                    block_counter += 1
+
+                    # Level update with professional RMS calculation and ballistics
+                    if self.level_callback and block_counter >= blocks_per_update:
+                        current_time = time.time()
+                        dt = current_time - last_update_time
+
+                        # Calculate RMS over accumulated blocks
+                        combined_audio = np.concatenate(accumulated_blocks, axis=0)
+                        rms = np.sqrt(np.mean(combined_audio**2))
+
+                        # Convert to dBFS
+                        dbfs = self._rms_to_dbfs(rms)
+
+                        # Convert to display level (0.0-1.0)
+                        target_level = self._dbfs_to_display(dbfs)
+
+                        # Apply ballistics filter
+                        smoothed_level = self._apply_ballistics(target_level, dt)
+
+                        # Send to GUI
+                        self.level_callback(smoothed_level)
+
+                        # Reset for next update
+                        block_counter = 0
+                        accumulated_blocks = []
+                        last_update_time = current_time
+
+        except Exception as e:
+            self.logger.error(f"Error in monitoring loop: {e}", exc_info=True)
+            self._is_monitoring = False
 
 
 # Globale Instanz

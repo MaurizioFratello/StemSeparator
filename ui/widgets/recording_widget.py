@@ -165,7 +165,8 @@ class RecordingWidget(QWidget):
         self.btn_pause.clicked.connect(self._on_pause_clicked)
         self.btn_stop.clicked.connect(self._on_stop_clicked)
         self.btn_cancel.clicked.connect(self._on_cancel_clicked)
-        
+        self.device_combo.currentIndexChanged.connect(self._on_device_changed)
+
         # Connect internal signal for thread-safe level updates
         self.level_updated.connect(self._update_level_meter)
     
@@ -197,6 +198,40 @@ class RecordingWidget(QWidget):
                     break
         
         self.ctx.logger().info(f"Refreshed devices: {len(devices)} found")
+
+    @Slot(int)
+    def _on_device_changed(self, index: int):
+        """
+        Handle device selection change - start monitoring the selected device
+
+        WHY: Allows users to see input levels before starting recording
+        """
+        # Stop any existing monitoring
+        if self.recorder.is_monitoring():
+            self.recorder.stop_monitoring()
+
+        # Don't start monitoring if we're currently recording
+        if self.recorder.is_recording():
+            return
+
+        # Get selected device
+        device_name = self.device_combo.currentData()
+
+        if not device_name:
+            # No device selected (e.g., "No devices found")
+            return
+
+        # Start monitoring with level callback
+        success = self.recorder.start_monitoring(
+            device_name=device_name,
+            level_callback=self._on_level_update
+        )
+
+        if success:
+            self.ctx.logger().info(f"Started monitoring: {device_name}")
+            self.state_label.setText("Monitoring...")
+        else:
+            self.ctx.logger().warning(f"Failed to start monitoring: {device_name}")
 
     @Slot()
     def _on_start_clicked(self):
@@ -419,10 +454,16 @@ class RecordingWidget(QWidget):
     def apply_translations(self):
         """
         Apply current language translations
-        
+
         WHY: Called when language changes; updates all visible text
         """
         # Note: Translation keys would be defined in resources/translations/*.json
         # For now, using English defaults
         pass
+
+    def closeEvent(self, event):
+        """Clean up monitoring when widget is closed"""
+        if self.recorder.is_monitoring():
+            self.recorder.stop_monitoring()
+        super().closeEvent(event)
 
