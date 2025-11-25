@@ -5,17 +5,62 @@ PURPOSE: Allow users to play back separated stems with individual volume/mute/so
 CONTEXT: Provides mixing interface for separated audio stems with real-time playback.
 """
 from pathlib import Path
-from typing import Optional, Dict
+from typing import Optional, Dict, List
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
     QSlider, QGroupBox, QFileDialog, QMessageBox, QListWidget,
     QListWidgetItem, QScrollArea
 )
 from PySide6.QtCore import Qt, Signal, Slot, QTimer
+from PySide6.QtGui import QDragEnterEvent, QDropEvent
 
 from ui.app_context import AppContext
 from core.player import get_player, PlaybackState
 from ui.theme import ThemeManager
+
+
+class DragDropListWidget(QListWidget):
+    """
+    QListWidget with drag-and-drop support for audio files
+
+    WHY: QListWidget doesn't support drag-and-drop by default for external files
+    """
+    files_dropped = Signal(list)  # Emits list of Path objects
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setAcceptDrops(True)
+
+    def dragEnterEvent(self, event: QDragEnterEvent):
+        """Accept drag events with file URLs"""
+        if event.mimeData().hasUrls():
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
+    def dragMoveEvent(self, event):
+        """Accept drag move events with file URLs"""
+        if event.mimeData().hasUrls():
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
+    def dropEvent(self, event: QDropEvent):
+        """Handle dropped files"""
+        if event.mimeData().hasUrls():
+            file_paths = []
+            for url in event.mimeData().urls():
+                file_path = Path(url.toLocalFile())
+                if file_path.exists() and file_path.is_file():
+                    file_paths.append(file_path)
+
+            if file_paths:
+                self.files_dropped.emit(file_paths)
+                event.acceptProposedAction()
+            else:
+                event.ignore()
+        else:
+            event.ignore()
 
 
 class StemControl(QWidget):
@@ -161,8 +206,8 @@ class PlayerWidget(QWidget):
         load_group = QGroupBox("Load Stems")
         load_layout = QVBoxLayout()
 
-        # Recent files list
-        self.stems_list = QListWidget()
+        # Recent files list with drag-and-drop support
+        self.stems_list = DragDropListWidget()
         self.stems_list.setMaximumHeight(100)
         load_layout.addWidget(self.stems_list)
 
@@ -274,6 +319,7 @@ class PlayerWidget(QWidget):
         """Connect signals"""
         self.btn_load_dir.clicked.connect(self._on_load_dir)
         self.btn_load_files.clicked.connect(self._on_load_files)
+        self.stems_list.files_dropped.connect(self._on_files_dropped)
         self.btn_play.clicked.connect(self._on_play)
         self.btn_pause.clicked.connect(self._on_pause)
         self.btn_stop.clicked.connect(self._on_stop)
@@ -316,6 +362,27 @@ class PlayerWidget(QWidget):
         if file_dialog.exec():
             file_paths = [Path(f) for f in file_dialog.selectedFiles()]
             self._load_stems(file_paths)
+
+    @Slot(list)
+    def _on_files_dropped(self, file_paths: List[Path]):
+        """Handle dropped files from drag-and-drop"""
+        # Filter to only audio files
+        file_manager = self.ctx.file_manager()
+        audio_files = [
+            f for f in file_paths
+            if file_manager.is_supported_format(f)
+        ]
+
+        if not audio_files:
+            QMessageBox.warning(
+                self,
+                "No Audio Files",
+                "No supported audio files were dropped.\n\n"
+                "Supported formats: WAV, MP3, FLAC, M4A, OGG, AAC"
+            )
+            return
+
+        self._load_stems(audio_files)
 
     def _load_stems(self, file_paths: list[Path]):
         """Load stem files into player"""

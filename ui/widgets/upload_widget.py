@@ -23,6 +23,50 @@ from config import ENSEMBLE_CONFIGS
 from ui.theme import ThemeManager
 
 
+class DragDropListWidget(QListWidget):
+    """
+    QListWidget with drag-and-drop support for audio files
+
+    WHY: QListWidget doesn't support drag-and-drop by default for external files
+    """
+    files_dropped = Signal(list)  # Emits list of Path objects
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setAcceptDrops(True)
+
+    def dragEnterEvent(self, event: QDragEnterEvent):
+        """Accept drag events with file URLs"""
+        if event.mimeData().hasUrls():
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
+    def dragMoveEvent(self, event):
+        """Accept drag move events with file URLs"""
+        if event.mimeData().hasUrls():
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
+    def dropEvent(self, event: QDropEvent):
+        """Handle dropped files"""
+        if event.mimeData().hasUrls():
+            file_paths = []
+            for url in event.mimeData().urls():
+                file_path = Path(url.toLocalFile())
+                if file_path.exists() and file_path.is_file():
+                    file_paths.append(file_path)
+
+            if file_paths:
+                self.files_dropped.emit(file_paths)
+                event.acceptProposedAction()
+            else:
+                event.ignore()
+        else:
+            event.ignore()
+
+
 class SeparationSignals(QObject):
     """
     Signals for separation worker thread
@@ -144,14 +188,11 @@ class UploadWidget(QWidget):
         # File Selection Group
         file_group = QGroupBox("Audio File")
         file_layout = QVBoxLayout()
-        
+
         # Drag & Drop area
-        self.file_list = QListWidget()
-        self.file_list.setAcceptDrops(True)
+        self.file_list = DragDropListWidget()
         self.file_list.setDragEnabled(True)
         self.file_list.setMaximumHeight(150)
-        self.file_list.dragEnterEvent = self._drag_enter_event
-        self.file_list.dropEvent = self._drop_event
         file_layout.addWidget(self.file_list)
         
         # File buttons
@@ -267,6 +308,7 @@ class UploadWidget(QWidget):
         self.btn_start.clicked.connect(self._on_start_clicked)
         self.btn_queue.clicked.connect(self._on_queue_clicked)
         self.file_list.itemSelectionChanged.connect(self._on_file_selection_changed)
+        self.file_list.files_dropped.connect(self._on_files_dropped)
         self.model_combo.currentIndexChanged.connect(self._on_model_changed)
         self.ensemble_checkbox.stateChanged.connect(self._on_ensemble_toggled)
     
@@ -295,20 +337,11 @@ class UploadWidget(QWidget):
                 self.model_combo.setCurrentIndex(i)
                 break
     
-    def _drag_enter_event(self, event: QDragEnterEvent):
-        """Handle drag enter for file drop"""
-        if event.mimeData().hasUrls():
-            event.acceptProposedAction()
-    
-    def _drop_event(self, event: QDropEvent):
-        """Handle file drop"""
-        urls = event.mimeData().urls()
-        
-        for url in urls:
-            file_path = Path(url.toLocalFile())
+    @Slot(list)
+    def _on_files_dropped(self, file_paths: List[Path]):
+        """Handle dropped files from drag-and-drop"""
+        for file_path in file_paths:
             self._add_file(file_path)
-        
-        event.acceptProposedAction()
     
     def _add_file(self, file_path: Path):
         """

@@ -44,12 +44,16 @@ class RecordingWidget(QWidget):
         self.update_timer = QTimer(self)
         self.update_timer.setInterval(100)  # 100ms updates
         self.update_timer.timeout.connect(self._update_display)
-        
+
+        # Track if widget is visible for resource-efficient monitoring
+        self._is_visible = False
+        self._last_selected_device = None
+
         self._setup_ui()
         self._connect_signals()
         self._refresh_devices()
         self.apply_translations()
-        
+
         self.ctx.logger().info("RecordingWidget initialized")
     
     def _setup_ui(self):
@@ -165,7 +169,8 @@ class RecordingWidget(QWidget):
         self.btn_pause.clicked.connect(self._on_pause_clicked)
         self.btn_stop.clicked.connect(self._on_stop_clicked)
         self.btn_cancel.clicked.connect(self._on_cancel_clicked)
-        
+        self.device_combo.currentIndexChanged.connect(self._on_device_changed)
+
         # Connect internal signal for thread-safe level updates
         self.level_updated.connect(self._update_level_meter)
     
@@ -197,6 +202,50 @@ class RecordingWidget(QWidget):
                     break
         
         self.ctx.logger().info(f"Refreshed devices: {len(devices)} found")
+
+    @Slot(int)
+    def _on_device_changed(self, index: int):
+        """
+        Handle device selection change - start monitoring only if tab is visible
+
+        WHY: Allows users to see input levels before starting recording
+             Only monitors when tab is active to save resources
+        """
+        # Get selected device and remember it
+        device_name = self.device_combo.currentData()
+        self._last_selected_device = device_name
+
+        if not device_name:
+            # No device selected (e.g., "No devices found")
+            return
+
+        # Don't start monitoring if we're currently recording
+        if self.recorder.is_recording():
+            return
+
+        # Only start monitoring if widget is visible (tab is active)
+        if not self._is_visible:
+            self.ctx.logger().debug(
+                f"Device changed to {device_name}, but widget not visible - "
+                f"monitoring will start when tab becomes active"
+            )
+            return
+
+        # Stop any existing monitoring
+        if self.recorder.is_monitoring():
+            self.recorder.stop_monitoring()
+
+        # Start monitoring with level callback
+        success = self.recorder.start_monitoring(
+            device_name=device_name,
+            level_callback=self._on_level_update
+        )
+
+        if success:
+            self.ctx.logger().info(f"Started monitoring: {device_name}")
+            self.state_label.setText("Monitoring...")
+        else:
+            self.ctx.logger().warning(f"Failed to start monitoring: {device_name}")
 
     @Slot()
     def _on_start_clicked(self):
@@ -323,6 +372,16 @@ class RecordingWidget(QWidget):
         ThemeManager.set_widget_property(self.level_meter, "meterLevel", "safe")  # Reset to default
         self.duration_label.setText("Duration: 00:00.0")
         self.state_label.setText("Ready")
+
+        # Restart monitoring if tab is visible and a device is selected
+        if self._is_visible and self._last_selected_device:
+            success = self.recorder.start_monitoring(
+                device_name=self._last_selected_device,
+                level_callback=self._on_level_update
+            )
+            if success:
+                self.ctx.logger().info(f"Restarted monitoring after recording: {self._last_selected_device}")
+                self.state_label.setText("Monitoring...")
     
     def _on_level_update(self, level: float):
         """
@@ -419,10 +478,57 @@ class RecordingWidget(QWidget):
     def apply_translations(self):
         """
         Apply current language translations
-        
+
         WHY: Called when language changes; updates all visible text
         """
         # Note: Translation keys would be defined in resources/translations/*.json
         # For now, using English defaults
         pass
+
+    def showEvent(self, event):
+        """
+        Start monitoring when tab becomes visible
+
+        WHY: Resource-efficient - only monitor when user is viewing the recording tab
+        """
+        super().showEvent(event)
+        self._is_visible = True
+
+        # Start monitoring if a device is selected and we're not recording
+        if self._last_selected_device and not self.recorder.is_recording():
+            # Only start if not already monitoring
+            if not self.recorder.is_monitoring():
+                success = self.recorder.start_monitoring(
+                    device_name=self._last_selected_device,
+                    level_callback=self._on_level_update
+                )
+                if success:
+                    self.ctx.logger().info(
+                        f"Recording tab became visible - started monitoring: "
+                        f"{self._last_selected_device}"
+                    )
+                    self.state_label.setText("Monitoring...")
+
+    def hideEvent(self, event):
+        """
+        Stop monitoring when tab becomes hidden
+
+        WHY: Resource-efficient - don't monitor when user is not viewing the tab
+        """
+        super().hideEvent(event)
+        self._is_visible = False
+
+        # Stop monitoring if active (but don't stop recording!)
+        if self.recorder.is_monitoring() and not self.recorder.is_recording():
+            self.recorder.stop_monitoring()
+            self.ctx.logger().info("Recording tab hidden - stopped monitoring")
+            # Reset state label only if not recording
+            if not self.recorder.is_recording():
+                self.state_label.setText("Ready")
+
+    def closeEvent(self, event):
+        """Clean up monitoring when widget is closed"""
+        if self.recorder.is_monitoring():
+            self.recorder.stop_monitoring()
+        super().closeEvent(event)
 

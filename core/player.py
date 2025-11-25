@@ -242,26 +242,51 @@ class AudioPlayer:
 
     def set_position(self, position_seconds: float):
         """
-        Seek to position
+        Seek to position (non-blocking)
 
         Args:
             position_seconds: Target position in seconds
+
+        WHY: Seeking must not block the GUI thread, especially when sounddevice.stop()
+             is called, which can block on some systems
         """
+        position_samples = int(position_seconds * self.sample_rate)
+        position_samples = max(0, min(position_samples, self.duration_samples))
+
+        # Update position atomically
         with self._position_lock:
-            position_samples = int(position_seconds * self.sample_rate)
-            position_samples = max(0, min(position_samples, self.duration_samples))
             old_position = self.position_samples
             self.position_samples = position_samples
+            is_playing = self.state == PlaybackState.PLAYING
 
-            # If playing, restart playback from new position
-            if self.state == PlaybackState.PLAYING and self._sounddevice_module is not None:
-                self.logger.debug(f"Seeking from {old_position} to {position_samples} samples")
-                # Cancel all current playback
-                self._cancel_all_actions()
-                # Start playback from new position
-                self._start_playback_from_position()
+        self.logger.info(f"Seeked to {position_seconds:.2f}s ({position_samples} samples)")
 
-            self.logger.info(f"Seeked to {position_seconds:.2f}s ({position_samples} samples)")
+        # If playing, restart playback from new position (outside lock to prevent deadlock)
+        if is_playing and self._sounddevice_module is not None:
+            self.logger.debug(f"Seeking from {old_position} to {position_samples} samples")
+            # Run restart in a separate thread to prevent blocking
+            restart_thread = threading.Thread(
+                target=self._async_seek_restart,
+                daemon=True
+            )
+            restart_thread.start()
+
+    def _async_seek_restart(self):
+        """
+        Restart playback after seek (runs in separate thread)
+
+        WHY: sounddevice.stop() can block, so we run this in a separate thread
+             to prevent freezing the GUI
+        """
+        try:
+            # Cancel all current playback
+            self._cancel_all_actions()
+            # Small delay to ensure stop completed
+            time.sleep(0.05)
+            # Start playback from new position
+            self._start_playback_from_position()
+        except Exception as e:
+            self.logger.error(f"Error during async seek restart: {e}", exc_info=True)
 
     def set_stem_volume(self, stem_name: str, volume: float):
         """Set stem volume (0.0 to 1.0) and apply immediately during playback"""
@@ -456,12 +481,25 @@ class AudioPlayer:
                 # Calculate elapsed time
                 elapsed = time.time() - start_time
                 elapsed_samples = int(elapsed * self.sample_rate)
+                expected_position = start_position + elapsed_samples
 
                 with self._position_lock:
-                    self.position_samples = min(
-                        start_position + elapsed_samples,
-                        self.duration_samples
-                    )
+                    # Check if position was changed externally (e.g., via seek)
+                    # Allow small tolerance for rounding errors
+                    position_changed_externally = abs(self.position_samples - expected_position) > self.sample_rate * 0.1
+
+                    if position_changed_externally:
+                        # Position was changed by seek - reset our timing
+                        start_position = self.position_samples
+                        start_time = time.time()
+                        self.logger.debug(f"Position update loop detected seek to {self.position_samples} samples, resetting timing")
+                    else:
+                        # Update position normally
+                        self.position_samples = min(
+                            expected_position,
+                            self.duration_samples
+                        )
+
                     current_pos = self.position_samples
 
                     # Check if reached end
