@@ -370,7 +370,7 @@ class PlayerWidget(QWidget):
         file_manager = self.ctx.file_manager()
         audio_files = [
             f for f in file_paths
-            if file_manager.is_supported_audio_file(f)
+            if file_manager.is_supported_format(f)
         ]
 
         if not audio_files:
