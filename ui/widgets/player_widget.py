@@ -217,8 +217,11 @@ class PlayerWidget(QWidget):
         ThemeManager.set_widget_property(self.btn_load_dir, "buttonStyle", "secondary")
         self.btn_load_files = QPushButton("📄 Load Individual Files")
         ThemeManager.set_widget_property(self.btn_load_files, "buttonStyle", "secondary")
+        self.btn_clear = QPushButton("Clear")
+        ThemeManager.set_widget_property(self.btn_clear, "buttonStyle", "secondary")
         load_buttons.addWidget(self.btn_load_dir)
         load_buttons.addWidget(self.btn_load_files)
+        load_buttons.addWidget(self.btn_clear)
         load_buttons.addStretch()
         load_layout.addLayout(load_buttons)
 
@@ -319,6 +322,7 @@ class PlayerWidget(QWidget):
         """Connect signals"""
         self.btn_load_dir.clicked.connect(self._on_load_dir)
         self.btn_load_files.clicked.connect(self._on_load_files)
+        self.btn_clear.clicked.connect(self._on_clear_clicked)
         self.stems_list.files_dropped.connect(self._on_files_dropped)
         self.btn_play.clicked.connect(self._on_play)
         self.btn_pause.clicked.connect(self._on_pause)
@@ -383,6 +387,42 @@ class PlayerWidget(QWidget):
             return
 
         self._load_stems(audio_files)
+
+    @Slot()
+    def _on_clear_clicked(self):
+        """Clear all loaded stems and reset player"""
+        # Stop playback
+        self.player.stop()
+
+        # Clear stem files dictionary
+        self.stem_files.clear()
+
+        # Remove and delete all stem controls
+        for control in self.stem_controls.values():
+            control.deleteLater()
+        self.stem_controls.clear()
+
+        # Clear stems list widget
+        self.stems_list.clear()
+
+        # Reset player state
+        self.position_slider.setValue(0)
+        self.position_slider.setEnabled(False)
+        self.current_time_label.setText("00:00")
+        self.duration_label.setText("00:00")
+
+        # Disable playback and export buttons
+        self.btn_play.setEnabled(False)
+        self.btn_pause.setEnabled(False)
+        self.btn_stop.setEnabled(False)
+        self.btn_export.setEnabled(False)
+
+        # Reset info label
+        self.info_label.setText(
+            "Load separated stems to use the mixer and playback."
+        )
+
+        self.ctx.logger().info("Cleared all loaded stems")
 
     def _load_stems(self, file_paths: list[Path]):
         """Load stem files into player"""
