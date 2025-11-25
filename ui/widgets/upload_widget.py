@@ -199,10 +199,15 @@ class UploadWidget(QWidget):
         file_buttons = QHBoxLayout()
         self.btn_browse = QPushButton("Browse...")
         ThemeManager.set_widget_property(self.btn_browse, "buttonStyle", "secondary")
+        self.btn_browse.setToolTip("Select audio files to separate")
+        
         self.btn_remove_selected = QPushButton("Remove Selected")
         ThemeManager.set_widget_property(self.btn_remove_selected, "buttonStyle", "secondary")
+        self.btn_remove_selected.setToolTip("Remove selected files from list (available when files are selected)")
+        
         self.btn_clear = QPushButton("Clear All")
         ThemeManager.set_widget_property(self.btn_clear, "buttonStyle", "secondary")
+        self.btn_clear.setToolTip("Clear all files from list (available when files are present)")
         file_buttons.addWidget(self.btn_browse)
         file_buttons.addWidget(self.btn_remove_selected)
         file_buttons.addWidget(self.btn_clear)

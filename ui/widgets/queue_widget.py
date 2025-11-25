@@ -210,16 +210,20 @@ class QueueWidget(QWidget):
         self.btn_start = QPushButton("▶ Start Queue")
         self.btn_start.setEnabled(False)
         ThemeManager.set_widget_property(self.btn_start, "buttonStyle", "success")
+        self.btn_start.setToolTip("Start processing queued tasks (available when queue has pending tasks)")
 
         self.btn_stop = QPushButton("⏹ Stop Queue")
         self.btn_stop.setEnabled(False)
         ThemeManager.set_widget_property(self.btn_stop, "buttonStyle", "danger")
+        self.btn_stop.setToolTip("Stop queue processing (available during processing)")
 
         self.btn_clear = QPushButton("🗑️ Clear Queue")
         ThemeManager.set_widget_property(self.btn_clear, "buttonStyle", "secondary")
+        self.btn_clear.setToolTip("Clear all tasks from queue (available when queue has tasks)")
 
         self.btn_remove = QPushButton("➖ Remove Selected")
         ThemeManager.set_widget_property(self.btn_remove, "buttonStyle", "secondary")
+        self.btn_remove.setToolTip("Remove selected task from queue (available when task is selected)")
 
         buttons_layout.addWidget(self.btn_start)
         buttons_layout.addWidget(self.btn_stop)
