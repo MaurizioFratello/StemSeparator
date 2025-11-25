@@ -204,7 +204,7 @@ ENSEMBLE_CONFIGS = {
     },
     'quality': {
         'name': 'Quality Ensemble',
-        'description': '3 Models - Best quality, slower (Phase 2)',
+        'description': '3 Models - Best quality, slower',
         'models': ['mel-roformer', 'bs-roformer', 'demucs_4s'],
         'time_multiplier': 3.0,
         'quality_gain': '+0.8-1.0 dB SDR',
