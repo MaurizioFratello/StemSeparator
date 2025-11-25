@@ -244,8 +244,8 @@ class QueueWidget(QWidget):
         self.btn_clear.clicked.connect(self._on_clear_queue)
         self.btn_remove.clicked.connect(self._on_remove_selected)
     
-    def add_task(self, file_path: Path, model_id: str, output_dir: Optional[Path] = None,
-                 use_ensemble: bool = False, ensemble_config: Optional[str] = None):
+    def add_task(self, file_path: Path, model_id: str, use_ensemble: bool = False,
+                 ensemble_config: Optional[str] = None, output_dir: Optional[Path] = None):
         """
         Add task to queue
 
