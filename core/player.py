@@ -481,12 +481,25 @@ class AudioPlayer:
                 # Calculate elapsed time
                 elapsed = time.time() - start_time
                 elapsed_samples = int(elapsed * self.sample_rate)
+                expected_position = start_position + elapsed_samples
 
                 with self._position_lock:
-                    self.position_samples = min(
-                        start_position + elapsed_samples,
-                        self.duration_samples
-                    )
+                    # Check if position was changed externally (e.g., via seek)
+                    # Allow small tolerance for rounding errors
+                    position_changed_externally = abs(self.position_samples - expected_position) > self.sample_rate * 0.1
+
+                    if position_changed_externally:
+                        # Position was changed by seek - reset our timing
+                        start_position = self.position_samples
+                        start_time = time.time()
+                        self.logger.debug(f"Position update loop detected seek to {self.position_samples} samples, resetting timing")
+                    else:
+                        # Update position normally
+                        self.position_samples = min(
+                            expected_position,
+                            self.duration_samples
+                        )
+
                     current_pos = self.position_samples
 
                     # Check if reached end
