@@ -72,6 +72,7 @@ Thumbs.db
 # User settings
 .env
 config_local.py
+user_settings.json
 
 # PyInstaller / Packaging
 # Note: .spec files ARE tracked (they're build configuration)

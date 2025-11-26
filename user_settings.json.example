@@ -1,0 +1,13 @@
+{
+  "_comment": "Copy this file to user_settings.json and customize as needed. The app will use defaults from config.py if user_settings.json doesn't exist.",
+  "language": "de",
+  "default_model": "demucs_6s",
+  "quality_preset": "balanced",
+  "use_gpu": true,
+  "chunk_length_seconds": 300,
+  "output_directory": "temp/separated",
+  "recording_sample_rate": 44100,
+  "recording_channels": 2,
+  "auto_separate_after_recording": false
+}
+
