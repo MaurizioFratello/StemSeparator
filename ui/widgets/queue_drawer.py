@@ -31,7 +31,7 @@ class QueueDrawer(QWidget):
         
         self.is_expanded = False
         self.expanded_height = 300  # Default, will be overridden by parent resize
-        self.collapsed_height = 40  # Height of just the header
+        self.collapsed_height = 65  # Increased height for better visibility
         
         self._setup_ui()
         self._connect_signals()
@@ -68,11 +68,12 @@ class QueueDrawer(QWidget):
             QFrame#drawer_header {
                 background-color: #2d2d2d;
                 border-top: 1px solid #3d3d3d;
+                padding: 0px;
             }
         """)
         
         header_layout = QHBoxLayout(self.header)
-        header_layout.setContentsMargins(15, 0, 15, 0)
+        header_layout.setContentsMargins(15, 5, 15, 5)  # Add vertical padding to center content
         header_layout.setSpacing(10)
         
         # Toggle Button (Chevron)
@@ -85,6 +86,7 @@ class QueueDrawer(QWidget):
         # Status Label (Summary)
         self.lbl_status = QLabel("Queue Idle")
         self.lbl_status.setStyleSheet("font-weight: bold; color: #ccc;")
+        self.lbl_status.setAlignment(Qt.AlignCenter)
         
         # Close/Hide Button
         self.btn_close = QPushButton("×")
@@ -127,6 +129,25 @@ class QueueDrawer(QWidget):
         if hasattr(self.queue_widget, 'status_updated'):
             self.queue_widget.status_updated.connect(self.update_status)
         
+    def update_overlay_geometry(self):
+        """
+        Recalculate and apply position based on parent size and expanded state.
+        Used by parent resize events and internal state changes.
+        """
+        if not self.parent():
+            return
+            
+        parent_rect = self.parent().rect()
+        target_h = self.expanded_height if self.is_expanded else self.collapsed_height
+        target_y = parent_rect.height() - target_h
+        
+        # If animating, we might want to stop animation and snap to new geometry
+        # or update end value. For now, let's snap if invisible, else animate?
+        # Simpler: just setGeometry. Animation is only for toggle action.
+        # But if we are resizing window, we want it to stick to bottom.
+        self.setGeometry(0, target_y, parent_rect.width(), target_h)
+        self.raise_()
+
     @Slot()
     def toggle(self):
         """Switch between expanded and collapsed states."""
@@ -144,10 +165,7 @@ class QueueDrawer(QWidget):
         # Ensure valid start position if previously hidden/misplaced
         parent_rect = self.parent().rect()
         if not self.isVisible() or self.y() == 0:
-             # Start from bottom-collapsed state
-             h = self.collapsed_height
-             y = parent_rect.height() - h
-             self.setGeometry(0, y, parent_rect.width(), h)
+             self.update_overlay_geometry()
              
         self.show() # Ensure visible
         self.raise_() # Ensure on top
@@ -173,6 +191,8 @@ class QueueDrawer(QWidget):
         """Animate drawer closed (mini-mode)."""
         if not self.parent():
             return
+            
+        self.raise_() # Ensure on top
             
         parent_rect = self.parent().rect()
         current_rect = self.geometry()
@@ -207,24 +227,17 @@ class QueueDrawer(QWidget):
         """Proxy to queue_widget.add_task and auto-show drawer."""
         self.queue_widget.add_task(*args, **kwargs)
         if not self.isVisible():
-            # Initial geometry setup before showing
-            if self.parent():
-                h = self.collapsed_height
-                w = self.parent().width()
-                y = self.parent().height() - h
-                self.setGeometry(0, y, w, h)
-                
             self.setVisible(True)
-            self.collapse() # Ensure state is consistent
+            self.is_expanded = False # Force collapsed state logic
+            self.update_overlay_geometry() # Snap to position
+            self.raise_()
     
     @Slot()
     def start_queue(self):
         """Start processing the queue."""
         if not self.isVisible():
-            if self.parent():
-                h = self.collapsed_height
-                w = self.parent().width()
-                y = self.parent().height() - h
-                self.setGeometry(0, y, w, h)
             self.setVisible(True)
+            self.is_expanded = False
+            self.update_overlay_geometry()
+        self.raise_()
         self.queue_widget.start_processing()

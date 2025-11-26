@@ -463,18 +463,6 @@ class MainWindow(QMainWindow):
             self._queue_drawer.expanded_height = max(200, max_drawer_height)
             
         # 2. Update Drawer Geometry
-        # Width = window width
-        # Height = current drawer height (collapsed or expanded)
-        # Y = window height - height
+        # Use the drawer's own helper to position itself correctly
         if self._queue_drawer.isVisible():
-            target_h = self._queue_drawer.height() # Current height
-            # If we are resizing, we might want to enforce collapsed/expanded state height
-            if self._queue_drawer.is_expanded:
-                target_h = self._queue_drawer.expanded_height
-            else:
-                target_h = self._queue_drawer.collapsed_height
-                
-            w = self.centralWidget().width()
-            y = self.centralWidget().height() - target_h
-            self._queue_drawer.setGeometry(0, y, w, target_h)
-            self._queue_drawer.raise_() # Keep on top
+            self._queue_drawer.update_overlay_geometry()
