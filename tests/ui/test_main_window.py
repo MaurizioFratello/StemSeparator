@@ -37,20 +37,23 @@ def test_main_window_has_sidebar_and_stack(qapp, reset_singletons):
     # Check for Stacked Widget
     assert hasattr(window, '_content_stack')
     assert isinstance(window._content_stack, QStackedWidget)
-    assert window._content_stack.count() == 3
+    assert window._content_stack.count() == 4
     
     # Check Sidebar Buttons
     assert hasattr(window, '_btn_upload')
     assert hasattr(window, '_btn_record')
-    assert not hasattr(window, '_btn_queue')
+    assert hasattr(window, '_btn_queue')
     assert hasattr(window, '_btn_player')
     
     # Check connections (clicking button should change stack)
     window._btn_record.click()
     assert window._content_stack.currentIndex() == 1
     
-    window._btn_player.click()
+    window._btn_queue.click()
     assert window._content_stack.currentIndex() == 2
+    
+    window._btn_player.click()
+    assert window._content_stack.currentIndex() == 3
 
 
 @pytest.mark.unit
@@ -102,7 +105,7 @@ def test_main_window_widgets_connected(qapp, reset_singletons):
     
     # Upload widget should be connected to queue
     assert window._upload_widget is not None
-    assert window._queue_drawer is not None
+    assert window._queue_widget is not None
     
     # Recording widget should be connected to main window
     assert window._recording_widget is not None

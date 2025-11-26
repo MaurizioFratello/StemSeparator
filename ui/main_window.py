@@ -32,7 +32,7 @@ from config import APP_NAME, ICONS_DIR
 from ui.app_context import AppContext, get_app_context
 from ui.widgets.upload_widget import UploadWidget
 from ui.widgets.recording_widget import RecordingWidget
-from ui.widgets.queue_drawer import QueueDrawer
+from ui.widgets.queue_widget import QueueWidget
 from ui.widgets.player_widget import PlayerWidget
 from ui.widgets.settings_dialog import SettingsDialog
 from ui.theme.macos_effects import MacOSEffects
@@ -113,23 +113,26 @@ class MainWindow(QMainWindow):
         # Initialize Widgets
         self._upload_widget = UploadWidget(self)
         self._recording_widget = RecordingWidget(self)
-        # QueueWidget is now inside QueueDrawer, not in stack
+        self._queue_widget = QueueWidget(self)
         self._player_widget = PlayerWidget(self)
 
         # Add to Stack
         self._content_stack.addWidget(self._upload_widget)    # Index 0
         self._content_stack.addWidget(self._recording_widget) # Index 1
-        self._content_stack.addWidget(self._player_widget)    # Index 2
+        self._content_stack.addWidget(self._queue_widget)     # Index 2
+        self._content_stack.addWidget(self._player_widget)    # Index 3
 
         # Create Nav Buttons
         # We will set text in _apply_translations
         self._btn_upload = self._create_nav_button("upload", 0)
         self._btn_record = self._create_nav_button("mic", 1)
-        self._btn_player = self._create_nav_button("play", 2)
+        self._btn_queue = self._create_nav_button("list", 2)
+        self._btn_player = self._create_nav_button("play", 3)
         
         # Add buttons to sidebar layout
         sidebar_layout.addWidget(self._btn_upload)
         sidebar_layout.addWidget(self._btn_record)
+        sidebar_layout.addWidget(self._btn_queue)
         sidebar_layout.addWidget(self._btn_player)
         
         sidebar_layout.addStretch() # Push buttons to top
@@ -144,12 +147,9 @@ class MainWindow(QMainWindow):
         # Add content to main VBox with stretch factor 1 to allow shrinking
         main_v_layout.addWidget(content_widget, stretch=1)
         
-        # Add QueueDrawer to main widget (Overlay, not in layout)
-        self._queue_drawer = QueueDrawer(self.centralWidget())
-        
         # Wire up signals between widgets
-        self._upload_widget.file_queued.connect(self._queue_drawer.add_task)
-        self._upload_widget.start_queue_requested.connect(self._queue_drawer.start_queue)
+        self._upload_widget.file_queued.connect(self._queue_widget.add_task)
+        self._upload_widget.start_queue_requested.connect(self._queue_widget.start_processing)
         self._recording_widget.recording_saved.connect(self._on_recording_saved)
 
         status_bar = QStatusBar(self)
@@ -335,6 +335,7 @@ class MainWindow(QMainWindow):
         # Update Sidebar Buttons
         self._btn_upload.setText(translator("tabs.upload", fallback="Upload"))
         self._btn_record.setText(translator("tabs.recording", fallback="Recording"))
+        self._btn_queue.setText(translator("tabs.queue", fallback="Queue"))
         self._btn_player.setText(translator("tabs.player", fallback="Player"))
 
         if self.statusBar():
@@ -418,53 +419,3 @@ class MainWindow(QMainWindow):
         """Intercept close event for graceful shutdown."""
         self._logger.info("Application shutdown requested")
         event.accept()
-
-    def resizeEvent(self, event):
-        """
-        Handle window resize to update QueueDrawer geometry.
-        
-        WHY: QueueDrawer is an overlay and needs manual positioning.
-        """
-        super().resizeEvent(event)
-        
-        if not hasattr(self, '_queue_drawer') or not hasattr(self, '_sidebar'):
-            return
-            
-        # 1. Calculate Safe Height (protect sidebar buttons)
-        # Find the bottom-most button in the navigation group
-        # Buttons are in sidebar layout. We can estimate or get estimating bottom of last button.
-        # The buttons are _btn_upload, _btn_record, _btn_player.
-        # _btn_player is the last one.
-        if hasattr(self, '_btn_player') and self._btn_player.isVisible():
-            # Map button bottom to global coordinate system then to central widget?
-            # Actually, sidebar is in content_widget. 
-            # content_widget.y() is usually 0 in main_widget layout (no margins).
-            # _btn_player.y() + _btn_player.height() gives bottom relative to sidebar.
-            # sidebar.y() is relative to content_widget.
-            
-            # Safe calculation:
-            # button_bottom_y = self._sidebar.y() + self._btn_player.y() + self._btn_player.height()
-            # Add some margin
-            # But simpler: just get sidebar contents margins
-            
-            # Let's use geometry mapping if possible, or just rough estimation
-            # Sidebar is fixed width, vertical layout.
-            # Button bottom relative to sidebar:
-            btn_bottom = self._btn_player.geometry().bottom()
-            sidebar_y = self._sidebar.geometry().y()
-            
-            safe_top_y = sidebar_y + btn_bottom + 20 # 20px margin
-            
-            # Calculate max drawer height
-            # Window height - safe_top_y
-            max_drawer_height = self.centralWidget().height() - safe_top_y
-            
-            # Update drawer's expanded height limit
-            self._queue_drawer.expanded_height = max(200, max_drawer_height)
-            
-        # 2. Update Drawer Geometry
-        # Use the drawer's own helper to position itself correctly
-        if self._queue_drawer.isVisible():
-            # Note: QueueDrawer.update_overlay_geometry handles the sliding logic
-            # (keeping full height, adjusting Y position)
-            self._queue_drawer.update_overlay_geometry()
