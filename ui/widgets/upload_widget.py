@@ -11,7 +11,7 @@ import numpy as np
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
     QComboBox, QLineEdit, QProgressBar, QListWidget, QListWidgetItem,
-    QFileDialog, QMessageBox, QGroupBox, QCheckBox, QScrollArea
+    QFileDialog, QMessageBox, QGroupBox, QCheckBox, QScrollArea, QFrame
 )
 from PySide6.QtCore import Qt, Signal, QRunnable, QThreadPool, Slot, QObject
 from PySide6.QtGui import QDragEnterEvent, QDropEvent
@@ -168,31 +168,35 @@ class UploadWidget(QWidget):
         
         self.ctx.logger().info("UploadWidget initialized")
     
+    def _create_card(self, title: str) -> tuple[QFrame, QVBoxLayout]:
+        """Create a styled card frame with header"""
+        card = QFrame()
+        card.setObjectName("card")
+        
+        layout = QVBoxLayout(card)
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(15)
+        
+        header = QLabel(title)
+        header.setObjectName("card_header")
+        layout.addWidget(header)
+        
+        return card, layout
+
     def _setup_ui(self):
         """Setup widget layout and components"""
         # Create main layout for the widget
         main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setContentsMargins(20, 20, 20, 20)  # Add padding
+        main_layout.setSpacing(15)
 
-        # Create scroll area
-        scroll_area = QScrollArea()
-        scroll_area.setWidgetResizable(True)
-        scroll_area.setFrameShape(QScrollArea.NoFrame)
-        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-
-        # Create container widget for scrollable content
-        container = QWidget()
-        layout = QVBoxLayout(container)
-
-        # File Selection Group
-        file_group = QGroupBox("Audio File")
-        file_layout = QVBoxLayout()
+        # File Selection Card
+        file_card, file_layout = self._create_card("Audio File")
 
         # Drag & Drop area
         self.file_list = DragDropListWidget()
         self.file_list.setDragEnabled(True)
-        self.file_list.setMaximumHeight(150)
+        # self.file_list.setMaximumHeight(150)  # Remove fixed height to allow resizing
         file_layout.addWidget(self.file_list)
         
         # File buttons
@@ -214,16 +218,14 @@ class UploadWidget(QWidget):
         file_buttons.addStretch()
         file_layout.addLayout(file_buttons)
         
-        file_group.setLayout(file_layout)
-        layout.addWidget(file_group)
+        main_layout.addWidget(file_card, stretch=1)  # Allow this card to expand
 
         # Waveform Widget (hidden by default, shown when file is selected)
         self.waveform_widget = WaveformWidget()
-        layout.addWidget(self.waveform_widget)
+        main_layout.addWidget(self.waveform_widget)
 
-        # Configuration Group
-        config_group = QGroupBox("Separation Settings")
-        config_layout = QVBoxLayout()
+        # Configuration Card
+        config_card, config_layout = self._create_card("Separation Settings")
         
         # Model selection
         model_layout = QHBoxLayout()
@@ -269,12 +271,10 @@ class UploadWidget(QWidget):
         output_layout.addWidget(self.btn_output_browse)
         config_layout.addLayout(output_layout)
         
-        config_group.setLayout(config_layout)
-        layout.addWidget(config_group)
+        main_layout.addWidget(config_card)
         
-        # Progress Group
-        progress_group = QGroupBox("Progress")
-        progress_layout = QVBoxLayout()
+        # Progress Card
+        progress_card, progress_layout = self._create_card("Progress")
         
         self.progress_bar = QProgressBar()
         self.progress_bar.setVisible(False)
@@ -284,8 +284,7 @@ class UploadWidget(QWidget):
         self.status_label.setWordWrap(True)
         progress_layout.addWidget(self.status_label)
         
-        progress_group.setLayout(progress_layout)
-        layout.addWidget(progress_group)
+        main_layout.addWidget(progress_card)
         
         # Action Buttons
         action_layout = QHBoxLayout()
@@ -298,15 +297,9 @@ class UploadWidget(QWidget):
         action_layout.addWidget(self.btn_start)
         action_layout.addWidget(self.btn_queue)
         action_layout.addStretch()
-        layout.addLayout(action_layout)
+        main_layout.addLayout(action_layout)
 
-        layout.addStretch()
-
-        # Set the container in the scroll area
-        scroll_area.setWidget(container)
-
-        # Add scroll area to main layout
-        main_layout.addWidget(scroll_area)
+        # Removed scroll area logic
 
     def _connect_signals(self):
         """Connect button signals to handlers"""
@@ -366,7 +359,7 @@ class UploadWidget(QWidget):
         if not is_valid:
             QMessageBox.warning(
                 self,
-                self.ctx.t('upload.error.title', 'Invalid File'),
+                self.ctx.translate('upload.error.title', 'Invalid File'),
                 f"{file_path.name}: {error_msg}"
             )
             return

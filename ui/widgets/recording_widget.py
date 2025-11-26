@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Optional
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
-    QComboBox, QProgressBar, QGroupBox, QMessageBox, QScrollArea
+    QComboBox, QProgressBar, QGroupBox, QMessageBox, QScrollArea, QFrame
 )
 from PySide6.QtCore import Qt, Signal, Slot, QTimer
 from PySide6.QtGui import QPalette, QColor
@@ -56,26 +56,30 @@ class RecordingWidget(QWidget):
 
         self.ctx.logger().info("RecordingWidget initialized")
     
+    def _create_card(self, title: str) -> tuple[QFrame, QVBoxLayout]:
+        """Create a styled card frame with header"""
+        card = QFrame()
+        card.setObjectName("card")
+        
+        layout = QVBoxLayout(card)
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(15)
+        
+        header = QLabel(title)
+        header.setObjectName("card_header")
+        layout.addWidget(header)
+        
+        return card, layout
+
     def _setup_ui(self):
         """Setup widget layout and components"""
         # Create main layout for the widget
         main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setContentsMargins(20, 20, 20, 20)
+        main_layout.setSpacing(15)
 
-        # Create scroll area
-        scroll_area = QScrollArea()
-        scroll_area.setWidgetResizable(True)
-        scroll_area.setFrameShape(QScrollArea.NoFrame)
-        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-
-        # Create container widget for scrollable content
-        container = QWidget()
-        layout = QVBoxLayout(container)
-
-        # Device Selection Group
-        device_group = QGroupBox("Recording Device")
-        device_layout = QVBoxLayout()
+        # Device Selection Card
+        device_card, device_layout = self._create_card("Recording Device")
         
         device_select = QHBoxLayout()
         device_select.addWidget(QLabel("Device:"))
@@ -86,12 +90,10 @@ class RecordingWidget(QWidget):
         device_select.addWidget(self.btn_refresh_devices)
         device_layout.addLayout(device_select)
         
-        device_group.setLayout(device_layout)
-        layout.addWidget(device_group)
+        main_layout.addWidget(device_card)
         
-        # Recording Controls Group
-        controls_group = QGroupBox("Recording")
-        controls_layout = QVBoxLayout()
+        # Recording Controls Card
+        controls_card, controls_layout = self._create_card("Recording")
         
         # Level meter (RMS with ballistics)
         meter_layout = QHBoxLayout()
@@ -155,16 +157,11 @@ class RecordingWidget(QWidget):
         buttons_layout.addWidget(self.btn_cancel)
         controls_layout.addLayout(buttons_layout)
         
-        controls_group.setLayout(controls_layout)
-        layout.addWidget(controls_group)
+        main_layout.addWidget(controls_card)
 
-        layout.addStretch()
+        main_layout.addStretch()
 
-        # Set the container in the scroll area
-        scroll_area.setWidget(container)
-
-        # Add scroll area to main layout
-        main_layout.addWidget(scroll_area)
+        # Removed scroll area logic
 
     def _connect_signals(self):
         """Connect button signals to handlers"""
