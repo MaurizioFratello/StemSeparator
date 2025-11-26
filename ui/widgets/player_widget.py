@@ -9,7 +9,7 @@ from typing import Optional, Dict, List
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
     QSlider, QGroupBox, QFileDialog, QMessageBox, QListWidget,
-    QListWidgetItem, QScrollArea
+    QListWidgetItem, QScrollArea, QProgressBar
 )
 from PySide6.QtCore import Qt, Signal, Slot, QTimer
 from PySide6.QtGui import QDragEnterEvent, QDropEvent
@@ -79,18 +79,32 @@ class StemControl(QWidget):
         self.stem_name = stem_name
         self.is_muted = False
         self.is_solo = False
+        
+        # Enable styling and set ID for Channel Strip look
+        self.setAttribute(Qt.WA_StyledBackground, True)
+        self.setObjectName("channelStrip")
 
         self._setup_ui()
 
     def _setup_ui(self):
         """Setup stem control layout"""
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
+        # Vertical layout for mixer strip
+        layout = QVBoxLayout(self)
+        # Increased padding to avoid content touching border
+        layout.setContentsMargins(8, 12, 8, 12)
+        layout.setSpacing(10)
 
-        # Stem name
+        # 1. Stem name (Top)
         name_label = QLabel(self.stem_name.capitalize())
-        name_label.setMinimumWidth(80)
+        name_label.setAlignment(Qt.AlignCenter)
+        name_label.setWordWrap(True)
+        # Truncate long names visually if needed, but WordWrap helps
         layout.addWidget(name_label)
+
+        # 2. Mute/Solo buttons (Row)
+        btn_layout = QHBoxLayout()
+        btn_layout.setSpacing(4)
+        btn_layout.setAlignment(Qt.AlignCenter)
 
         # Mute button
         self.btn_mute = QPushButton("M")
@@ -99,7 +113,7 @@ class StemControl(QWidget):
         ThemeManager.set_widget_property(self.btn_mute, "buttonRole", "mute")
         self.btn_mute.setToolTip("Mute this stem")
         self.btn_mute.clicked.connect(self._on_mute_clicked)
-        layout.addWidget(self.btn_mute)
+        btn_layout.addWidget(self.btn_mute)
 
         # Solo button
         self.btn_solo = QPushButton("S")
@@ -108,42 +122,75 @@ class StemControl(QWidget):
         ThemeManager.set_widget_property(self.btn_solo, "buttonRole", "solo")
         self.btn_solo.setToolTip("Solo this stem (mute all others)")
         self.btn_solo.clicked.connect(self._on_solo_clicked)
-        layout.addWidget(self.btn_solo)
+        btn_layout.addWidget(self.btn_solo)
+        
+        layout.addLayout(btn_layout)
 
-        # Volume slider
-        self.volume_slider = QSlider(Qt.Horizontal)
+        # 3. Fader Section (Meter + Slider side-by-side)
+        fader_layout = QHBoxLayout()
+        fader_layout.setAlignment(Qt.AlignCenter)
+        fader_layout.setSpacing(10)
+
+        # Level Meter (Simulated for now)
+        self.meter = QProgressBar()
+        self.meter.setOrientation(Qt.Vertical)
+        self.meter.setRange(0, 100)
+        self.meter.setValue(0)  # Default to 0 until playback
+        self.meter.setTextVisible(False)
+        self.meter.setFixedWidth(6)
+        ThemeManager.set_widget_property(self.meter, "meterStyle", "level")
+        fader_layout.addWidget(self.meter)
+
+        # Volume slider (Vertical)
+        self.volume_slider = QSlider(Qt.Vertical)
         self.volume_slider.setRange(0, 100)
         self.volume_slider.setValue(75)
+        self.volume_slider.setMinimumHeight(150)  # Make faders tall enough
         self.volume_slider.valueChanged.connect(self._on_volume_changed)
-        layout.addWidget(self.volume_slider)
+        fader_layout.addWidget(self.volume_slider)
 
-        # Volume label
+        layout.addLayout(fader_layout)
+
+        # 4. Volume label (Bottom)
         self.volume_label = QLabel("75%")
+        self.volume_label.setAlignment(Qt.AlignCenter)
         self.volume_label.setMinimumWidth(40)
+        ThemeManager.set_widget_property(self.volume_label, "labelStyle", "caption")
         self.volume_slider.valueChanged.connect(
             lambda v: self.volume_label.setText(f"{v}%")
         )
         layout.addWidget(self.volume_label)
+        
+        # Add fixed width to the whole strip to make it look like a channel strip
+        self.setFixedWidth(90)
 
     @Slot()
     def _on_mute_clicked(self):
-        """Handle mute button click - uses property-based styling for performance"""
+        """Handle mute button click"""
         self.is_muted = self.btn_mute.isChecked()
+        # Force style update for dynamic property
+        self.btn_mute.style().unpolish(self.btn_mute)
+        self.btn_mute.style().polish(self.btn_mute)
+        
         self.mute_changed.emit(self.stem_name, self.is_muted)
-        # Style automatically updates via :checked state in QSS
 
     @Slot()
     def _on_solo_clicked(self):
-        """Handle solo button click - uses property-based styling for performance"""
+        """Handle solo button click"""
         self.is_solo = self.btn_solo.isChecked()
+        # Force style update for dynamic property
+        self.btn_solo.style().unpolish(self.btn_solo)
+        self.btn_solo.style().polish(self.btn_solo)
+        
         self.solo_changed.emit(self.stem_name, self.is_solo)
-        # Style automatically updates via :checked state in QSS
 
     @Slot()
     def _on_volume_changed(self):
         """Handle volume change"""
         volume = self.volume_slider.value()
         self.volume_changed.emit(self.stem_name, volume)
+        # Update meter to reflect fader position as a simple visual indicator
+        self.meter.setValue(volume)
 
 
 class PlayerWidget(QWidget):
@@ -192,18 +239,8 @@ class PlayerWidget(QWidget):
         """Setup widget layout"""
         # Create main layout for the widget
         main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(0, 0, 0, 0)
-
-        # Create scroll area
-        scroll_area = QScrollArea()
-        scroll_area.setWidgetResizable(True)
-        scroll_area.setFrameShape(QScrollArea.NoFrame)
-        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-
-        # Create container widget for scrollable content
-        container = QWidget()
-        layout = QVBoxLayout(container)
+        main_layout.setContentsMargins(20, 20, 20, 20)
+        main_layout.setSpacing(15)
 
         # File Loading Group
         load_group = QGroupBox("Load Stems")
@@ -239,14 +276,28 @@ class PlayerWidget(QWidget):
         load_layout.addLayout(load_buttons)
 
         load_group.setLayout(load_layout)
-        layout.addWidget(load_group)
+        main_layout.addWidget(load_group)
 
         # Mixer Group
         mixer_group = QGroupBox("Mixer")
         mixer_layout = QVBoxLayout()
 
-        self.stems_container = QVBoxLayout()
-        mixer_layout.addLayout(self.stems_container)
+        # Scrollable area for stem controls
+        self.stems_scroll = QScrollArea()
+        self.stems_scroll.setWidgetResizable(True)
+        self.stems_scroll.setFrameShape(QScrollArea.NoFrame)
+        self.stems_scroll.setStyleSheet("background: transparent;")
+        self.stems_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.stems_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        
+        self.stems_scroll_widget = QWidget()
+        self.stems_container = QHBoxLayout(self.stems_scroll_widget)
+        self.stems_container.setContentsMargins(0, 0, 0, 0)
+        self.stems_container.setSpacing(2)  # Tight spacing between strips
+        self.stems_container.setAlignment(Qt.AlignLeft)  # Start from left
+        
+        self.stems_scroll.setWidget(self.stems_scroll_widget)
+        mixer_layout.addWidget(self.stems_scroll)
 
         # Master volume
         master_layout = QHBoxLayout()
@@ -261,7 +312,7 @@ class PlayerWidget(QWidget):
         mixer_layout.addLayout(master_layout)
 
         mixer_group.setLayout(mixer_layout)
-        layout.addWidget(mixer_group)
+        main_layout.addWidget(mixer_group, stretch=1) # Allow mixer to expand
 
         # Playback Controls Group
         controls_group = QGroupBox("Playback")
@@ -316,7 +367,7 @@ class PlayerWidget(QWidget):
         controls_layout.addLayout(buttons_layout)
 
         controls_group.setLayout(controls_layout)
-        layout.addWidget(controls_group)
+        main_layout.addWidget(controls_group)
 
         # Info label
         self.info_label = QLabel(
@@ -324,15 +375,9 @@ class PlayerWidget(QWidget):
         )
         self.info_label.setAlignment(Qt.AlignCenter)
         self.info_label.setWordWrap(True)
-        layout.addWidget(self.info_label)
+        main_layout.addWidget(self.info_label)
 
-        layout.addStretch()
-
-        # Set the container in the scroll area
-        scroll_area.setWidget(container)
-
-        # Add scroll area to main layout
-        main_layout.addWidget(scroll_area)
+        # Removed global scroll area logic
 
     def _connect_signals(self):
         """Connect signals"""
