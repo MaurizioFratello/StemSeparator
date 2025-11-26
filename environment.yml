@@ -18,11 +18,15 @@ dependencies:
       # System Audio Recording
       - soundcard>=0.4.2
 
+      # Audio Playback
+      - sounddevice>=0.4.6  # Audio playback (migrated from rtmixer)
+
       # Audio Processing
       - soundfile>=0.12.1
       - librosa>=0.10.0
       - pydub>=0.25.1
       - resampy>=0.4.2
+      - scipy>=1.11.0  # For signal resampling in ensemble mode
 
       # ML Models
       - torch>=2.0.0
@@ -33,6 +37,7 @@ dependencies:
       - requests>=2.31.0
       - tqdm>=4.66.0
       - colorlog>=6.8.0
+      - PyYAML>=6.0.0  # For YAML configuration files
 
       # Testing
       - pytest>=7.4.0
