@@ -11,13 +11,13 @@ import numpy as np
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
     QComboBox, QLineEdit, QProgressBar, QListWidget, QListWidgetItem,
-    QFileDialog, QMessageBox, QGroupBox, QCheckBox, QScrollArea, QFrame
+    QFileDialog, QMessageBox, QGroupBox, QCheckBox, QScrollArea, QFrame,
+    QApplication
 )
-from PySide6.QtCore import Qt, Signal, QRunnable, QThreadPool, Slot, QObject
+from PySide6.QtCore import Qt, Signal, Slot, QObject
 from PySide6.QtGui import QDragEnterEvent, QDropEvent
 
 from ui.app_context import AppContext
-from core.separator import SeparationResult
 from ui.widgets.waveform_widget import WaveformWidget
 from config import ENSEMBLE_CONFIGS
 from ui.theme import ThemeManager
@@ -67,78 +67,6 @@ class DragDropListWidget(QListWidget):
             event.ignore()
 
 
-class SeparationSignals(QObject):
-    """
-    Signals for separation worker thread
-    
-    WHY: QRunnable cannot inherit from QObject, so we use a separate signals class
-    """
-    progress = Signal(str, int)  # (message, percent)
-    finished = Signal(object)  # SeparationResult
-    error = Signal(str)  # error message
-
-
-class SeparationWorker(QRunnable):
-    """
-    Worker for running separation in background thread
-
-    WHY: Separation is CPU/GPU intensive and blocks GUI if run on main thread
-    """
-
-    def __init__(self, audio_file: Path, model_id: str, output_dir: Optional[Path] = None,
-                 use_ensemble: bool = False, ensemble_config: Optional[str] = None):
-        super().__init__()
-        self.audio_file = audio_file
-        self.model_id = model_id
-        self.output_dir = output_dir
-        self.use_ensemble = use_ensemble
-        self.ensemble_config = ensemble_config or 'balanced'
-        self.signals = SeparationSignals()
-        self.ctx = AppContext()
-        
-    def run(self):
-        """Execute separation in background thread"""
-        try:
-            # Get quality preset from settings
-            settings_mgr = self.ctx.settings_manager()
-            quality_preset = settings_mgr.get_quality_preset()
-
-            # Run separation with progress callback
-            if self.use_ensemble:
-                # Use ensemble separator
-                from core.ensemble_separator import get_ensemble_separator
-                ensemble_separator = get_ensemble_separator()
-
-                result = ensemble_separator.separate_ensemble(
-                    audio_file=self.audio_file,
-                    ensemble_config=self.ensemble_config,
-                    output_dir=self.output_dir,
-                    quality_preset=quality_preset,
-                    progress_callback=self._on_progress
-                )
-            else:
-                # Use single model separator
-                separator = self.ctx.separator()
-
-                result = separator.separate(
-                    audio_file=self.audio_file,
-                    model_id=self.model_id,
-                    output_dir=self.output_dir,
-                    quality_preset=quality_preset,
-                    progress_callback=self._on_progress
-                )
-
-            self.signals.finished.emit(result)
-
-        except Exception as e:
-            self.ctx.logger().error(f"Separation worker error: {e}", exc_info=True)
-            self.signals.error.emit(str(e))
-    
-    def _on_progress(self, message: str, percent: int):
-        """Forward progress to GUI thread via signal"""
-        self.signals.progress.emit(message, percent)
-
-
 class UploadWidget(QWidget):
     """
     Widget for file upload and separation configuration
@@ -154,12 +82,12 @@ class UploadWidget(QWidget):
     
     # Signal emitted when user wants to queue a file
     file_queued = Signal(Path, str, bool, str)  # (file_path, model_id, use_ensemble, ensemble_config)
+    # Signal to request queue processing start
+    start_queue_requested = Signal()
     
     def __init__(self, parent=None):
         super().__init__(parent)
         self.ctx = AppContext()
-        self.thread_pool = QThreadPool()
-        self.current_worker: Optional[SeparationWorker] = None
         
         self._setup_ui()
         self._connect_signals()
@@ -273,33 +201,22 @@ class UploadWidget(QWidget):
         
         main_layout.addWidget(config_card)
         
-        # Progress Card
-        progress_card, progress_layout = self._create_card("Progress")
-        
-        self.progress_bar = QProgressBar()
-        self.progress_bar.setVisible(False)
-        progress_layout.addWidget(self.progress_bar)
-        
-        self.status_label = QLabel("")
-        self.status_label.setWordWrap(True)
-        progress_layout.addWidget(self.status_label)
-        
-        main_layout.addWidget(progress_card)
+        # Progress Card is removed as status is now in the global queue drawer
         
         # Action Buttons
         action_layout = QHBoxLayout()
         self.btn_start = QPushButton("▶ Start Separation")
         self.btn_start.setEnabled(False)
         # Primary button uses default gradient style
+        
         self.btn_queue = QPushButton("➕ Add to Queue")
         self.btn_queue.setEnabled(False)
         ThemeManager.set_widget_property(self.btn_queue, "buttonStyle", "secondary")
+        
         action_layout.addWidget(self.btn_start)
         action_layout.addWidget(self.btn_queue)
         action_layout.addStretch()
         main_layout.addLayout(action_layout)
-
-        # Removed scroll area logic
 
     def _connect_signals(self):
         """Connect button signals to handlers"""
@@ -495,16 +412,21 @@ class UploadWidget(QWidget):
         """
         model_manager = self.ctx.model_manager()
         
-        self.status_label.setText(f"Downloading model...")
-        self.progress_bar.setVisible(True)
-        self.progress_bar.setRange(0, 100)
+        # Use a progress dialog since we removed the progress bar
+        progress = QMessageBox(self)
+        progress.setWindowTitle("Downloading Model")
+        progress.setText(f"Downloading model {model_id}...")
+        progress.setStandardButtons(QMessageBox.NoButton)
+        progress.show()
         
         def progress_callback(message: str, percent: int):
-            self.status_label.setText(message)
-            self.progress_bar.setValue(percent)
+            progress.setText(f"{message}\n{percent}%")
+            QApplication.processEvents()
         
         # Download (blocking for simplicity - could be threaded)
         success = model_manager.download_model(model_id, progress_callback)
+        
+        progress.close()
 
         if success:
             QMessageBox.information(self, "Success", "Model downloaded successfully!")
@@ -514,15 +436,12 @@ class UploadWidget(QWidget):
         else:
             QMessageBox.critical(self, "Error", "Model download failed. Check logs.")
 
-        self.progress_bar.setVisible(False)
-        self.status_label.setText("")
-
         # Update button states after download completes
         self._update_button_states()
     
     @Slot()
     def _on_start_clicked(self):
-        """Start separation for selected file"""
+        """Start separation for selected file (via Global Queue)"""
         selected_items = self.file_list.selectedItems()
         if not selected_items:
             return
@@ -534,16 +453,27 @@ class UploadWidget(QWidget):
         if self.output_path.text().strip():
             output_dir = Path(self.output_path.text())
 
+        # Check if ensemble mode is enabled
+        use_ensemble = self.ensemble_checkbox.isChecked()
+        ensemble_config = None
+        if use_ensemble:
+            ensemble_config = self.ensemble_combo.currentData()
+            self.ctx.logger().info(f"Queueing ensemble separation: {original_file.name} with config {ensemble_config}")
+        else:
+            self.ctx.logger().info(f"Queueing separation: {original_file.name} with model {model_id}")
+
         # Create trimmed file if trimming is applied
-        self.ctx.logger().info(f"Processing file: {original_file.name}")
         file_to_process = self._create_trimmed_file(original_file)
-        self.ctx.logger().info(f"File to process: {file_to_process.name}")
-
-        # Show user feedback if file was trimmed
-        if file_to_process != original_file:
-            self.status_label.setText(f"Using trimmed version: {file_to_process.name}")
-
-        self._start_separation(file_to_process, model_id, output_dir)
+        
+        # Add to queue
+        self.file_queued.emit(file_to_process, model_id, use_ensemble, ensemble_config)
+        
+        # Notify user via QueueDrawer (auto-shows)
+        # if self.window().statusBar():
+        #      self.window().statusBar().showMessage(f"Added to queue and started: {file_to_process.name}", 5000)
+        
+        # Start queue immediately
+        self.start_queue_requested.emit()
     
     @Slot()
     def _on_queue_clicked(self):
@@ -565,11 +495,9 @@ class UploadWidget(QWidget):
         file_to_queue = self._create_trimmed_file(original_file)
         self.ctx.logger().info(f"File queued: {file_to_queue.name}")
 
-        # Show user feedback if file was trimmed
-        if file_to_queue != original_file:
-            self.status_label.setText(f"Added trimmed version to queue: {file_to_queue.name}")
-        else:
-            self.status_label.setText(f"Added {file_to_queue.name} to queue")
+        # Show user feedback via QueueDrawer (auto-shows)
+        # if self.window().statusBar():
+        #    self.window().statusBar().showMessage(f"Added to queue: {file_to_queue.name}", 5000)
 
         self.file_queued.emit(file_to_queue, model_id, use_ensemble, ensemble_config)
 
@@ -640,100 +568,6 @@ class UploadWidget(QWidget):
             )
             return original_file
     
-    def _start_separation(self, file_path: Path, model_id: str, output_dir: Optional[Path]):
-        """
-        Start separation in background thread
-
-        WHY: Separation is long-running; must not block GUI
-        """
-        # Check if ensemble mode is enabled
-        use_ensemble = self.ensemble_checkbox.isChecked()
-        ensemble_config = None
-
-        if use_ensemble:
-            ensemble_config = self.ensemble_combo.currentData()
-            self.ctx.logger().info(f"Starting ensemble separation: {file_path.name} with config {ensemble_config}")
-        else:
-            self.ctx.logger().info(f"Starting separation: {file_path.name} with model {model_id}")
-
-        # Disable controls during processing
-        self.btn_start.setEnabled(False)
-        self.btn_queue.setEnabled(False)
-        self.btn_browse.setEnabled(False)
-        self.progress_bar.setVisible(True)
-        self.progress_bar.setValue(0)
-        self.status_label.setText("Initializing...")
-
-        # Create and start worker
-        worker = SeparationWorker(file_path, model_id, output_dir, use_ensemble, ensemble_config)
-        worker.signals.progress.connect(self._on_separation_progress)
-        worker.signals.finished.connect(self._on_separation_finished)
-        worker.signals.error.connect(self._on_separation_error)
-        
-        self.current_worker = worker
-        self.thread_pool.start(worker)
-    
-    @Slot(str, int)
-    def _on_separation_progress(self, message: str, percent: int):
-        """Handle separation progress update"""
-        self.status_label.setText(message)
-        self.progress_bar.setValue(percent)
-    
-    @Slot(object)
-    def _on_separation_finished(self, result: SeparationResult):
-        """Handle separation completion"""
-        self.progress_bar.setVisible(False)
-        
-        if result.success:
-            self.status_label.setText(
-                f"✓ Separation complete! {len(result.stems)} stems created in {result.duration_seconds:.1f}s"
-            )
-            self.ctx.logger().info(f"Separation successful: {result.input_file.name}")
-            
-            QMessageBox.information(
-                self,
-                "Success",
-                f"Separation complete!\n\n"
-                f"Model: {result.model_used}\n"
-                f"Device: {result.device_used}\n"
-                f"Duration: {result.duration_seconds:.1f}s\n"
-                f"Stems: {len(result.stems)}\n\n"
-                f"Output: {result.output_dir}"
-            )
-        else:
-            self.status_label.setText(f"✗ Error: {result.error_message}")
-            self.ctx.logger().error(f"Separation failed: {result.error_message}")
-            
-            QMessageBox.critical(
-                self,
-                "Separation Failed",
-                f"Error: {result.error_message}\n\nCheck logs for details."
-            )
-        
-        # Re-enable controls
-        self.btn_start.setEnabled(True)
-        self.btn_queue.setEnabled(True)
-        self.btn_browse.setEnabled(True)
-        self.current_worker = None
-    
-    @Slot(str)
-    def _on_separation_error(self, error_message: str):
-        """Handle separation error"""
-        self.progress_bar.setVisible(False)
-        self.status_label.setText(f"✗ Error: {error_message}")
-        
-        QMessageBox.critical(
-            self,
-            "Error",
-            f"Separation failed:\n{error_message}\n\nCheck logs for details."
-        )
-        
-        # Re-enable controls
-        self.btn_start.setEnabled(True)
-        self.btn_queue.setEnabled(True)
-        self.btn_browse.setEnabled(True)
-        self.current_worker = None
-    
     def _update_button_states(self):
         """Update button enabled states based on selection"""
         has_files = self.file_list.count() > 0
@@ -749,7 +583,8 @@ class UploadWidget(QWidget):
 
         self.btn_remove_selected.setEnabled(has_selection)
         self.btn_clear.setEnabled(has_files)
-        self.btn_start.setEnabled(has_selection and self.current_worker is None and model_downloaded)
+        # Enable start if model is downloaded (queue will handle processing state)
+        self.btn_start.setEnabled(has_selection and model_downloaded)
         self.btn_queue.setEnabled(has_selection and model_downloaded)
     
     def apply_translations(self):
@@ -761,4 +596,3 @@ class UploadWidget(QWidget):
         # Note: Translation keys would be defined in resources/translations/*.json
         # For now, using English defaults
         pass
-

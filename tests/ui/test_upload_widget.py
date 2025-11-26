@@ -9,8 +9,7 @@ from unittest.mock import Mock, patch, MagicMock
 from pathlib import Path
 from PySide6.QtCore import Qt
 
-from ui.widgets.upload_widget import UploadWidget, SeparationWorker
-from core.separator import SeparationResult
+from ui.widgets.upload_widget import UploadWidget
 
 
 @pytest.mark.unit
@@ -72,7 +71,8 @@ def test_upload_widget_add_invalid_file(qapp, reset_singletons, tmp_path):
         # Should show warning
         mock_warning.assert_called_once()
     
-    # File should not be added
+    # File should be added (the mock is skipped so we rely on file_list count)
+    # Actually, if warning is shown, file is not added
     assert widget.file_list.count() == 0
 
 
@@ -118,92 +118,24 @@ def test_upload_widget_queue_signal(qapp, reset_singletons, mock_audio_file):
 
 
 @pytest.mark.unit
-@patch('ui.widgets.upload_widget.SeparationWorker')
-def test_upload_widget_start_separation(mock_worker_class, qapp, reset_singletons, mock_audio_file):
-    """Test starting separation"""
-    # Setup mock worker
-    mock_worker = Mock()
-    mock_worker_class.return_value = mock_worker
-    
+def test_upload_widget_start_separation(qapp, reset_singletons, mock_audio_file):
+    """Test starting separation via queue"""
     widget = UploadWidget()
     
     # Add file and select it
     widget._add_file(mock_audio_file)
     widget.file_list.setCurrentRow(0)
     
+    # Connect signals
+    queued_signal = []
+    start_signal = []
+    widget.file_queued.connect(lambda f, m, ue, ec: queued_signal.append((f, m, ue, ec)))
+    widget.start_queue_requested.connect(lambda: start_signal.append(True))
+
     # Start separation
     widget._on_start_clicked()
     
-    # Worker should have been created
-    mock_worker_class.assert_called_once()
-    
-    # Start button should be disabled during processing
-    assert not widget.btn_start.isEnabled()
-    assert not widget.progress_bar.isHidden()
-
-
-@pytest.mark.unit
-def test_separation_worker_signals(qapp, reset_singletons, mock_audio_file):
-    """Test that separation worker has proper signals"""
-    worker = SeparationWorker(mock_audio_file, "demucs_4s")
-    
-    assert worker.signals is not None
-    assert hasattr(worker.signals, 'progress')
-    assert hasattr(worker.signals, 'finished')
-    assert hasattr(worker.signals, 'error')
-
-
-@pytest.mark.unit
-def test_upload_widget_separation_progress(qapp, reset_singletons):
-    """Test progress updates during separation"""
-    widget = UploadWidget()
-    
-    # Simulate progress update
-    widget._on_separation_progress("Processing...", 50)
-    
-    # Progress should be updated
-    assert widget.progress_bar.value() == 50
-    assert "Processing" in widget.status_label.text()
-
-
-@pytest.mark.unit
-def test_upload_widget_separation_success(qapp, reset_singletons, mock_audio_file, tmp_path):
-    """Test successful separation completion"""
-    widget = UploadWidget()
-    
-    # Create mock result
-    result = SeparationResult(
-        success=True,
-        input_file=mock_audio_file,
-        output_dir=tmp_path,
-        stems={'vocals': tmp_path / 'vocals.wav'},
-        model_used='demucs_4s',
-        device_used='cpu',
-        duration_seconds=1.0
-    )
-    
-    with patch('PySide6.QtWidgets.QMessageBox.information') as mock_info:
-        widget._on_separation_finished(result)
-        
-        # Should show success message
-        mock_info.assert_called_once()
-    
-    # Controls should be re-enabled
-    assert widget.btn_start.isEnabled()
-
-
-@pytest.mark.unit
-def test_upload_widget_separation_error(qapp, reset_singletons):
-    """Test error handling during separation"""
-    widget = UploadWidget()
-    
-    with patch('PySide6.QtWidgets.QMessageBox.critical') as mock_error:
-        widget._on_separation_error("Test error message")
-        
-        # Should show error dialog
-        mock_error.assert_called_once()
-    
-    # Controls should be re-enabled
-    assert widget.btn_start.isEnabled()
-    assert not widget.progress_bar.isVisible()
-
+    # Should queue file AND request start
+    assert len(queued_signal) == 1
+    assert len(start_signal) == 1
+    assert queued_signal[0][0] == mock_audio_file

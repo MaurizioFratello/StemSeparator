@@ -54,36 +54,18 @@ def test_complete_upload_workflow(qapp, reset_singletons, mock_audio_file, tmp_p
         # Select model
         upload_widget.model_combo.setCurrentIndex(0)
         
-        # Start separation (async)
-        with patch('PySide6.QtWidgets.QMessageBox.information'):
-            upload_widget._on_start_clicked()
-            
-            # Wait for worker to start
-            QTest.qWait(100)
-            
-            # Button should be disabled during processing
-            assert not upload_widget.btn_start.isEnabled()
-            
-            # Simulate successful completion
-            result = SeparationResult(
-                success=True,
-                input_file=mock_audio_file,
-                output_dir=tmp_path,
-                stems={
-                    'vocals': tmp_path / 'test_vocals.wav',
-                    'drums': tmp_path / 'test_drums.wav',
-                    'bass': tmp_path / 'test_bass.wav',
-                    'other': tmp_path / 'test_other.wav'
-                },
-                model_used='demucs_4s',
-                device_used='cpu',
-                duration_seconds=1.5
-            )
-            upload_widget._on_separation_finished(result)
-            
-            # Should show success
-            assert "complete" in upload_widget.status_label.text().lower()
-            assert upload_widget.btn_start.isEnabled()
+        # Start separation (now queues)
+        # Since start_queue triggers thread, we just verify it was queued
+        with patch('ui.widgets.queue_widget.QueueWorker'):
+             upload_widget._on_start_clicked()
+             
+             # Should be in queue
+             queue_widget = window._queue_drawer.queue_widget
+             assert len(queue_widget.tasks) == 1
+             assert queue_widget.tasks[0].file_path == mock_audio_file
+             
+             # Drawer should be visible
+             assert window._queue_drawer.isVisible()
 
 
 @pytest.mark.integration
@@ -198,8 +180,8 @@ def test_queue_batch_processing_workflow(qapp, reset_singletons, tmp_path):
         QTest.qWaitForWindowExposed(window)
         
         # Get queue widget
-        queue_widget = window._queue_widget
-        window._content_stack.setCurrentWidget(queue_widget)
+        queue_widget = window._queue_drawer.queue_widget
+        # window._content_stack.setCurrentWidget(queue_widget) # No longer in stack
         
         # Add files to queue
         for test_file in test_files:
@@ -270,7 +252,7 @@ def test_upload_to_queue_signal_workflow(qapp, reset_singletons, mock_audio_file
     QTest.qWaitForWindowExposed(window)
     
     upload_widget = window._upload_widget
-    queue_widget = window._queue_widget
+    queue_widget = window._queue_drawer.queue_widget
     
     # Add file to upload widget
     upload_widget._add_file(mock_audio_file)
@@ -462,7 +444,7 @@ def test_full_user_journey(qapp, reset_singletons, tmp_path):
         upload_widget.file_list.setCurrentRow(0)
         upload_widget._on_queue_clicked()
         
-        queue_widget = window._queue_widget
+        queue_widget = window._queue_drawer.queue_widget
         assert len(queue_widget.tasks) == 1
         
         # Step 4: Change settings

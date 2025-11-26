@@ -275,8 +275,8 @@ QComboBox {
     background-color: rgba(255, 255, 255, 0.06);  /* Match input fields */
     border: 1px solid rgba(255, 255, 255, 0.1);
     border-radius: 6px;  /* macOS standard */
-    padding: 6px 10px;   /* Tighter padding */
-    min-height: 20px;
+    padding: 4px 10px;
+    min-height: 28px;  /* Matched to buttons */
     color: #e0e0e0;
 }
 
@@ -300,20 +300,21 @@ QComboBox:disabled {
 
 QComboBox::drop-down {
     border: none;
-    width: 32px;
+    width: 24px;
 }
 
 QComboBox::down-arrow {
-    width: 12px;
-    height: 12px;
+    width: 0px;
+    height: 0px;
     image: none;
-    border-left: 5px solid transparent;
-    border-right: 5px solid transparent;
-    border-top: 6px solid #8E8E93;  /* macOS secondary gray */
+    border-left: 4px solid transparent;
+    border-right: 4px solid transparent;
+    border-top: 6px solid #b0b0b0;
+    margin-right: 0px;
 }
 
 QComboBox::down-arrow:hover {
-    border-top-color: #e0e0e0;
+    border-top-color: #ffffff;
 }
 
 QComboBox QAbstractItemView {

@@ -1,0 +1,11 @@
+{
+  "language": "de",
+  "default_model": "bs-roformer",
+  "quality_preset": "ultra",
+  "use_gpu": true,
+  "chunk_length_seconds": 360,
+  "output_directory": "/Users/moritzbruder/Documents/04_Python/StemSeparator/temp/separated",
+  "recording_sample_rate": 44100,
+  "recording_channels": 2,
+  "auto_separate_after_recording": false
+}
