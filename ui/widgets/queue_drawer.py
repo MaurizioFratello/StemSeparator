@@ -30,7 +30,7 @@ class QueueDrawer(QWidget):
         super().__init__(parent)
         
         self.is_expanded = False
-        self.expanded_height = 400  # Target height when expanded
+        self.expanded_height = 300  # Default reasonable height
         self.collapsed_height = 40  # Height of just the header
         
         self._setup_ui()
@@ -39,6 +39,19 @@ class QueueDrawer(QWidget):
         # Initialize state
         self.collapse() # Start collapsed
         self.setVisible(False) # Start hidden (until tasks are added)
+
+    def resizeEvent(self, event):
+        """Adjust expanded height limit based on parent window size."""
+        if self.parent():
+            # Limit drawer to 40% of window height to prevent pushing content off-screen
+            max_allowed = int(self.parent().height() * 0.4)
+            self.expanded_height = max(200, max_allowed)  # Minimum 200px
+            
+            # If currently expanded, update geometry immediately if needed
+            if self.is_expanded and self.height() > self.expanded_height:
+                 self.setMaximumHeight(self.expanded_height)
+        
+        super().resizeEvent(event)
 
     def _setup_ui(self):
         """Configure layout and components."""
