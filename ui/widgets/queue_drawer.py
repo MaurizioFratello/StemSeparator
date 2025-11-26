@@ -138,13 +138,19 @@ class QueueDrawer(QWidget):
             return
             
         parent_rect = self.parent().rect()
-        target_h = self.expanded_height if self.is_expanded else self.collapsed_height
-        target_y = parent_rect.height() - target_h
         
-        # If animating, we might want to stop animation and snap to new geometry
-        # or update end value. For now, let's snap if invisible, else animate?
-        # Simpler: just setGeometry. Animation is only for toggle action.
-        # But if we are resizing window, we want it to stick to bottom.
+        # Sliding Drawer Logic:
+        # Height is ALWAYS the full expanded_height to prevent content compression.
+        # We simply slide the widget down so content is off-screen.
+        target_h = self.expanded_height
+        
+        if self.is_expanded:
+            target_y = parent_rect.height() - target_h
+        else:
+            # When collapsed, we want only the header visible.
+            # So we position the top of the drawer at (parent_height - header_height)
+            target_y = parent_rect.height() - self.collapsed_height
+            
         self.setGeometry(0, target_y, parent_rect.width(), target_h)
         self.raise_()
 
@@ -158,26 +164,26 @@ class QueueDrawer(QWidget):
             
     @Slot()
     def expand(self):
-        """Animate drawer open."""
+        """Animate drawer open (Slide Up)."""
         if not self.parent():
             return
             
         # Ensure valid start position if previously hidden/misplaced
-        parent_rect = self.parent().rect()
         if not self.isVisible() or self.y() == 0:
              self.update_overlay_geometry()
              
         self.show() # Ensure visible
         self.raise_() # Ensure on top
         
+        parent_rect = self.parent().rect()
         current_rect = self.geometry()
         
-        # Target geometry: width of parent, height = expanded_height
-        # Position: bottom of parent
+        # Target: Fully visible (Slide Up)
         target_h = self.expanded_height
         target_y = parent_rect.height() - target_h
         target_rect = QRect(0, target_y, parent_rect.width(), target_h)
         
+        # Update start value to ensure smooth animation from current position
         self.animation.setStartValue(current_rect)
         self.animation.setEndValue(target_rect)
         self.animation.start()
@@ -188,7 +194,7 @@ class QueueDrawer(QWidget):
         
     @Slot()
     def collapse(self):
-        """Animate drawer closed (mini-mode)."""
+        """Animate drawer closed (Slide Down)."""
         if not self.parent():
             return
             
@@ -197,10 +203,10 @@ class QueueDrawer(QWidget):
         parent_rect = self.parent().rect()
         current_rect = self.geometry()
         
-        # Target geometry: width of parent, height = collapsed_height
-        # Position: bottom of parent
-        target_h = self.collapsed_height
-        target_y = parent_rect.height() - target_h
+        # Target: Only header visible (Slide Down)
+        # Height remains full expanded_height!
+        target_h = self.expanded_height 
+        target_y = parent_rect.height() - self.collapsed_height
         target_rect = QRect(0, target_y, parent_rect.width(), target_h)
         
         self.animation.setStartValue(current_rect)

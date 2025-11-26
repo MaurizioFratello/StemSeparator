@@ -465,4 +465,6 @@ class MainWindow(QMainWindow):
         # 2. Update Drawer Geometry
         # Use the drawer's own helper to position itself correctly
         if self._queue_drawer.isVisible():
+            # Note: QueueDrawer.update_overlay_geometry handles the sliding logic
+            # (keeping full height, adjusting Y position)
             self._queue_drawer.update_overlay_geometry()
