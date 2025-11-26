@@ -11,6 +11,15 @@
   "menu.help": "Hilfe",
   "menu.help.about": "Über",
 
+  "sidebar.input": "Input",
+  "sidebar.processing": "Processing",
+  "sidebar.monitoring": "Monitoring & Export",
+
+  "tabs.upload": "Upload",
+  "tabs.recording": "Recording",
+  "tabs.queue": "Queue",
+  "tabs.player": "Player",
+
   "upload.title": "Datei hochladen",
   "upload.drag_drop": "Dateien hierher ziehen oder klicken zum Durchsuchen",
   "upload.browse": "Durchsuchen...",
