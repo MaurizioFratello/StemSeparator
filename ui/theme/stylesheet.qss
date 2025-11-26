@@ -33,26 +33,48 @@ QMainWindow {
     border-right: 1px solid #333333;
 }
 
+/* Sidebar Section Headers */
+QLabel#sidebar_header {
+    color: #777777;
+    font-size: 12px;            /* Increased from 11px to 12px */
+    font-weight: 600;
+    text-transform: none;
+    padding: 15px 20px 5px 20px;
+    letter-spacing: 0px;        /* Normal tracking */
+    background: transparent;
+    font-family: -apple-system, 'SF Pro Text', 'Helvetica Neue', sans-serif;
+}
+
+/* Sidebar Separator Line - REMOVED VISUALLY (made transparent) */
+QFrame#sidebar_separator {
+    background-color: transparent;
+    border: none;
+    min-height: 1px;
+    max-height: 1px;
+    margin: 5px 0px;
+}
+
 QPushButton#sidebar_button {
     background-color: transparent;
-    color: #888888;
+    color: #e0e0e0;
     border: none;
     border-left: 3px solid transparent;
     border-radius: 0px;
     text-align: left;
-    padding: 15px 20px;
-    font-size: 14px;
-    font-weight: 500;
+    padding: 12px 20px 12px 35px;
+    font-size: 13px;              /* Kept at 13px */
+    font-weight: 400;             /* Reduced from 500 to Regular (400) */
+    margin: 0px;
 }
 
 QPushButton#sidebar_button:hover {
-    color: #e0e0e0;
-    background-color: rgba(255, 255, 255, 0.05);
+    color: #ffffff;
+    background-color: rgba(255, 255, 255, 0.04); /* Very subtle hover */
 }
 
 QPushButton#sidebar_button:checked {
     color: #ffffff;
-    background-color: #2d2d2d;
+    background-color: #333333;  /* Lighter grey background for active/selected block */
     border-left: 3px solid #667eea;
     font-weight: 600;
 }

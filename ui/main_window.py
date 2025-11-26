@@ -96,12 +96,12 @@ class MainWindow(QMainWindow):
         # 1. LEFT SIDEBAR
         self._sidebar = QFrame()
         self._sidebar.setObjectName("sidebar")
-        self._sidebar.setFixedWidth(200)  # Wide sidebar for text labels
+        self._sidebar.setFixedWidth(220)  # Wide sidebar for text labels
         
         # Sidebar layout
         sidebar_layout = QVBoxLayout(self._sidebar)
-        sidebar_layout.setContentsMargins(10, 20, 10, 20)
-        sidebar_layout.setSpacing(8)
+        sidebar_layout.setContentsMargins(0, 10, 0, 20)
+        sidebar_layout.setSpacing(0)
 
         # Navigation Button Group (Exclusive)
         self._nav_group = QButtonGroup(self)
@@ -129,10 +129,39 @@ class MainWindow(QMainWindow):
         self._btn_queue = self._create_nav_button("list", 2)
         self._btn_player = self._create_nav_button("play", 3)
         
-        # Add buttons to sidebar layout
+        # --- SIDEBAR STRUCTURE ---
+        
+        # SECTION: INPUT
+        self._lbl_input = QLabel("Input")
+        self._lbl_input.setObjectName("sidebar_header")
+        sidebar_layout.addWidget(self._lbl_input)
         sidebar_layout.addWidget(self._btn_upload)
         sidebar_layout.addWidget(self._btn_record)
+        
+        # SEPARATOR 1
+        sep1 = QFrame()
+        sep1.setObjectName("sidebar_separator")
+        sep1.setFrameShape(QFrame.HLine)
+        sep1.setFrameShadow(QFrame.Plain)
+        sidebar_layout.addWidget(sep1)
+
+        # SECTION: PROCESSING
+        self._lbl_process = QLabel("Processing")
+        self._lbl_process.setObjectName("sidebar_header")
+        sidebar_layout.addWidget(self._lbl_process)
         sidebar_layout.addWidget(self._btn_queue)
+        
+        # SEPARATOR 2
+        sep2 = QFrame()
+        sep2.setObjectName("sidebar_separator")
+        sep2.setFrameShape(QFrame.HLine)
+        sep2.setFrameShadow(QFrame.Plain)
+        sidebar_layout.addWidget(sep2)
+
+        # SECTION: MONITORING & EXPORT
+        self._lbl_monitoring = QLabel("Monitoring & Export")
+        self._lbl_monitoring.setObjectName("sidebar_header")
+        sidebar_layout.addWidget(self._lbl_monitoring)
         sidebar_layout.addWidget(self._btn_player)
         
         sidebar_layout.addStretch() # Push buttons to top
@@ -149,7 +178,7 @@ class MainWindow(QMainWindow):
         
         # Wire up signals between widgets
         self._upload_widget.file_queued.connect(self._queue_widget.add_task)
-        self._upload_widget.start_queue_requested.connect(self._queue_widget.start_processing)
+        self._upload_widget.start_queue_requested.connect(self._on_start_queue_requested)
         self._recording_widget.recording_saved.connect(self._on_recording_saved)
 
         status_bar = QStatusBar(self)
@@ -332,6 +361,11 @@ class MainWindow(QMainWindow):
         self._help_menu.setTitle(translator("menu.help", fallback="Help"))
         self._about_action.setText(translator("menu.help.about", fallback="About"))
 
+        # Update Sidebar Headers
+        self._lbl_input.setText(translator("sidebar.input", fallback="INPUT"))
+        self._lbl_process.setText(translator("sidebar.processing", fallback="PROCESSING"))
+        self._lbl_monitoring.setText(translator("sidebar.monitoring", fallback="MONITORING & EXPORT"))
+
         # Update Sidebar Buttons
         self._btn_upload.setText(translator("tabs.upload", fallback="Upload"))
         self._btn_record.setText(translator("tabs.recording", fallback="Recording"))
@@ -409,11 +443,23 @@ class MainWindow(QMainWindow):
         self._apply_translations()
 
     @Slot()
+    def _on_start_queue_requested(self):
+        """Handle start request: Switch to queue and start"""
+        self._content_stack.setCurrentIndex(2) # Queue Tab
+        self._btn_queue.setChecked(True)
+        self._queue_widget.start_processing()
+
+    @Slot()
     def _on_recording_saved(self, file_path: Path) -> None:
         """Handle recording saved signal."""
         self._logger.info(f"Recording saved: {file_path}")
         if self.statusBar():
             self.statusBar().showMessage(f"Recording saved: {file_path.name}", 5000)
+        
+        # Auto-switch to Upload/Input tab to let user proceed
+        self._content_stack.setCurrentIndex(0)
+        self._btn_upload.setChecked(True)
+        self._upload_widget.add_file(file_path)
 
     def closeEvent(self, event: QCloseEvent) -> None:  # noqa: N802
         """Intercept close event for graceful shutdown."""

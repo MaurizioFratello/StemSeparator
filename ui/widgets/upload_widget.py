@@ -154,41 +154,23 @@ class UploadWidget(QWidget):
 
         # Configuration Card
         config_card, config_layout = self._create_card("Separation Settings")
+        config_layout.setSpacing(10)  # Tighter spacing for config card
         
-        # Model selection
-        model_layout = QHBoxLayout()
-        model_layout.addWidget(QLabel("Model:"))
+        # Ensemble Checkbox (own row to prevent dropdown overlap)
+        self.ensemble_checkbox = QCheckBox("Ensemble Mode")
+        self.ensemble_checkbox.setToolTip("Combine models for higher quality (slower)")
+        config_layout.addWidget(self.ensemble_checkbox)
+        
+        # Model/Config Selection (separate row below checkbox)
+        model_row = QHBoxLayout()
+        model_row.addWidget(QLabel("Model:"))
         self.model_combo = QComboBox()
-        model_layout.addWidget(self.model_combo, stretch=1)
-        config_layout.addLayout(model_layout)
+        model_row.addWidget(self.model_combo, stretch=1)
+        config_layout.addLayout(model_row)
 
-        # Ensemble Mode
-        ensemble_layout = QVBoxLayout()
-
-        # Ensemble checkbox
-        self.ensemble_checkbox = QCheckBox("Enable Ensemble Mode (2-3x slower, +0.5-1.0 dB quality)")
-        self.ensemble_checkbox.setToolTip(
-            "Combine multiple AI models for higher quality separation.\n"
-            "Processing time increases but quality improves significantly."
-        )
-        ensemble_layout.addWidget(self.ensemble_checkbox)
-
-        # Ensemble config dropdown (initially hidden)
-        ensemble_config_layout = QHBoxLayout()
-        ensemble_config_layout.addWidget(QLabel("  Ensemble Config:"))
-        self.ensemble_combo = QComboBox()
-        self.ensemble_combo.setEnabled(False)
-
-        # Add ensemble configurations
-        for config_name, config_info in ENSEMBLE_CONFIGS.items():
-            display_name = f"{config_info['name']} - {config_info['description']}"
-            self.ensemble_combo.addItem(display_name, userData=config_name)
-
-        ensemble_config_layout.addWidget(self.ensemble_combo, stretch=1)
-        ensemble_layout.addLayout(ensemble_config_layout)
-
-        config_layout.addLayout(ensemble_layout)
-
+        # Ensemble config dropdown (hidden/shown dynamically)
+        # We reuse the same combo box logic but change contents based on mode
+        
         # Output directory
         output_layout = QHBoxLayout()
         output_layout.addWidget(QLabel("Output:"))
@@ -370,19 +352,46 @@ class UploadWidget(QWidget):
     def _on_ensemble_toggled(self, state: int):
         """Handle ensemble mode checkbox toggle"""
         is_checked = (state == Qt.CheckState.Checked.value)
-        self.ensemble_combo.setEnabled(is_checked)
-
+        
+        # Refresh combo box contents based on mode
+        self.model_combo.blockSignals(True)
+        self.model_combo.clear()
+        
         if is_checked:
-            # Disable single model selection when ensemble is enabled
-            self.model_combo.setEnabled(False)
+            # Load Ensemble Configs
+            for config_name, config_info in ENSEMBLE_CONFIGS.items():
+                display_name = f"{config_info['name']} - {config_info['description']}"
+                self.model_combo.addItem(display_name, userData=config_name)
         else:
-            # Enable single model selection when ensemble is disabled
-            self.model_combo.setEnabled(True)
+            # Load Single Models
+            model_manager = self.ctx.model_manager()
+            for model_id, model_info in model_manager.available_models.items():
+                status = "✓" if model_info.downloaded else "⚠"
+                if hasattr(model_info, 'stem_names') and model_info.stem_names:
+                    stems_info = ', '.join(model_info.stem_names)
+                    text = f"{status} {model_info.name} - {stems_info}"
+                else:
+                    text = f"{status} {model_info.name} ({model_info.stems} stems)"
+                self.model_combo.addItem(text, userData=model_id)
+                
+            # Select default model
+            default_model = model_manager.get_default_model()
+            for i in range(self.model_combo.count()):
+                if self.model_combo.itemData(i) == default_model:
+                    self.model_combo.setCurrentIndex(i)
+                    break
+        
+        self.model_combo.blockSignals(False)
+        self._update_button_states()
 
     @Slot()
     def _on_model_changed(self, index: int):
         """Handle model selection change"""
         if index < 0:
+            return
+            
+        # If in ensemble mode, no download check needed for config selection
+        if self.ensemble_checkbox.isChecked():
             return
 
         model_id = self.model_combo.itemData(index)
@@ -457,7 +466,7 @@ class UploadWidget(QWidget):
         use_ensemble = self.ensemble_checkbox.isChecked()
         ensemble_config = None
         if use_ensemble:
-            ensemble_config = self.ensemble_combo.currentData()
+            ensemble_config = self.model_combo.currentData()  # Get config from same combo
             self.ctx.logger().info(f"Queueing ensemble separation: {original_file.name} with config {ensemble_config}")
         else:
             self.ctx.logger().info(f"Queueing separation: {original_file.name} with model {model_id}")
@@ -487,7 +496,7 @@ class UploadWidget(QWidget):
 
         # Get ensemble settings
         use_ensemble = self.ensemble_checkbox.isChecked()
-        ensemble_config = self.ensemble_combo.currentData() if use_ensemble else ''
+        ensemble_config = self.model_combo.currentData() if use_ensemble else ''
 
         # Create trimmed file if trimming is applied
         mode_desc = f"ensemble ({ensemble_config})" if use_ensemble else f"model ({model_id})"
@@ -575,7 +584,13 @@ class UploadWidget(QWidget):
 
         # Check if selected model is downloaded
         model_downloaded = False
-        if self.model_combo.currentIndex() >= 0:
+        is_ensemble_mode = self.ensemble_checkbox.isChecked()
+        
+        if is_ensemble_mode:
+            # Ensemble mode: configs don't need download check, just need selection
+            model_downloaded = (self.model_combo.currentIndex() >= 0)
+        elif self.model_combo.currentIndex() >= 0:
+            # Single model mode: check if model is downloaded
             model_id = self.model_combo.currentData()
             if model_id:
                 model_info = self.ctx.model_manager().get_model_info(model_id)
@@ -583,7 +598,7 @@ class UploadWidget(QWidget):
 
         self.btn_remove_selected.setEnabled(has_selection)
         self.btn_clear.setEnabled(has_files)
-        # Enable start if model is downloaded (queue will handle processing state)
+        # Enable start if model/config is available (queue will handle processing state)
         self.btn_start.setEnabled(has_selection and model_downloaded)
         self.btn_queue.setEnabled(has_selection and model_downloaded)
     

@@ -10,13 +10,15 @@ import numpy as np
 import soundfile as sf
 
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QSlider, QGroupBox
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFrame
 )
 from PySide6.QtCore import Qt, Signal, QPointF, QRectF
 from PySide6.QtGui import QPainter, QPen, QColor, QPainterPath, QLinearGradient, QPixmap
 
 from ui.app_context import AppContext
 from ui.theme import ColorPalette
+from ui.widgets.range_slider import RangeSlider
+from ui.widgets.range_slider import RangeSlider
 
 
 class WaveformDisplay(QWidget):
@@ -34,7 +36,7 @@ class WaveformDisplay(QWidget):
         self.trim_start: float = 0.0  # in seconds
         self.trim_end: float = 0.0    # in seconds (0 means end of file)
         self.setMinimumHeight(120)
-        self.setMaximumHeight(200)
+        self.setMaximumHeight(150)  # Reduced max height to prevent overlap issues
 
         # Performance: Cache waveform rendering
         self._waveform_cache: Optional[QPixmap] = None
@@ -230,61 +232,58 @@ class WaveformWidget(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
 
-        # Group box
-        group = QGroupBox("Audio Trim")
-        group_layout = QVBoxLayout()
+        # Card container (match Audio File / Separation Settings style)
+        card = QFrame()
+        card.setObjectName("card")
+        card_layout = QVBoxLayout(card)
+        card_layout.setContentsMargins(20, 20, 20, 20)
+        card_layout.setSpacing(15)
+
+        # Card header
+        header = QLabel("Audio Trim")
+        header.setObjectName("card_header")
+        card_layout.addWidget(header)
 
         # Waveform display
         self.waveform_display = WaveformDisplay()
-        group_layout.addWidget(self.waveform_display)
-        
-        # Add spacing between waveform and controls
-        group_layout.addSpacing(15)
+        card_layout.addWidget(self.waveform_display)
 
-        # Trim controls
+        # Spacing between waveform and controls
+        card_layout.addSpacing(15)
+
+        # Trim controls with range slider
         controls_layout = QVBoxLayout()
 
-        # Start trim
-        start_layout = QHBoxLayout()
-        start_layout.addWidget(QLabel("Start:"))
-        self.start_slider = QSlider(Qt.Horizontal)
-        self.start_slider.setMinimum(0)
-        self.start_slider.setMaximum(1000)  # Will be scaled to duration
-        self.start_slider.setValue(0)
-        start_layout.addWidget(self.start_slider, stretch=1)
+        # Time labels row
+        time_labels_layout = QHBoxLayout()
         self.start_time_label = QLabel("0:00.0")
         self.start_time_label.setMinimumWidth(60)
-        start_layout.addWidget(self.start_time_label)
-        controls_layout.addLayout(start_layout)
-
-        # End trim
-        end_layout = QHBoxLayout()
-        end_layout.addWidget(QLabel("End:"))
-        self.end_slider = QSlider(Qt.Horizontal)
-        self.end_slider.setMinimum(0)
-        self.end_slider.setMaximum(1000)
-        self.end_slider.setValue(1000)
-        end_layout.addWidget(self.end_slider, stretch=1)
+        time_labels_layout.addWidget(self.start_time_label)
+        time_labels_layout.addStretch()
         self.end_time_label = QLabel("0:00.0")
         self.end_time_label.setMinimumWidth(60)
-        end_layout.addWidget(self.end_time_label)
-        controls_layout.addLayout(end_layout)
+        self.end_time_label.setAlignment(Qt.AlignRight)
+        time_labels_layout.addWidget(self.end_time_label)
+        controls_layout.addLayout(time_labels_layout)
 
-        group_layout.addLayout(controls_layout)
+        # Range slider
+        self.range_slider = RangeSlider()
+        controls_layout.addWidget(self.range_slider)
+
+        card_layout.addLayout(controls_layout)
 
         # Info label
         self.info_label = QLabel()
         self.info_label.setWordWrap(True)
         self.info_label.setStyleSheet("color: #888; font-size: 10pt;")
-        group_layout.addWidget(self.info_label)
+        card_layout.addWidget(self.info_label)
 
-        group.setLayout(group_layout)
-        layout.addWidget(group)
+        # Add card to main layout
+        layout.addWidget(card)
 
     def _connect_signals(self):
-        """Connect slider signals"""
-        self.start_slider.valueChanged.connect(self._on_start_changed)
-        self.end_slider.valueChanged.connect(self._on_end_changed)
+        """Connect range slider signal"""
+        self.range_slider.values_changed.connect(self._on_range_changed)
 
     def load_file(self, file_path: Path):
         """
@@ -308,9 +307,8 @@ class WaveformWidget(QWidget):
             # Update waveform display
             self.waveform_display.set_audio_data(audio_data, sample_rate)
 
-            # Reset sliders
-            self.start_slider.setValue(0)
-            self.end_slider.setValue(1000)
+            # Reset range slider to full range
+            self.range_slider.set_range(0.0, 1.0)
 
             # Update labels
             self._update_time_labels()
@@ -338,31 +336,13 @@ class WaveformWidget(QWidget):
         Returns:
             (start_seconds, end_seconds)
         """
-        start_sec = (self.start_slider.value() / 1000.0) * self.duration
-        end_sec = (self.end_slider.value() / 1000.0) * self.duration
+        start_ratio, end_ratio = self.range_slider.get_range()
+        start_sec = start_ratio * self.duration
+        end_sec = end_ratio * self.duration
         return start_sec, end_sec
 
-    def _on_start_changed(self, value: int):
-        """Handle start slider change"""
-        # Ensure start doesn't exceed end
-        if value > self.end_slider.value():
-            self.start_slider.setValue(self.end_slider.value())
-            return
-
-        self._update_time_labels()
-        self._update_waveform_markers()
-        self._update_info()
-
-        start_sec, end_sec = self.get_trim_range()
-        self.trim_changed.emit(start_sec, end_sec)
-
-    def _on_end_changed(self, value: int):
-        """Handle end slider change"""
-        # Ensure end doesn't go below start
-        if value < self.start_slider.value():
-            self.end_slider.setValue(self.start_slider.value())
-            return
-
+    def _on_range_changed(self, start_ratio: float, end_ratio: float):
+        """Handle range slider change"""
         self._update_time_labels()
         self._update_waveform_markers()
         self._update_info()
