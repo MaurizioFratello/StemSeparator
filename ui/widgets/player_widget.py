@@ -512,9 +512,14 @@ class PlayerWidget(QWidget):
         # Clear stem files dictionary
         self.stem_files.clear()
 
-        # Remove and delete all stem controls
-        for control in self.stem_controls.values():
-            control.deleteLater()
+        # Remove and delete all stem controls from layout directly to ensure complete cleanup
+        # (Handles cases where dictionary might be out of sync with layout)
+        while self.stems_container.count():
+            item = self.stems_container.takeAt(0)
+            widget = item.widget()
+            if widget:
+                widget.deleteLater()
+        
         self.stem_controls.clear()
 
         # Clear stems list widget
@@ -592,6 +597,13 @@ class PlayerWidget(QWidget):
                 else:
                     # Fallback: use original last part or whole filename
                     stem_name = name_parts[-1] if len(name_parts) > 1 else file_path.stem
+
+            # Ensure unique stem name to prevent overwriting/UI issues
+            base_name = stem_name
+            counter = 1
+            while stem_name in self.stem_files:
+                stem_name = f"{base_name} ({counter})"
+                counter += 1
 
             self.stem_files[stem_name] = file_path
 
