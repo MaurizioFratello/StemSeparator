@@ -139,6 +139,11 @@ class QueueWidget(QWidget):
     - Reorder tasks (future)
     """
     
+    # Signals for external components (e.g., QueueDrawer)
+    status_updated = Signal(str, int)  # message, progress_percent
+    queue_started = Signal()
+    queue_finished = Signal()
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.ctx = AppContext()
@@ -152,6 +157,10 @@ class QueueWidget(QWidget):
         self.apply_translations()
         
         self.ctx.logger().info("QueueWidget initialized")
+
+    def start_processing(self):
+        """Public method to start queue processing"""
+        self._on_start_queue()
     
     def _create_card(self, title: str) -> tuple[QFrame, QVBoxLayout]:
         """Create a styled card frame with header"""
@@ -159,8 +168,8 @@ class QueueWidget(QWidget):
         card.setObjectName("card")
         
         layout = QVBoxLayout(card)
-        layout.setContentsMargins(20, 20, 20, 20)
-        layout.setSpacing(15)
+        layout.setContentsMargins(10, 10, 10, 10)  # Reduced margins for drawer
+        layout.setSpacing(10)
         
         header = QLabel(title)
         header.setObjectName("card_header")
@@ -172,8 +181,8 @@ class QueueWidget(QWidget):
         """Setup widget layout and components"""
         # Create main layout for the widget
         main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(20, 20, 20, 20)
-        main_layout.setSpacing(15)
+        main_layout.setContentsMargins(10, 10, 10, 10) # Reduced margins
+        main_layout.setSpacing(10)
 
         # Queue Table Card
         table_card, table_layout = self._create_card("Task Queue")
@@ -360,6 +369,8 @@ class QueueWidget(QWidget):
         self.btn_stop.setEnabled(True)
         self.btn_clear.setEnabled(False)
         
+        self.queue_started.emit()
+
         # Create worker
         worker = QueueWorker(self.tasks)
         worker.signals.task_started.connect(self._on_task_started)
@@ -482,7 +493,12 @@ class QueueWidget(QWidget):
         completed = sum(1 for t in self.tasks if t.status == TaskStatus.COMPLETED)
         failed = sum(1 for t in self.tasks if t.status == TaskStatus.FAILED)
         
-        self.status_label.setText(f"Queue finished: {completed} completed, {failed} failed")
+        status_msg = f"Queue finished: {completed} completed, {failed} failed"
+        self.status_label.setText(status_msg)
+        self.queue_finished.emit()
+        
+        # We emit status updated with 100% to indicate completion
+        self.status_updated.emit(status_msg, 100)
         
         QMessageBox.information(
             self,
@@ -500,18 +516,33 @@ class QueueWidget(QWidget):
             self.status_label.setText("Queue empty")
             self.btn_start.setEnabled(False)
             self.btn_clear.setEnabled(False)
+            self.status_updated.emit("Queue empty", 0)
             return
         
         pending = sum(1 for t in self.tasks if t.status == TaskStatus.PENDING)
         processing = sum(1 for t in self.tasks if t.status == TaskStatus.PROCESSING)
         completed = sum(1 for t in self.tasks if t.status == TaskStatus.COMPLETED)
         failed = sum(1 for t in self.tasks if t.status == TaskStatus.FAILED)
+        total = len(self.tasks)
         
-        self.status_label.setText(
-            f"{len(self.tasks)} tasks: "
-            f"{pending} pending, {processing} processing, "
-            f"{completed} completed, {failed} failed"
-        )
+        status_text = f"{total} tasks: {pending} pending, {processing} processing, {completed} completed"
+        
+        self.status_label.setText(status_text)
+        
+        # Calculate overall progress roughly
+        total_progress = 0
+        if total > 0:
+            for t in self.tasks:
+                if t.status == TaskStatus.COMPLETED:
+                    total_progress += 100
+                elif t.status == TaskStatus.PROCESSING:
+                    total_progress += t.progress
+            
+            overall_percent = int(total_progress / total)
+        else:
+            overall_percent = 0
+            
+        self.status_updated.emit(status_text, overall_percent)
         
         self.btn_start.setEnabled(pending > 0 and not self.is_processing)
         self.btn_clear.setEnabled(not self.is_processing)

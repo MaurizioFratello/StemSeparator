@@ -118,6 +118,8 @@ excludes = [
     # Unnecessary GUI toolkits
     'tkinter',
     'matplotlib',
+    'PyQt5',        # Exclude conflicting Qt binding (app uses PySide6)
+    'PyQt6',        # Exclude conflicting Qt binding (app uses PySide6)
 
     # CUDA (macOS doesn't use CUDA)
     'torch.cuda',

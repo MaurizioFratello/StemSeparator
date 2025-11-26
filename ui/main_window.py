@@ -17,10 +17,14 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QSizePolicy,
     QStatusBar,
-    QTabWidget,
+    QStackedWidget,
     QToolBar,
     QVBoxLayout,
+    QHBoxLayout,
     QWidget,
+    QFrame,
+    QPushButton,
+    QButtonGroup,
 )
 from PySide6.QtGui import QDesktopServices
 
@@ -28,7 +32,7 @@ from config import APP_NAME, ICONS_DIR
 from ui.app_context import AppContext, get_app_context
 from ui.widgets.upload_widget import UploadWidget
 from ui.widgets.recording_widget import RecordingWidget
-from ui.widgets.queue_widget import QueueWidget
+from ui.widgets.queue_drawer import QueueDrawer
 from ui.widgets.player_widget import PlayerWidget
 from ui.widgets.settings_dialog import SettingsDialog
 from ui.theme.macos_effects import MacOSEffects
@@ -38,15 +42,13 @@ from ui.theme.macos_dialogs import MacOSDialogs
 class MainWindow(QMainWindow):
     """
     PURPOSE: Provide the top-level PySide6 window that hosts all GUI components.
-    CONTEXT: First step of Phase 4 – establishes shared menus, toolbar slots, and tab placeholders
-             so subsequent widgets can be integrated incrementally.
+    CONTEXT: Replaced TabWidget with Sidebar + StackedWidget layout for modern UX.
     """
 
     def __init__(self) -> None:
         super().__init__()
         self._context: AppContext = get_app_context()
         self._logger = self._context.logger()
-        self._tab_widget = QTabWidget()
         self._icons_cache: Dict[str, QIcon] = {}
 
         # Theme is now applied at application level in main.py
@@ -61,10 +63,8 @@ class MainWindow(QMainWindow):
 
     def _setup_ui(self) -> None:
         """
-        PURPOSE: Configure the central layout and default tabs.
-        CONTEXT: Tabs currently use placeholders that will be replaced by concrete widgets in later
-                 tasks while preserving tab order and identifiers.
-                 Includes macOS-specific window management and visual effects.
+        PURPOSE: Configure the central layout with Sidebar and StackedWidget.
+        CONTEXT: Replaces QTabWidget with a persistent left sidebar and content area.
         """
 
         self.setWindowTitle(APP_NAME)
@@ -74,47 +74,107 @@ class MainWindow(QMainWindow):
         if platform.system() == "Darwin":
             # Enable native full-screen button
             self.setWindowFlag(Qt.WindowFullscreenButtonHint, True)
-
             # Set minimum size to prevent tiny windows
             self.setMinimumSize(1000, 700)
-
-            # Center window on screen (macOS convention)
+            # Center window on screen
             self._center_on_screen()
 
-        self.setCentralWidget(self._tab_widget)
+        # Main container
+        main_widget = QWidget()
+        main_v_layout = QVBoxLayout(main_widget)
+        main_v_layout.setContentsMargins(0, 0, 0, 0)
+        main_v_layout.setSpacing(0)
+        
+        # Content container (Sidebar + Stack)
+        content_widget = QWidget()
+        content_layout = QHBoxLayout(content_widget)
+        content_layout.setContentsMargins(0, 0, 0, 0)
+        content_layout.setSpacing(0)
+        
+        self.setCentralWidget(main_widget)
 
-        # Modern tab widget configuration
-        self._tab_widget.setDocumentMode(True)  # Cleaner look without frame
+        # 1. LEFT SIDEBAR
+        self._sidebar = QFrame()
+        self._sidebar.setObjectName("sidebar")
+        self._sidebar.setFixedWidth(200)  # Wide sidebar for text labels
+        
+        # Sidebar layout
+        sidebar_layout = QVBoxLayout(self._sidebar)
+        sidebar_layout.setContentsMargins(10, 20, 10, 20)
+        sidebar_layout.setSpacing(8)
 
-        # WHY: Provide predictable tab indices for upcoming widgets.
+        # Navigation Button Group (Exclusive)
+        self._nav_group = QButtonGroup(self)
+        self._nav_group.setExclusive(True)
+
+        # 2. RIGHT CONTENT AREA (Stacked)
+        self._content_stack = QStackedWidget()
+
+        # Initialize Widgets
         self._upload_widget = UploadWidget(self)
         self._recording_widget = RecordingWidget(self)
-        self._queue_widget = QueueWidget(self)
+        # QueueWidget is now inside QueueDrawer, not in stack
         self._player_widget = PlayerWidget(self)
 
-        self._tab_widget.addTab(self._upload_widget, "Upload")
-        self._tab_widget.addTab(self._recording_widget, "Recording")
-        self._tab_widget.addTab(self._queue_widget, "Queue")
-        self._tab_widget.addTab(self._player_widget, "Player")
+        # Add to Stack
+        self._content_stack.addWidget(self._upload_widget)    # Index 0
+        self._content_stack.addWidget(self._recording_widget) # Index 1
+        self._content_stack.addWidget(self._player_widget)    # Index 2
+
+        # Create Nav Buttons
+        # We will set text in _apply_translations
+        self._btn_upload = self._create_nav_button("upload", 0)
+        self._btn_record = self._create_nav_button("mic", 1)
+        self._btn_player = self._create_nav_button("play", 2)
+        
+        # Add buttons to sidebar layout
+        sidebar_layout.addWidget(self._btn_upload)
+        sidebar_layout.addWidget(self._btn_record)
+        sidebar_layout.addWidget(self._btn_player)
+        
+        sidebar_layout.addStretch() # Push buttons to top
+
+        # Set default selection
+        self._btn_upload.setChecked(True)
+
+        # Assemble Content Layout
+        content_layout.addWidget(self._sidebar)
+        content_layout.addWidget(self._content_stack)
+        
+        # Add content to main VBox
+        main_v_layout.addWidget(content_widget)
+        
+        # Add QueueDrawer to bottom
+        self._queue_drawer = QueueDrawer(self)
+        main_v_layout.addWidget(self._queue_drawer)
 
         # Wire up signals between widgets
-        self._upload_widget.file_queued.connect(self._queue_widget.add_task)
+        self._upload_widget.file_queued.connect(self._queue_drawer.add_task)
+        self._upload_widget.start_queue_requested.connect(self._queue_drawer.start_queue)
         self._recording_widget.recording_saved.connect(self._on_recording_saved)
 
         status_bar = QStatusBar(self)
         status_bar.showMessage(self._context.translate("status.ready", fallback="Ready"))
         self.setStatusBar(status_bar)
 
-        # Apply macOS vibrancy effects to tab bar (on macOS only)
+        # Apply macOS vibrancy effects (Sidebar)
         if platform.system() == "Darwin":
-            MacOSEffects.apply_toolbar_effect(self._tab_widget.tabBar(), dark=True)
+            # Dark sidebar effect
+            MacOSEffects.apply_sidebar_effect(self._sidebar, dark=True)
+
+    def _create_nav_button(self, icon_name: str, index: int) -> QPushButton:
+        """Helper to create sidebar navigation buttons"""
+        btn = QPushButton()
+        btn.setCheckable(True)
+        btn.setObjectName("sidebar_button") # For styling
+        # Connect click to page switch
+        btn.clicked.connect(lambda: self._content_stack.setCurrentIndex(index))
+        self._nav_group.addButton(btn)
+        # TODO: Load icon here once we have them, or use unicode/text for now
+        return btn
 
     def _center_on_screen(self) -> None:
-        """
-        Center window on primary screen
-
-        WHY: macOS convention - apps should launch centered, not in arbitrary positions
-        """
+        """Center window on primary screen"""
         try:
             from PySide6.QtGui import QScreen
             screen = QApplication.primaryScreen()
@@ -125,45 +185,33 @@ class MainWindow(QMainWindow):
                     (geometry.height() - self.height()) // 2
                 )
         except Exception:
-            # Fail gracefully if screen detection doesn't work
             pass
 
     def _setup_menu(self) -> None:
-        """
-        PURPOSE: Build menu bar with placeholders for file/view/help actions.
-        CONTEXT: Menus expose core diagnostics (logs), localisation, and about dialogs from the
-                 outset to keep workflow consistent as widgets arrive.
-                 Includes macOS-specific native menu bar and standard menus.
-        """
-
+        """Build menu bar."""
         menubar = self.menuBar()
 
-        # Enable native macOS menu bar (appears in system menu bar, not in-window)
         if platform.system() == "Darwin":
             menubar.setNativeMenuBar(True)
 
         # File menu
-        self._file_menu = menubar.addMenu("")  # Populated in _apply_translations.
+        self._file_menu = menubar.addMenu("")
         self._open_files_action = QAction(self._load_icon("folder-open"), "", self)
         self._file_menu.addAction(self._open_files_action)
-
         self._file_menu.addSeparator()
 
-        # macOS-specific: Close Window (Cmd+W)
         if platform.system() == "Darwin":
             self._close_window_action = QAction("Close Window", self)
-            self._close_window_action.setShortcut(QKeySequence("Ctrl+W"))  # Ctrl = Cmd on Mac
+            self._close_window_action.setShortcut(QKeySequence("Ctrl+W"))
             self._file_menu.addAction(self._close_window_action)
 
-            # Minimize (Cmd+M)
             self._minimize_action = QAction("Minimize", self)
             self._minimize_action.setShortcut(QKeySequence("Ctrl+M"))
             self._file_menu.addAction(self._minimize_action)
-
             self._file_menu.addSeparator()
 
         self._quit_action = QAction(self._load_icon("application-exit"), "", self)
-        self._quit_action.setShortcut(QKeySequence.Quit)  # Cmd+Q on Mac, Ctrl+Q on others
+        self._quit_action.setShortcut(QKeySequence.Quit)
         self._file_menu.addAction(self._quit_action)
 
         # Edit menu (standard macOS menu)
@@ -173,7 +221,6 @@ class MainWindow(QMainWindow):
         # View menu
         self._view_menu = menubar.addMenu("")
         self._settings_action = QAction(self._load_icon("preferences-system"), "", self)
-        # macOS convention: Settings shortcut is Cmd+,
         if platform.system() == "Darwin":
             self._settings_action.setShortcut(QKeySequence("Ctrl+,"))
         self._view_menu.addAction(self._settings_action)
@@ -184,67 +231,50 @@ class MainWindow(QMainWindow):
         self._help_menu.addAction(self._about_action)
 
     def _setup_edit_menu(self, menubar) -> None:
-        """
-        Setup standard Edit menu (macOS convention)
-
-        WHY: macOS apps are expected to have an Edit menu with Undo/Redo/Cut/Copy/Paste
-              even if some actions aren't fully implemented yet
-        """
+        """Setup standard Edit menu"""
         self._edit_menu = menubar.addMenu("Edit")
-
-        # Undo
+        
         self._undo_action = QAction("Undo", self)
         self._undo_action.setShortcut(QKeySequence.Undo)
-        self._undo_action.setEnabled(False)  # Disabled for now
+        self._undo_action.setEnabled(False)
         self._edit_menu.addAction(self._undo_action)
-
-        # Redo
+        
         self._redo_action = QAction("Redo", self)
         self._redo_action.setShortcut(QKeySequence.Redo)
-        self._redo_action.setEnabled(False)  # Disabled for now
+        self._redo_action.setEnabled(False)
         self._edit_menu.addAction(self._redo_action)
-
+        
         self._edit_menu.addSeparator()
-
-        # Cut
+        
         self._cut_action = QAction("Cut", self)
         self._cut_action.setShortcut(QKeySequence.Cut)
-        self._cut_action.setEnabled(False)  # Disabled for now
+        self._cut_action.setEnabled(False)
         self._edit_menu.addAction(self._cut_action)
-
-        # Copy
+        
         self._copy_action = QAction("Copy", self)
         self._copy_action.setShortcut(QKeySequence.Copy)
-        self._copy_action.setEnabled(False)  # Disabled for now
+        self._copy_action.setEnabled(False)
         self._edit_menu.addAction(self._copy_action)
-
-        # Paste
+        
         self._paste_action = QAction("Paste", self)
         self._paste_action.setShortcut(QKeySequence.Paste)
-        self._paste_action.setEnabled(False)  # Disabled for now
+        self._paste_action.setEnabled(False)
         self._edit_menu.addAction(self._paste_action)
-
+        
         self._edit_menu.addSeparator()
-
-        # Select All
+        
         self._select_all_action = QAction("Select All", self)
         self._select_all_action.setShortcut(QKeySequence.SelectAll)
-        self._select_all_action.setEnabled(False)  # Disabled for now
+        self._select_all_action.setEnabled(False)
         self._edit_menu.addAction(self._select_all_action)
 
     def _setup_toolbar(self) -> None:
-        """
-        PURPOSE: Provide a main toolbar with quick-access actions.
-        CONTEXT: Toolbar mirrors menu entries to streamline future UX polish.
-                 macOS-optimized with standard icon sizes and styling.
-        """
-
+        """Provide a main toolbar with quick-access actions."""
         toolbar = QToolBar(self)
         toolbar.setMovable(False)
-        toolbar.setIconSize(QSize(24, 24))  # Standard macOS toolbar icon size
+        toolbar.setIconSize(QSize(24, 24))
         toolbar.setToolButtonStyle(Qt.ToolButtonTextUnderIcon)
 
-        # macOS-specific toolbar styling
         if platform.system() == "Darwin":
             toolbar.setStyleSheet("""
                 QToolBar {
@@ -268,41 +298,28 @@ class MainWindow(QMainWindow):
                 }
             """)
 
-        # Add key actions to toolbar
         toolbar.addAction(self._settings_action)
 
-        # Add spacer to push help to the right (macOS convention)
         spacer = QWidget()
         spacer.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         toolbar.addWidget(spacer)
 
         toolbar.addAction(self._about_action)
-
         self.addToolBar(Qt.TopToolBarArea, toolbar)
 
     def _connect_actions(self) -> None:
-        """
-        PURPOSE: Wire UI actions to their respective slots.
-        CONTEXT: Keeps behaviour declarative and simplifies unit testing by isolating slot logic.
-                 Includes macOS-specific action connections.
-        """
-
+        """Wire UI actions to their respective slots."""
         self._open_files_action.triggered.connect(self._choose_files)
         self._quit_action.triggered.connect(QApplication.instance().quit)
         self._settings_action.triggered.connect(self._show_settings)
         self._about_action.triggered.connect(self._show_about_dialog)
 
-        # macOS-specific actions
         if platform.system() == "Darwin":
             self._close_window_action.triggered.connect(self.close)
             self._minimize_action.triggered.connect(self.showMinimized)
 
     def _apply_translations(self) -> None:
-        """
-        PURPOSE: Refresh all text labels using the translation system.
-        CONTEXT: Called during initialisation and whenever the user switches language.
-        """
-
+        """Refresh all text labels using the translation system."""
         translator = self._context.translate
         self.setWindowTitle(translator("app.title", fallback=APP_NAME))
 
@@ -316,47 +333,18 @@ class MainWindow(QMainWindow):
         self._help_menu.setTitle(translator("menu.help", fallback="Help"))
         self._about_action.setText(translator("menu.help.about", fallback="About"))
 
-        tab_titles = [
-            translator("tabs.upload", fallback="Upload"),
-            translator("tabs.recording", fallback="Recording"),
-            translator("tabs.queue", fallback="Queue"),
-            translator("tabs.player", fallback="Player"),
-        ]
-        for index, title in enumerate(tab_titles):
-            self._tab_widget.setTabText(index, title)
+        # Update Sidebar Buttons
+        self._btn_upload.setText(translator("tabs.upload", fallback="Upload"))
+        self._btn_record.setText(translator("tabs.recording", fallback="Recording"))
+        self._btn_player.setText(translator("tabs.player", fallback="Player"))
 
         if self.statusBar():
             self.statusBar().showMessage(translator("status.ready", fallback="Ready"))
 
-    def _create_placeholder(self, translation_key: str) -> QWidget:
-        """
-        PURPOSE: Create placeholder widget for tabs before real widgets arrive.
-        CONTEXT: Gives immediate visual feedback that tabs load while avoiding unimplemented UI.
-        """
-
-        placeholder = QWidget(self)
-        layout = QVBoxLayout(placeholder)
-        label = QLabel(
-            self._context.translate(
-                translation_key,
-                fallback="Coming soon",
-            ),
-            parent=placeholder,
-        )
-        label.setAlignment(Qt.AlignCenter)
-        layout.addWidget(label)
-        layout.addStretch()
-        return placeholder
-
     def _load_icon(self, name: str) -> QIcon:
-        """
-        PURPOSE: Load icons from the configured resources directory with simple caching.
-        CONTEXT: Prevents repeated disk access when actions share icons.
-        """
-
+        """Load icons from the configured resources directory."""
         if name in self._icons_cache:
             return self._icons_cache[name]
-
         candidate = ICONS_DIR / f"{name}.png"
         icon = QIcon(str(candidate)) if candidate.exists() else QIcon()
         self._icons_cache[name] = icon
@@ -364,17 +352,10 @@ class MainWindow(QMainWindow):
 
     @Slot()
     def _choose_files(self) -> None:
-        """
-        PURPOSE: Allow selecting audio files using native file dialog.
-        CONTEXT: Provides early ability to inspect file selection flow and ensures the File menu
-                 remains functional during scaffold stage.
-                 Uses native macOS file dialog for better integration.
-        """
-
+        """Allow selecting audio files using native file dialog."""
         dialog = QFileDialog(self)
         dialog.setFileMode(QFileDialog.ExistingFiles)
 
-        # Use native macOS file dialog (CRITICAL for native feel)
         if platform.system() == "Darwin":
             dialog.setOption(QFileDialog.DontUseNativeDialog, False)
             dialog.setOption(QFileDialog.DontUseCustomDirectoryIcons, False)
@@ -400,15 +381,14 @@ class MainWindow(QMainWindow):
                 ),
                 5000,
             )
+            # If we are not on upload tab, switch to it? 
+            # Maybe better to let user decide, but we could:
+            # self._content_stack.setCurrentIndex(0)
+            # self._btn_upload.setChecked(True)
 
     @Slot()
     def _show_about_dialog(self) -> None:
-        """
-        PURPOSE: Display application metadata and diagnostics hints.
-        CONTEXT: Standard part of macOS/Windows desktop UX, helps users confirm version info.
-                 Uses macOS-styled dialogs for native appearance.
-        """
-
+        """Display application metadata."""
         info = self._context.translate(
             "dialog.about.body",
             fallback=f"{APP_NAME}\n\nSystem audio stem separation with AI models.",
@@ -417,45 +397,25 @@ class MainWindow(QMainWindow):
 
     @Slot()
     def _show_settings(self) -> None:
-        """
-        PURPOSE: Display settings dialog.
-        CONTEXT: Allows user to configure app preferences.
-        """
+        """Display settings dialog."""
         dialog = SettingsDialog(self)
         dialog.settings_changed.connect(self._on_settings_changed)
         dialog.exec()
 
     @Slot()
     def _on_settings_changed(self) -> None:
-        """
-        PURPOSE: React to settings changes.
-        CONTEXT: Some settings (like language) require UI refresh.
-        """
+        """React to settings changes."""
         self._logger.info("Settings changed, refreshing UI")
         self._apply_translations()
 
     @Slot()
     def _on_recording_saved(self, file_path: Path) -> None:
-        """
-        PURPOSE: Handle recording saved signal.
-        CONTEXT: Shows notification when recording is saved.
-        """
+        """Handle recording saved signal."""
         self._logger.info(f"Recording saved: {file_path}")
-
-        # Show notification in status bar
         if self.statusBar():
-            self.statusBar().showMessage(
-                f"Recording saved: {file_path.name}",
-                5000
-            )
+            self.statusBar().showMessage(f"Recording saved: {file_path.name}", 5000)
 
-    def closeEvent(self, event: QCloseEvent) -> None:  # noqa: N802 (Qt override)
-        """
-        PURPOSE: Intercept close event for graceful shutdown.
-        CONTEXT: Allows future integration of pending-task prompts while ensuring a clean exit now.
-                 Close window (red X or Cmd+W) quits the application completely.
-        """
-
+    def closeEvent(self, event: QCloseEvent) -> None:  # noqa: N802
+        """Intercept close event for graceful shutdown."""
         self._logger.info("Application shutdown requested")
         event.accept()
-

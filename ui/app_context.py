@@ -123,6 +123,10 @@ class AppContext:
 
         return t(key, fallback=fallback, **kwargs)
 
+    def t(self, key: str, fallback: str | None = None, **kwargs) -> str:
+        """Alias for translate."""
+        return self.translate(key, fallback, **kwargs)
+
     def set_language(self, language: str) -> None:
         """
         PURPOSE: Update global language preference and log the change.
