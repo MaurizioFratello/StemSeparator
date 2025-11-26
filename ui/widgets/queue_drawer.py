@@ -5,7 +5,7 @@ from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
     QFrame, QGraphicsDropShadowEffect, QSizePolicy
 )
-from PySide6.QtCore import Qt, QPropertyAnimation, QEasingCurve, QSize, Slot, Signal
+from PySide6.QtCore import Qt, QPropertyAnimation, QEasingCurve, QSize, Slot, Signal, QRect
 from PySide6.QtGui import QColor
 
 from ui.widgets.queue_widget import QueueWidget
@@ -17,9 +17,9 @@ class QueueDrawer(QWidget):
     A collapsible bottom drawer that houses the global QueueWidget.
     
     Features:
-    - Persistent visibility across tabs
+    - Persistent overlay across tabs
     - Auto-hide when empty/inactive (optional mode)
-    - Smooth expand/collapse animation
+    - Smooth expand/collapse animation (modifies geometry)
     - Header summary ("Processing... 45%")
     """
     
@@ -30,28 +30,19 @@ class QueueDrawer(QWidget):
         super().__init__(parent)
         
         self.is_expanded = False
-        self.expanded_height = 300  # Default reasonable height
+        self.expanded_height = 300  # Default, will be overridden by parent resize
         self.collapsed_height = 40  # Height of just the header
         
         self._setup_ui()
         self._connect_signals()
         
         # Initialize state
-        self.collapse() # Start collapsed
         self.setVisible(False) # Start hidden (until tasks are added)
 
-    def resizeEvent(self, event):
-        """Adjust expanded height limit based on parent window size."""
-        if self.parent():
-            # Limit drawer to 40% of window height to prevent pushing content off-screen
-            max_allowed = int(self.parent().height() * 0.4)
-            self.expanded_height = max(200, max_allowed)  # Minimum 200px
-            
-            # If currently expanded, update geometry immediately if needed
-            if self.is_expanded and self.height() > self.expanded_height:
-                 self.setMaximumHeight(self.expanded_height)
-        
-        super().resizeEvent(event)
+        # Animation setup - targets geometry (QRect)
+        self.animation = QPropertyAnimation(self, b"geometry")
+        self.animation.setDuration(300)
+        self.animation.setEasingCurve(QEasingCurve.OutCubic)
 
     def _setup_ui(self):
         """Configure layout and components."""
@@ -62,7 +53,12 @@ class QueueDrawer(QWidget):
         
         # Styling for the container
         self.setAttribute(Qt.WA_StyledBackground, True)
-        # Apply a subtle top border/shadow via style or effect could be added here
+        # Add shadow for depth perception since it is an overlay
+        shadow = QGraphicsDropShadowEffect(self)
+        shadow.setBlurRadius(20)
+        shadow.setColor(QColor(0, 0, 0, 80))
+        shadow.setOffset(0, -2)
+        self.setGraphicsEffect(shadow)
         
         # --- 1. Header Bar (Always visible when drawer is 'shown') ---
         self.header = QFrame()
@@ -121,11 +117,6 @@ class QueueDrawer(QWidget):
         # Add to main layout
         self.main_layout.addWidget(self.header)
         self.main_layout.addWidget(self.content_frame)
-        
-        # Animation setup
-        self.animation = QPropertyAnimation(self, b"maximumHeight")
-        self.animation.setDuration(300)
-        self.animation.setEasingCurve(QEasingCurve.OutCubic)
 
     def _connect_signals(self):
         """Wire up internal and external signals."""
@@ -133,13 +124,8 @@ class QueueDrawer(QWidget):
         self.btn_close.clicked.connect(self.hide_drawer)
         
         # Connect QueueWidget signals to our header
-        # Note: We need to implement these signals in QueueWidget first
-        # Using standard signal connection pattern assuming they will exist
         if hasattr(self.queue_widget, 'status_updated'):
             self.queue_widget.status_updated.connect(self.update_status)
-        
-        # We also want to auto-show when tasks are added
-        # This might need to be connected by the caller, or we expose a method
         
     @Slot()
     def toggle(self):
@@ -152,10 +138,32 @@ class QueueDrawer(QWidget):
     @Slot()
     def expand(self):
         """Animate drawer open."""
+        if not self.parent():
+            return
+            
+        # Ensure valid start position if previously hidden/misplaced
+        parent_rect = self.parent().rect()
+        if not self.isVisible() or self.y() == 0:
+             # Start from bottom-collapsed state
+             h = self.collapsed_height
+             y = parent_rect.height() - h
+             self.setGeometry(0, y, parent_rect.width(), h)
+             
         self.show() # Ensure visible
-        self.animation.setStartValue(self.height())
-        self.animation.setEndValue(self.expanded_height)
+        self.raise_() # Ensure on top
+        
+        current_rect = self.geometry()
+        
+        # Target geometry: width of parent, height = expanded_height
+        # Position: bottom of parent
+        target_h = self.expanded_height
+        target_y = parent_rect.height() - target_h
+        target_rect = QRect(0, target_y, parent_rect.width(), target_h)
+        
+        self.animation.setStartValue(current_rect)
+        self.animation.setEndValue(target_rect)
         self.animation.start()
+        
         self.is_expanded = True
         self.btn_toggle.setText("▼")
         self.toggled.emit(True)
@@ -163,9 +171,22 @@ class QueueDrawer(QWidget):
     @Slot()
     def collapse(self):
         """Animate drawer closed (mini-mode)."""
-        self.animation.setStartValue(self.height())
-        self.animation.setEndValue(self.collapsed_height)
+        if not self.parent():
+            return
+            
+        parent_rect = self.parent().rect()
+        current_rect = self.geometry()
+        
+        # Target geometry: width of parent, height = collapsed_height
+        # Position: bottom of parent
+        target_h = self.collapsed_height
+        target_y = parent_rect.height() - target_h
+        target_rect = QRect(0, target_y, parent_rect.width(), target_h)
+        
+        self.animation.setStartValue(current_rect)
+        self.animation.setEndValue(target_rect)
         self.animation.start()
+        
         self.is_expanded = False
         self.btn_toggle.setText("▲")
         self.toggled.emit(False)
@@ -174,8 +195,7 @@ class QueueDrawer(QWidget):
     def hide_drawer(self):
         """Completely hide the drawer."""
         self.collapse()
-        # Delay hide until animation finishes? For simplicity, we just hide self
-        # But animation is on maximumHeight, so we might just set visible to False
+        # Ideally wait for animation, but simple hide is ok for now
         self.setVisible(False)
 
     @Slot(str, int)
@@ -187,13 +207,24 @@ class QueueDrawer(QWidget):
         """Proxy to queue_widget.add_task and auto-show drawer."""
         self.queue_widget.add_task(*args, **kwargs)
         if not self.isVisible():
+            # Initial geometry setup before showing
+            if self.parent():
+                h = self.collapsed_height
+                w = self.parent().width()
+                y = self.parent().height() - h
+                self.setGeometry(0, y, w, h)
+                
             self.setVisible(True)
-            self.collapse() # Show as mini-bar initially
+            self.collapse() # Ensure state is consistent
     
     @Slot()
     def start_queue(self):
         """Start processing the queue."""
         if not self.isVisible():
+            if self.parent():
+                h = self.collapsed_height
+                w = self.parent().width()
+                y = self.parent().height() - h
+                self.setGeometry(0, y, w, h)
             self.setVisible(True)
         self.queue_widget.start_processing()
-

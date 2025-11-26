@@ -144,10 +144,9 @@ class MainWindow(QMainWindow):
         # Add content to main VBox with stretch factor 1 to allow shrinking
         main_v_layout.addWidget(content_widget, stretch=1)
         
-        # Add QueueDrawer to bottom with stretch factor 0 (fixed/animating height)
-        self._queue_drawer = QueueDrawer(self)
-        main_v_layout.addWidget(self._queue_drawer, stretch=0)
-
+        # Add QueueDrawer to main widget (Overlay, not in layout)
+        self._queue_drawer = QueueDrawer(self.centralWidget())
+        
         # Wire up signals between widgets
         self._upload_widget.file_queued.connect(self._queue_drawer.add_task)
         self._upload_widget.start_queue_requested.connect(self._queue_drawer.start_queue)
@@ -419,3 +418,63 @@ class MainWindow(QMainWindow):
         """Intercept close event for graceful shutdown."""
         self._logger.info("Application shutdown requested")
         event.accept()
+
+    def resizeEvent(self, event):
+        """
+        Handle window resize to update QueueDrawer geometry.
+        
+        WHY: QueueDrawer is an overlay and needs manual positioning.
+        """
+        super().resizeEvent(event)
+        
+        if not hasattr(self, '_queue_drawer') or not hasattr(self, '_sidebar'):
+            return
+            
+        # 1. Calculate Safe Height (protect sidebar buttons)
+        # Find the bottom-most button in the navigation group
+        # Buttons are in sidebar layout. We can estimate or get estimating bottom of last button.
+        # The buttons are _btn_upload, _btn_record, _btn_player.
+        # _btn_player is the last one.
+        if hasattr(self, '_btn_player') and self._btn_player.isVisible():
+            # Map button bottom to global coordinate system then to central widget?
+            # Actually, sidebar is in content_widget. 
+            # content_widget.y() is usually 0 in main_widget layout (no margins).
+            # _btn_player.y() + _btn_player.height() gives bottom relative to sidebar.
+            # sidebar.y() is relative to content_widget.
+            
+            # Safe calculation:
+            # button_bottom_y = self._sidebar.y() + self._btn_player.y() + self._btn_player.height()
+            # Add some margin
+            # But simpler: just get sidebar contents margins
+            
+            # Let's use geometry mapping if possible, or just rough estimation
+            # Sidebar is fixed width, vertical layout.
+            # Button bottom relative to sidebar:
+            btn_bottom = self._btn_player.geometry().bottom()
+            sidebar_y = self._sidebar.geometry().y()
+            
+            safe_top_y = sidebar_y + btn_bottom + 20 # 20px margin
+            
+            # Calculate max drawer height
+            # Window height - safe_top_y
+            max_drawer_height = self.centralWidget().height() - safe_top_y
+            
+            # Update drawer's expanded height limit
+            self._queue_drawer.expanded_height = max(200, max_drawer_height)
+            
+        # 2. Update Drawer Geometry
+        # Width = window width
+        # Height = current drawer height (collapsed or expanded)
+        # Y = window height - height
+        if self._queue_drawer.isVisible():
+            target_h = self._queue_drawer.height() # Current height
+            # If we are resizing, we might want to enforce collapsed/expanded state height
+            if self._queue_drawer.is_expanded:
+                target_h = self._queue_drawer.expanded_height
+            else:
+                target_h = self._queue_drawer.collapsed_height
+                
+            w = self.centralWidget().width()
+            y = self.centralWidget().height() - target_h
+            self._queue_drawer.setGeometry(0, y, w, target_h)
+            self._queue_drawer.raise_() # Keep on top
