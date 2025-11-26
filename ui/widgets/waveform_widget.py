@@ -237,6 +237,9 @@ class WaveformWidget(QWidget):
         # Waveform display
         self.waveform_display = WaveformDisplay()
         group_layout.addWidget(self.waveform_display)
+        
+        # Add spacing between waveform and controls
+        group_layout.addSpacing(15)
 
         # Trim controls
         controls_layout = QVBoxLayout()

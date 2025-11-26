@@ -141,12 +141,12 @@ class MainWindow(QMainWindow):
         content_layout.addWidget(self._sidebar)
         content_layout.addWidget(self._content_stack)
         
-        # Add content to main VBox
-        main_v_layout.addWidget(content_widget)
+        # Add content to main VBox with stretch factor 1 to allow shrinking
+        main_v_layout.addWidget(content_widget, stretch=1)
         
-        # Add QueueDrawer to bottom
+        # Add QueueDrawer to bottom with stretch factor 0 (fixed/animating height)
         self._queue_drawer = QueueDrawer(self)
-        main_v_layout.addWidget(self._queue_drawer)
+        main_v_layout.addWidget(self._queue_drawer, stretch=0)
 
         # Wire up signals between widgets
         self._upload_widget.file_queued.connect(self._queue_drawer.add_task)
