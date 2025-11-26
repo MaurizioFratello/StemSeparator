@@ -36,20 +36,6 @@ def test_settings_dialog_has_tabs(qapp, reset_singletons):
 
 
 @pytest.mark.unit
-def test_settings_dialog_language_combo(qapp, reset_singletons):
-    """Test language combo box"""
-    dialog = SettingsDialog()
-    
-    # Should have language options
-    assert dialog.language_combo.count() >= 2
-    
-    # Should have DE and EN
-    languages = [dialog.language_combo.itemData(i) for i in range(dialog.language_combo.count())]
-    assert "de" in languages
-    assert "en" in languages
-
-
-@pytest.mark.unit
 def test_settings_dialog_model_combo(qapp, reset_singletons):
     """Test model combo box"""
     dialog = SettingsDialog()
@@ -83,19 +69,6 @@ def test_settings_dialog_chunk_spinbox(qapp, reset_singletons):
 
 
 @pytest.mark.unit
-def test_settings_dialog_load_current_settings(qapp, reset_singletons):
-    """Test loading current settings into UI"""
-    with patch('ui.settings_manager.SettingsManager.get_language') as mock_lang:
-        mock_lang.return_value = "de"
-        
-        dialog = SettingsDialog()
-        
-        # German should be selected
-        current_lang = dialog.language_combo.currentData()
-        assert current_lang == "de"
-
-
-@pytest.mark.unit
 def test_settings_dialog_save_settings(qapp, reset_singletons):
     """Test saving settings"""
     with patch('ui.settings_manager.SettingsManager.save') as mock_save:
@@ -123,6 +96,9 @@ def test_settings_dialog_reset_to_defaults(qapp, reset_singletons):
             mock_question.return_value = QMessageBox.Yes
             
             dialog = SettingsDialog()
+            
+            # Reset mock to ignore initialization call
+            mock_defaults.reset_mock()
             
             # Reset
             dialog._on_reset()

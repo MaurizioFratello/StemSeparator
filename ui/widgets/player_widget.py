@@ -9,7 +9,7 @@ from typing import Optional, Dict, List
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
     QSlider, QGroupBox, QFileDialog, QMessageBox, QListWidget,
-    QListWidgetItem, QScrollArea, QProgressBar
+    QListWidgetItem, QScrollArea, QProgressBar, QFrame
 )
 from PySide6.QtCore import Qt, Signal, Slot, QTimer
 from PySide6.QtGui import QDragEnterEvent, QDropEvent
@@ -235,6 +235,21 @@ class PlayerWidget(QWidget):
 
         self.ctx.logger().info("PlayerWidget initialized with real playback")
 
+    def _create_card(self, title: str) -> tuple[QFrame, QVBoxLayout]:
+        """Create a styled card frame with header"""
+        card = QFrame()
+        card.setObjectName("card")
+        
+        layout = QVBoxLayout(card)
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(15)
+        
+        header = QLabel(title)
+        header.setObjectName("card_header")
+        layout.addWidget(header)
+        
+        return card, layout
+
     def _setup_ui(self):
         """Setup widget layout"""
         # Create main layout for the widget
@@ -242,9 +257,8 @@ class PlayerWidget(QWidget):
         main_layout.setContentsMargins(20, 20, 20, 20)
         main_layout.setSpacing(15)
 
-        # File Loading Group
-        load_group = QGroupBox("Load Stems")
-        load_layout = QVBoxLayout()
+        # File Loading Card
+        load_card, load_layout = self._create_card("Load Stems")
 
         # Recent files list with drag-and-drop support
         self.stems_list = DragDropListWidget()
@@ -275,12 +289,10 @@ class PlayerWidget(QWidget):
         load_buttons.addStretch()
         load_layout.addLayout(load_buttons)
 
-        load_group.setLayout(load_layout)
-        main_layout.addWidget(load_group)
+        main_layout.addWidget(load_card)
 
-        # Mixer Group
-        mixer_group = QGroupBox("Mixer")
-        mixer_layout = QVBoxLayout()
+        # Mixer Card
+        mixer_card, mixer_layout = self._create_card("Mixer")
 
         # Scrollable area for stem controls
         self.stems_scroll = QScrollArea()
@@ -311,12 +323,10 @@ class PlayerWidget(QWidget):
         master_layout.addWidget(self.master_label)
         mixer_layout.addLayout(master_layout)
 
-        mixer_group.setLayout(mixer_layout)
-        main_layout.addWidget(mixer_group, stretch=1) # Allow mixer to expand
+        main_layout.addWidget(mixer_card, stretch=1) # Allow mixer to expand
 
-        # Playback Controls Group
-        controls_group = QGroupBox("Playback")
-        controls_layout = QVBoxLayout()
+        # Playback Controls Card
+        controls_card, controls_layout = self._create_card("Playback")
 
         # Position slider
         self.position_slider = QSlider(Qt.Horizontal)
@@ -366,8 +376,7 @@ class PlayerWidget(QWidget):
         buttons_layout.addWidget(self.btn_export)
         controls_layout.addLayout(buttons_layout)
 
-        controls_group.setLayout(controls_layout)
-        main_layout.addWidget(controls_group)
+        main_layout.addWidget(controls_card)
 
         # Info label
         self.info_label = QLabel(

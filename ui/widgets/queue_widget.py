@@ -12,7 +12,7 @@ from collections import deque
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
     QTableWidget, QTableWidgetItem, QHeaderView, QGroupBox,
-    QProgressBar, QMessageBox, QScrollArea
+    QProgressBar, QMessageBox, QScrollArea, QFrame
 )
 from PySide6.QtCore import Qt, Signal, Slot, QRunnable, QThreadPool, QObject
 
@@ -153,26 +153,30 @@ class QueueWidget(QWidget):
         
         self.ctx.logger().info("QueueWidget initialized")
     
+    def _create_card(self, title: str) -> tuple[QFrame, QVBoxLayout]:
+        """Create a styled card frame with header"""
+        card = QFrame()
+        card.setObjectName("card")
+        
+        layout = QVBoxLayout(card)
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(15)
+        
+        header = QLabel(title)
+        header.setObjectName("card_header")
+        layout.addWidget(header)
+        
+        return card, layout
+
     def _setup_ui(self):
         """Setup widget layout and components"""
         # Create main layout for the widget
         main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setContentsMargins(20, 20, 20, 20)
+        main_layout.setSpacing(15)
 
-        # Create scroll area
-        scroll_area = QScrollArea()
-        scroll_area.setWidgetResizable(True)
-        scroll_area.setFrameShape(QScrollArea.NoFrame)
-        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-
-        # Create container widget for scrollable content
-        container = QWidget()
-        layout = QVBoxLayout(container)
-
-        # Queue Table
-        table_group = QGroupBox("Task Queue")
-        table_layout = QVBoxLayout()
+        # Queue Table Card
+        table_card, table_layout = self._create_card("Task Queue")
         
         self.queue_table = QTableWidget()
         self.queue_table.setColumnCount(5)
@@ -194,12 +198,10 @@ class QueueWidget(QWidget):
         self.queue_table.setColumnWidth(3, 150)
         
         table_layout.addWidget(self.queue_table)
-        table_group.setLayout(table_layout)
-        layout.addWidget(table_group)
+        main_layout.addWidget(table_card, stretch=1) # Allow table to expand
         
-        # Controls
-        controls_group = QGroupBox("Controls")
-        controls_layout = QVBoxLayout()
+        # Controls Card
+        controls_card, controls_layout = self._create_card("Controls")
         
         # Status label
         self.status_label = QLabel("Queue empty")
@@ -232,14 +234,9 @@ class QueueWidget(QWidget):
         buttons_layout.addStretch()
         controls_layout.addLayout(buttons_layout)
         
-        controls_group.setLayout(controls_layout)
-        layout.addWidget(controls_group)
+        main_layout.addWidget(controls_card)
 
-        # Set the container in the scroll area
-        scroll_area.setWidget(container)
-
-        # Add scroll area to main layout
-        main_layout.addWidget(scroll_area)
+        # Removed scroll area logic
 
     def _connect_signals(self):
         """Connect button signals"""

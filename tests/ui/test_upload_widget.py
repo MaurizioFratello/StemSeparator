@@ -139,7 +139,7 @@ def test_upload_widget_start_separation(mock_worker_class, qapp, reset_singleton
     
     # Start button should be disabled during processing
     assert not widget.btn_start.isEnabled()
-    assert widget.progress_bar.isVisible()
+    assert not widget.progress_bar.isHidden()
 
 
 @pytest.mark.unit

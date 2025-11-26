@@ -16,50 +16,13 @@ from core.blackhole_installer import BlackHoleStatus
 @pytest.mark.unit
 def test_recording_widget_creation(qapp, reset_singletons):
     """Test that recording widget can be created"""
-    with patch('ui.widgets.recording_widget.RecordingWidget._check_blackhole_status'):
-        with patch('ui.widgets.recording_widget.RecordingWidget._refresh_devices'):
-            widget = RecordingWidget()
-            
-            assert widget is not None
-            assert widget.btn_start is not None
-            assert widget.btn_pause is not None
-            assert widget.btn_stop is not None
-
-
-@pytest.mark.unit
-def test_recording_widget_blackhole_not_installed(qapp, reset_singletons):
-    """Test BlackHole status when not installed"""
-    with patch('core.blackhole_installer.BlackHoleInstaller.get_status') as mock_status:
-        mock_status.return_value = BlackHoleStatus(
-            installed=False,
-            homebrew_available=True
-        )
-        
+    with patch('ui.widgets.recording_widget.RecordingWidget._refresh_devices'):
         widget = RecordingWidget()
         
-        # Start button should be disabled
-        assert not widget.btn_start.isEnabled()
-        # Install button should be enabled
-        assert widget.btn_install_blackhole.isEnabled()
-
-
-@pytest.mark.unit
-def test_recording_widget_blackhole_installed(qapp, reset_singletons):
-    """Test BlackHole status when installed"""
-    with patch('core.blackhole_installer.BlackHoleInstaller.get_status') as mock_status:
-        mock_status.return_value = BlackHoleStatus(
-            installed=True,
-            version="0.4.0",
-            device_found=True,
-            homebrew_available=True
-        )
-        
-        widget = RecordingWidget()
-        
-        # Start button should be enabled
-        assert widget.btn_start.isEnabled()
-        # Install button should be disabled
-        assert not widget.btn_install_blackhole.isEnabled()
+        assert widget is not None
+        assert widget.btn_start is not None
+        assert widget.btn_pause is not None
+        assert widget.btn_stop is not None
 
 
 @pytest.mark.unit

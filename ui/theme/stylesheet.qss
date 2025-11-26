@@ -70,7 +70,23 @@ QPushButton#sidebar_button:checked {
     border-color: #404040;
 }
 
-/* ---- GROUP BOXES (Cards) ---- */
+/* ---- CARD UI (Modern Replacement for GroupBox) ---- */
+#card {
+    background-color: #2d2d2d;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 12px;
+}
+
+#card_header {
+    color: #ffffff;
+    font-size: 15px;
+    font-weight: 600;
+    padding-bottom: 8px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    margin-bottom: 8px;
+}
+
+/* ---- GROUP BOXES (Legacy - to be replaced) ---- */
 QGroupBox {
     background-color: #2d2d2d;
     border: 1px solid #404040;

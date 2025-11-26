@@ -8,7 +8,7 @@ from pathlib import Path
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QTabWidget, QWidget,
     QPushButton, QLabel, QComboBox, QCheckBox, QSpinBox,
-    QLineEdit, QGroupBox, QFileDialog, QMessageBox
+    QLineEdit, QGroupBox, QFileDialog, QMessageBox, QFrame
 )
 from PySide6.QtCore import Qt, Signal, Slot, QUrl, QRunnable, QThreadPool, QObject
 from PySide6.QtGui import QDesktopServices
@@ -83,6 +83,21 @@ class SettingsDialog(QDialog):
 
         self.ctx.logger().info("SettingsDialog initialized")
     
+    def _create_card(self, title: str) -> tuple[QFrame, QVBoxLayout]:
+        """Create a styled card frame with header"""
+        card = QFrame()
+        card.setObjectName("card")
+        
+        layout = QVBoxLayout(card)
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(15)
+        
+        header = QLabel(title)
+        header.setObjectName("card_header")
+        layout.addWidget(header)
+        
+        return card, layout
+    
     def _setup_ui(self):
         """Setup dialog layout"""
         layout = QVBoxLayout(self)
@@ -115,9 +130,8 @@ class SettingsDialog(QDialog):
         widget = QWidget()
         layout = QVBoxLayout(widget)
 
-        # Default Model
-        model_group = QGroupBox("Default Model")
-        model_layout = QVBoxLayout()
+        # Default Model Card
+        model_card, model_layout = self._create_card("Default Model")
         
         model_select = QHBoxLayout()
         model_select.addWidget(QLabel("Model:"))
@@ -135,12 +149,10 @@ class SettingsDialog(QDialog):
         model_select.addStretch()
         model_layout.addLayout(model_select)
         
-        model_group.setLayout(model_layout)
-        layout.addWidget(model_group)
+        layout.addWidget(model_card)
         
-        # Output Directory
-        output_group = QGroupBox("Output Directory")
-        output_layout = QVBoxLayout()
+        # Output Directory Card
+        output_card, output_layout = self._create_card("Output Directory")
         
         output_select = QHBoxLayout()
         output_select.addWidget(QLabel("Directory:"))
@@ -150,8 +162,7 @@ class SettingsDialog(QDialog):
         output_select.addWidget(self.btn_browse_output)
         output_layout.addLayout(output_select)
         
-        output_group.setLayout(output_layout)
-        layout.addWidget(output_group)
+        layout.addWidget(output_card)
         
         layout.addStretch()
         return widget
@@ -161,9 +172,8 @@ class SettingsDialog(QDialog):
         widget = QWidget()
         layout = QVBoxLayout(widget)
         
-        # GPU Settings
-        gpu_group = QGroupBox("GPU Acceleration")
-        gpu_layout = QVBoxLayout()
+        # GPU Settings Card
+        gpu_card, gpu_layout = self._create_card("GPU Acceleration")
         
         self.gpu_checkbox = QCheckBox("Use GPU if available (MPS/CUDA)")
         gpu_layout.addWidget(self.gpu_checkbox)
@@ -182,12 +192,10 @@ class SettingsDialog(QDialog):
         device_label.setStyleSheet("color: gray; font-size: 10pt;")
         gpu_layout.addWidget(device_label)
         
-        gpu_group.setLayout(gpu_layout)
-        layout.addWidget(gpu_group)
+        layout.addWidget(gpu_card)
 
-        # Quality Settings
-        quality_group = QGroupBox("Separation Quality")
-        quality_layout = QVBoxLayout()
+        # Quality Settings Card
+        quality_card, quality_layout = self._create_card("Separation Quality")
 
         quality_select = QHBoxLayout()
         quality_select.addWidget(QLabel("Quality Preset:"))
@@ -214,12 +222,10 @@ class SettingsDialog(QDialog):
         quality_info.setWordWrap(True)
         quality_layout.addWidget(quality_info)
 
-        quality_group.setLayout(quality_layout)
-        layout.addWidget(quality_group)
+        layout.addWidget(quality_card)
 
-        # Chunking Settings
-        chunk_group = QGroupBox("Audio Chunking")
-        chunk_layout = QVBoxLayout()
+        # Chunking Settings Card
+        chunk_card, chunk_layout = self._create_card("Audio Chunking")
         
         chunk_select = QHBoxLayout()
         chunk_select.addWidget(QLabel("Chunk Length:"))
@@ -239,8 +245,7 @@ class SettingsDialog(QDialog):
         chunk_info.setWordWrap(True)
         chunk_layout.addWidget(chunk_info)
         
-        chunk_group.setLayout(chunk_layout)
-        layout.addWidget(chunk_group)
+        layout.addWidget(chunk_card)
         
         layout.addStretch()
         return widget
@@ -250,9 +255,8 @@ class SettingsDialog(QDialog):
         widget = QWidget()
         layout = QVBoxLayout(widget)
         
-        # Recording Settings
-        rec_group = QGroupBox("Recording")
-        rec_layout = QVBoxLayout()
+        # Recording Settings Card
+        rec_card, rec_layout = self._create_card("Recording")
         
         # Sample rate
         sr_select = QHBoxLayout()
@@ -275,8 +279,7 @@ class SettingsDialog(QDialog):
         ch_select.addStretch()
         rec_layout.addLayout(ch_select)
 
-        rec_group.setLayout(rec_layout)
-        layout.addWidget(rec_group)
+        layout.addWidget(rec_card)
         
         layout.addStretch()
         return widget
@@ -286,9 +289,8 @@ class SettingsDialog(QDialog):
         widget = QWidget()
         layout = QVBoxLayout(widget)
 
-        # BlackHole Status Group
-        blackhole_group = QGroupBox("BlackHole Status")
-        blackhole_layout = QVBoxLayout()
+        # BlackHole Status Card
+        blackhole_card, blackhole_layout = self._create_card("BlackHole Status")
 
         self.blackhole_status_label = QLabel("")
         self.blackhole_status_label.setWordWrap(True)
@@ -311,12 +313,10 @@ class SettingsDialog(QDialog):
         blackhole_info.setWordWrap(True)
         blackhole_layout.addWidget(blackhole_info)
 
-        blackhole_group.setLayout(blackhole_layout)
-        layout.addWidget(blackhole_group)
+        layout.addWidget(blackhole_card)
 
-        # Diagnostics group
-        diag_group = QGroupBox("Diagnostics")
-        diag_layout = QVBoxLayout()
+        # Diagnostics Card
+        diag_card, diag_layout = self._create_card("Diagnostics")
 
         self.btn_open_logs = QPushButton("Open Log File")
         self.btn_open_logs.setMaximumWidth(200)
@@ -329,8 +329,7 @@ class SettingsDialog(QDialog):
         log_info.setWordWrap(True)
         diag_layout.addWidget(log_info)
 
-        diag_group.setLayout(diag_layout)
-        layout.addWidget(diag_group)
+        layout.addWidget(diag_card)
 
         # Future settings placeholder
         info = QLabel(

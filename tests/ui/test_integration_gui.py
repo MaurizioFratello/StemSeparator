@@ -41,7 +41,7 @@ def test_complete_upload_workflow(qapp, reset_singletons, mock_audio_file, tmp_p
         
         # Navigate to Upload tab
         upload_widget = window._upload_widget
-        window._tab_widget.setCurrentWidget(upload_widget)
+        window._content_stack.setCurrentWidget(upload_widget)
         
         # Add file
         upload_widget._add_file(mock_audio_file)
@@ -116,7 +116,7 @@ def test_recording_to_file_workflow(qapp, reset_singletons, tmp_path):
             
             # Navigate to Recording tab
             recording_widget = window._recording_widget
-            window._tab_widget.setCurrentWidget(recording_widget)
+            window._content_stack.setCurrentWidget(recording_widget)
             
             # Refresh devices
             recording_widget._refresh_devices()
@@ -199,7 +199,7 @@ def test_queue_batch_processing_workflow(qapp, reset_singletons, tmp_path):
         
         # Get queue widget
         queue_widget = window._queue_widget
-        window._tab_widget.setCurrentWidget(queue_widget)
+        window._content_stack.setCurrentWidget(queue_widget)
         
         # Add files to queue
         for test_file in test_files:
@@ -369,7 +369,7 @@ def test_player_load_stems_workflow(qapp, reset_singletons, tmp_path):
     QTest.qWaitForWindowExposed(window)
     
     player_widget = window._player_widget
-    window._tab_widget.setCurrentWidget(player_widget)
+    window._content_stack.setCurrentWidget(player_widget)
     
     # Load stems
     player_widget._load_stems(list(stem_files.values()))
@@ -454,7 +454,7 @@ def test_full_user_journey(qapp, reset_singletons, tmp_path):
         
         # Step 2: Upload file
         upload_widget = window._upload_widget
-        window._tab_widget.setCurrentWidget(upload_widget)
+        window._content_stack.setCurrentWidget(upload_widget)
         upload_widget._add_file(test_file)
         assert upload_widget.file_list.count() == 1
         
