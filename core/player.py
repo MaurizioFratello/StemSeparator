@@ -248,7 +248,8 @@ class AudioPlayer:
             position_seconds: Target position in seconds
 
         WHY: Seeking must not block the GUI thread, especially when sounddevice.stop()
-             is called, which can block on some systems
+             is called, which can block on some systems. Also allows seeking when stopped
+             to enable restarting playback from a different position.
         """
         position_samples = int(position_seconds * self.sample_rate)
         position_samples = max(0, min(position_samples, self.duration_samples))
@@ -270,6 +271,8 @@ class AudioPlayer:
                 daemon=True
             )
             restart_thread.start()
+        # Note: If stopped, position is updated but playback doesn't restart
+        # User can click Play to start from the new position
 
     def _async_seek_restart(self):
         """
@@ -507,8 +510,13 @@ class AudioPlayer:
                         self.logger.info("Reached end of audio")
                         self.state = PlaybackState.STOPPED
                         self.position_samples = 0
-                        # Don't call state_callback from worker thread to avoid deadlock
-                        # The callback will be triggered when stop() is called
+                        # Call state_callback to notify UI (same as position_callback, which works from worker thread)
+                        # The callback should be thread-safe and handle GUI updates appropriately
+                        if self.state_callback:
+                            try:
+                                self.state_callback(self.state)
+                            except Exception as e:
+                                self.logger.error(f"Error in state_callback: {e}", exc_info=True)
                         break
 
                 # Call position callback
