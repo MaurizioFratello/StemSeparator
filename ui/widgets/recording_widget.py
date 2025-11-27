@@ -233,10 +233,10 @@ class RecordingWidget(QWidget):
              Only monitors when tab is active to save resources
         """
         # Get selected device and remember it
-        device_name = self.device_combo.currentData()
-        self._last_selected_device = device_name
+        device_data = self.device_combo.currentData()
+        self._last_selected_device = device_data
 
-        if not device_name:
+        if not device_data:
             # No device selected (e.g., "No devices found")
             return
 
@@ -247,7 +247,7 @@ class RecordingWidget(QWidget):
         # Only start monitoring if widget is visible (tab is active)
         if not self._is_visible:
             self.ctx.logger().debug(
-                f"Device changed to {device_name}, but widget not visible - "
+                f"Device changed to {device_data}, but widget not visible - "
                 f"monitoring will start when tab becomes active"
             )
             return
@@ -256,17 +256,25 @@ class RecordingWidget(QWidget):
         if self.recorder.is_monitoring():
             self.recorder.stop_monitoring()
 
-        # Start monitoring with level callback
+        # Convert ScreenCaptureKit marker to None for monitoring
+        # Note: ScreenCaptureKit doesn't support pre-recording monitoring yet,
+        # so we skip monitoring for ScreenCaptureKit devices
+        if device_data == "__screencapture__":
+            self.ctx.logger().info("ScreenCaptureKit selected - monitoring will start during recording")
+            self.state_label.setText("Ready (ScreenCaptureKit)")
+            return
+
+        # Start monitoring with level callback for physical devices
         success = self.recorder.start_monitoring(
-            device_name=device_name,
+            device_name=device_data,
             level_callback=self._on_level_update
         )
 
         if success:
-            self.ctx.logger().info(f"Started monitoring: {device_name}")
+            self.ctx.logger().info(f"Started monitoring: {device_data}")
             self.state_label.setText("Monitoring...")
         else:
-            self.ctx.logger().warning(f"Failed to start monitoring: {device_name}")
+            self.ctx.logger().warning(f"Failed to start monitoring: {device_data}")
 
     @Slot()
     def _on_start_clicked(self):
@@ -418,13 +426,17 @@ class RecordingWidget(QWidget):
 
         # Restart monitoring if tab is visible and a device is selected
         if self._is_visible and self._last_selected_device:
-            success = self.recorder.start_monitoring(
-                device_name=self._last_selected_device,
-                level_callback=self._on_level_update
-            )
-            if success:
-                self.ctx.logger().info(f"Restarted monitoring after recording: {self._last_selected_device}")
-                self.state_label.setText("Monitoring...")
+            # Skip monitoring for ScreenCaptureKit (only monitor physical devices)
+            if self._last_selected_device == "__screencapture__":
+                self.state_label.setText("Ready (ScreenCaptureKit)")
+            else:
+                success = self.recorder.start_monitoring(
+                    device_name=self._last_selected_device,
+                    level_callback=self._on_level_update
+                )
+                if success:
+                    self.ctx.logger().info(f"Restarted monitoring after recording: {self._last_selected_device}")
+                    self.state_label.setText("Monitoring...")
     
     def _on_level_update(self, level: float):
         """
@@ -539,6 +551,11 @@ class RecordingWidget(QWidget):
 
         # Start monitoring if a device is selected and we're not recording
         if self._last_selected_device and not self.recorder.is_recording():
+            # Skip monitoring for ScreenCaptureKit (only monitor physical devices)
+            if self._last_selected_device == "__screencapture__":
+                self.state_label.setText("Ready (ScreenCaptureKit)")
+                return
+
             # Only start if not already monitoring
             if not self.recorder.is_monitoring():
                 success = self.recorder.start_monitoring(
