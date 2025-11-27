@@ -178,31 +178,51 @@ class RecordingWidget(QWidget):
     def _refresh_devices(self):
         """
         Refresh available audio devices
-        
+
         WHY: Devices can change when hardware is connected/disconnected
         """
         self.device_combo.clear()
-        
+
+        # Check if ScreenCaptureKit is available
+        backend_info = self.recorder.get_backend_info()
+        screencapture_available = backend_info.get('screencapture_available', False)
+
+        # Add ScreenCaptureKit as first option if available (macOS 13+)
+        if screencapture_available:
+            self.device_combo.addItem(
+                "🖥️ System Audio (ScreenCaptureKit)",
+                userData="__screencapture__"
+            )
+
         devices = self.recorder.get_available_devices()
-        
-        if not devices:
+
+        if not devices and not screencapture_available:
             self.device_combo.addItem("No devices found", userData=None)
             self.ctx.logger().warning("No audio devices found")
             return
-        
-        # Add devices to combo box
+
+        # Add physical devices to combo box
         for device in devices:
             self.device_combo.addItem(device, userData=device)
-        
-        # Try to select BlackHole by default
-        blackhole_device = self.recorder.find_blackhole_device()
-        if blackhole_device:
-            for i in range(self.device_combo.count()):
-                if 'blackhole' in self.device_combo.itemText(i).lower():
-                    self.device_combo.setCurrentIndex(i)
-                    break
-        
-        self.ctx.logger().info(f"Refreshed devices: {len(devices)} found")
+
+        # Auto-select best default option:
+        # 1. ScreenCaptureKit if available (best option for system audio)
+        # 2. BlackHole if available (traditional system audio)
+        # 3. First device otherwise
+        if screencapture_available:
+            self.device_combo.setCurrentIndex(0)  # ScreenCaptureKit
+            self.ctx.logger().info("Auto-selected ScreenCaptureKit for system audio recording")
+        else:
+            # Try to select BlackHole
+            blackhole_device = self.recorder.find_blackhole_device()
+            if blackhole_device:
+                for i in range(self.device_combo.count()):
+                    if 'blackhole' in self.device_combo.itemText(i).lower():
+                        self.device_combo.setCurrentIndex(i)
+                        break
+
+        device_count = len(devices) + (1 if screencapture_available else 0)
+        self.ctx.logger().info(f"Refreshed devices: {device_count} found")
 
     @Slot(int)
     def _on_device_changed(self, index: int):
@@ -252,25 +272,35 @@ class RecordingWidget(QWidget):
     def _on_start_clicked(self):
         """
         Start recording
-        
+
         WHY: Initiates recording in background thread with level callback
         """
-        device_name = self.device_combo.currentData()
-        
-        if not device_name:
+        device_data = self.device_combo.currentData()
+
+        if device_data is None:
             QMessageBox.warning(
                 self,
                 "No Device",
                 "Please select a recording device"
             )
             return
-        
+
+        # Check if ScreenCaptureKit is selected
+        if device_data == "__screencapture__":
+            # ScreenCaptureKit: pass None to use backend auto-selection
+            device_name = None
+            using_screencapture = True
+        else:
+            # Physical device (BlackHole, microphone, etc.)
+            device_name = device_data
+            using_screencapture = False
+
         # Start recording with level callback
         success = self.recorder.start_recording(
             device_name=device_name,
             level_callback=self._on_level_update
         )
-        
+
         if success:
             self.btn_start.setEnabled(False)
             self.btn_pause.setEnabled(True)
@@ -278,14 +308,26 @@ class RecordingWidget(QWidget):
             self.btn_cancel.setEnabled(True)
             self.device_combo.setEnabled(False)
             self.btn_refresh_devices.setEnabled(False)
-            
+
             self.update_timer.start()
-            self.ctx.logger().info("Recording started")
+
+            if using_screencapture:
+                self.ctx.logger().info("Recording started with ScreenCaptureKit")
+            else:
+                self.ctx.logger().info(f"Recording started with device: {device_name}")
         else:
+            error_msg = (
+                "Failed to start recording.\n\n"
+                "If using ScreenCaptureKit:\n"
+                "• Grant Screen Recording permission in System Settings\n"
+                "• Privacy & Security → Screen Recording\n\n"
+                "If using BlackHole:\n"
+                "• Check that BlackHole is configured correctly"
+            )
             QMessageBox.critical(
                 self,
                 "Recording Failed",
-                "Failed to start recording. Check that BlackHole is configured correctly."
+                error_msg
             )
     
     @Slot()
