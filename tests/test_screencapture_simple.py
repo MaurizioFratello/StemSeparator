@@ -74,3 +74,4 @@ except ImportError:
     print("Quartz not available for permission check")
 except Exception as e:
     print(f"Permission check error: {e}")
+

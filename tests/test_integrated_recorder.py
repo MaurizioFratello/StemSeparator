@@ -41,3 +41,4 @@ print("NOTE: To actually test recording, you would need to:")
 print("  1. Grant Screen Recording permission if using ScreenCaptureKit")
 print("  2. Play some audio while recording")
 print("  3. Call recorder.start_recording() and recorder.stop_recording()")
+
