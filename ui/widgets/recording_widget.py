@@ -6,6 +6,7 @@ CONTEXT: Integrates core.recorder.Recorder with thread-safe GUI updates.
 """
 from pathlib import Path
 from typing import Optional
+import math
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
     QComboBox, QProgressBar, QGroupBox, QMessageBox, QScrollArea, QFrame
@@ -190,7 +191,7 @@ class RecordingWidget(QWidget):
         # Add ScreenCaptureKit as first option if available (macOS 13+)
         if screencapture_available:
             self.device_combo.addItem(
-                "🖥️ System Audio (ScreenCaptureKit)",
+                "System Audio",
                 userData="__screencapture__"
             )
 
@@ -357,6 +358,28 @@ class RecordingWidget(QWidget):
                 self.btn_pause.setText("Pause")
                 self.ctx.logger().info("Recording resumed")
     
+    def _peak_to_dbfs(self, peak_level: float) -> float:
+        """
+        Convert peak level (0.0-1.0) to dBFS (decibels relative to full scale)
+        
+        WHY: Professional audio meters use dBFS scale where:
+             - 0 dBFS = maximum possible digital level (clipping)
+             - -∞ dBFS = digital silence
+             - Peak values are converted directly: dBFS = 20 * log10(peak)
+        
+        Args:
+            peak_level: Peak audio level (0.0-1.0)
+        
+        Returns:
+            dBFS value (typically -∞ to 0 dBFS)
+        """
+        if peak_level <= 1e-10:  # Avoid log(0) which would be -infinity
+            return -100.0  # Very quiet, below useful display range
+        
+        # Convert peak to dBFS: dBFS = 20 * log10(peak)
+        dbfs = 20.0 * math.log10(peak_level)
+        return float(dbfs)
+    
     @Slot()
     def _on_stop_clicked(self):
         """
@@ -374,6 +397,15 @@ class RecordingWidget(QWidget):
                 f"({info.duration_seconds:.1f}s, peak: {info.peak_level:.2f})"
             )
             
+            # Convert peak level to dBFS for display
+            peak_dbfs = self._peak_to_dbfs(info.peak_level)
+            if peak_dbfs <= -100.0:
+                peak_display = "Silence (< -100 dB)"
+            elif peak_dbfs >= -0.1:
+                peak_display = f"{peak_dbfs:.1f} dB (CLIP!)"
+            else:
+                peak_display = f"{peak_dbfs:.1f} dB"
+            
             QMessageBox.information(
                 self,
                 "Recording Saved",
@@ -381,7 +413,7 @@ class RecordingWidget(QWidget):
                 f"Duration: {info.duration_seconds:.1f}s\n"
                 f"Sample Rate: {info.sample_rate} Hz\n"
                 f"Channels: {info.channels}\n"
-                f"Peak Level: {info.peak_level:.2f}\n\n"
+                f"Peak Level: {peak_display}\n\n"
                 f"File: {info.file_path.name}"
             )
             
