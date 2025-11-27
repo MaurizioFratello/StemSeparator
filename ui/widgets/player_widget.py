@@ -206,6 +206,9 @@ class PlayerWidget(QWidget):
     - Position slider with seek
     - Export mixed audio
     """
+    
+    # Signal to handle state changes from worker thread safely
+    sig_state_changed = Signal(object)  # PlaybackState
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -224,7 +227,9 @@ class PlayerWidget(QWidget):
 
         # Setup player callbacks
         self.player.position_callback = self._on_position_update
-        self.player.state_callback = self._on_state_changed
+        # Connect signal to slot for thread safety, then emit signal in callback
+        self.sig_state_changed.connect(self._on_state_changed)
+        self.player.state_callback = self.sig_state_changed.emit
 
         self._setup_ui()
         self._connect_signals()
@@ -795,6 +800,13 @@ class PlayerWidget(QWidget):
             self.btn_pause.setEnabled(False)
             self.btn_stop.setEnabled(False)
             self.position_timer.stop()
+            # Update position display to reflect reset to 0
+            # This ensures UI is in sync when playback finishes naturally
+            position = self.player.get_position()
+            self.position_slider.blockSignals(True)
+            self.position_slider.setValue(int(position * 1000))
+            self.position_slider.blockSignals(False)
+            self.current_time_label.setText(self._format_time(position))
 
     def _update_button_states(self):
         """
@@ -846,7 +858,7 @@ class PlayerWidget(QWidget):
         position_ms = self.position_slider.value()
         position_s = position_ms / 1000.0
 
-        # Perform the seek
+        # Perform the seek (works even when stopped - allows restarting from different position)
         self.player.set_position(position_s)
         self.ctx.logger().info(f"User seeked to {self._format_time(position_s)}")
 
@@ -854,6 +866,9 @@ class PlayerWidget(QWidget):
         self.position_slider.blockSignals(True)
         self.position_slider.setValue(position_ms)
         self.position_slider.blockSignals(False)
+
+        # Update time label immediately
+        self.current_time_label.setText(self._format_time(position_s))
 
         # Use QTimer.singleShot to re-enable updates after a short delay
         # This prevents race condition with position timer
