@@ -22,6 +22,13 @@ from utils.error_handler import error_handler
 logger = get_logger()
 
 
+class RecordingBackend(Enum):
+    """Recording Backend Options"""
+    SCREENCAPTURE_KIT = "screencapture_kit"  # macOS 13+ native ScreenCaptureKit
+    BLACKHOLE = "blackhole"  # BlackHole virtual audio driver
+    AUTO = "auto"  # Auto-select best available
+
+
 class RecordingState(Enum):
     """Recording States"""
     IDLE = "idle"
@@ -43,7 +50,7 @@ class RecordingInfo:
 class Recorder:
     """System Audio Recorder"""
 
-    def __init__(self):
+    def __init__(self, backend: RecordingBackend = RecordingBackend.AUTO):
         self.logger = logger
         self.state = RecordingState.IDLE
 
@@ -79,11 +86,25 @@ class Recorder:
         self.db_range_min = -60.0  # Bottom of meter
         self.db_range_max = 0.0    # Top of meter (clipping)
 
-        # SoundCard
+        # Backend selection
+        self.backend = backend
+        self._selected_backend: Optional[RecordingBackend] = None
+
+        # SoundCard (for BlackHole backend)
         self._soundcard = None
         self._import_soundcard()
 
-        self.logger.info("Recorder initialized")
+        # ScreenCaptureKit (for ScreenCaptureKit backend)
+        self._screencapture = None
+        self._import_screencapture()
+
+        # Detect and select backend
+        if self.backend == RecordingBackend.AUTO:
+            self._select_best_backend()
+        else:
+            self._selected_backend = self.backend
+
+        self.logger.info(f"Recorder initialized with backend: {self._selected_backend}")
 
     def _import_soundcard(self) -> bool:
         """Importiert SoundCard Library"""
@@ -93,8 +114,41 @@ class Recorder:
             self.logger.info("SoundCard library loaded")
             return True
         except ImportError:
-            self.logger.error("SoundCard not installed. Recording will not work.")
+            self.logger.warning("SoundCard not installed. BlackHole backend will not be available.")
             return False
+
+    def _import_screencapture(self) -> bool:
+        """Import ScreenCaptureKit wrapper"""
+        try:
+            from core.screencapture_recorder import ScreenCaptureRecorder
+            self._screencapture = ScreenCaptureRecorder()
+            info = self._screencapture.is_available()
+            if info.available:
+                self.logger.info(f"ScreenCaptureKit available (macOS {info.version})")
+                return True
+            else:
+                self.logger.info(f"ScreenCaptureKit not available: {info.error}")
+                return False
+        except Exception as e:
+            self.logger.warning(f"ScreenCaptureKit not available: {e}")
+            return False
+
+    def _select_best_backend(self):
+        """Auto-select the best available recording backend"""
+        # Prefer ScreenCaptureKit on macOS 13+ (no driver installation needed)
+        if self._screencapture and self._screencapture.is_available().available:
+            self._selected_backend = RecordingBackend.SCREENCAPTURE_KIT
+            self.logger.info("Auto-selected ScreenCaptureKit backend (native macOS 13+)")
+        elif self._soundcard and self.find_blackhole_device():
+            self._selected_backend = RecordingBackend.BLACKHOLE
+            self.logger.info("Auto-selected BlackHole backend")
+        elif self._soundcard:
+            # SoundCard available but no BlackHole - still use it for other devices
+            self._selected_backend = RecordingBackend.BLACKHOLE
+            self.logger.warning("BlackHole not found, but SoundCard available for other devices")
+        else:
+            self._selected_backend = None
+            self.logger.error("No recording backend available")
 
     def get_available_devices(self) -> List[str]:
         """
@@ -674,6 +728,19 @@ class Recorder:
         except Exception as e:
             self.logger.error(f"Error in monitoring loop: {e}", exc_info=True)
             self._is_monitoring = False
+
+    def get_backend_info(self) -> dict:
+        """
+        Get information about the current recording backend
+
+        Returns:
+            Dictionary with backend info
+        """
+        return {
+            'backend': self._selected_backend.value if self._selected_backend else None,
+            'screencapture_available': self._screencapture is not None and self._screencapture.is_available().available,
+            'blackhole_available': self._soundcard is not None and self.find_blackhole_device() is not None,
+        }
 
 
 # Globale Instanz
