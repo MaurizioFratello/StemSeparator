@@ -96,6 +96,7 @@ class Recorder:
 
         # ScreenCaptureKit (for ScreenCaptureKit backend)
         self._screencapture = None
+        self._screencapture_output_path: Optional[Path] = None
         self._import_screencapture()
 
         # Detect and select backend
@@ -210,7 +211,7 @@ class Recorder:
         Startet Aufnahme
 
         Args:
-            device_name: Name des Recording-Devices (default: BlackHole)
+            device_name: Name des Recording-Devices (None = use selected backend)
             level_callback: Callback für Audio-Level Updates
 
         Returns:
@@ -220,14 +221,24 @@ class Recorder:
             self.logger.warning("Already recording")
             return False
 
-        if not self._soundcard:
-            self.logger.error("SoundCard not available")
-            return False
-
         # Stop monitoring if active
         if self._is_monitoring:
             self.logger.info("Stopping monitoring before starting recording")
             self.stop_monitoring()
+
+        # If device_name is None, use the selected backend
+        if device_name is None and self._selected_backend == RecordingBackend.SCREENCAPTURE_KIT:
+            # Use ScreenCaptureKit
+            if not self._screencapture:
+                self.logger.error("ScreenCaptureKit not available")
+                return False
+
+            return self._start_screencapture_recording(level_callback)
+
+        # Otherwise use SoundCard/BlackHole (existing logic)
+        if not self._soundcard:
+            self.logger.error("SoundCard not available")
+            return False
 
         # Finde Device
         if device_name:
@@ -272,6 +283,147 @@ class Recorder:
         self.recording_thread.start()
 
         return True
+
+    def _start_screencapture_recording(self, level_callback: Optional[Callable[[float], None]]) -> bool:
+        """
+        Start recording using ScreenCaptureKit
+
+        Args:
+            level_callback: Callback for audio level updates
+
+        Returns:
+            True if started successfully
+        """
+        from pathlib import Path
+        import tempfile
+
+        # Create temporary output file
+        temp_dir = Path(tempfile.gettempdir())
+        output_path = temp_dir / f"screencapture_recording_{int(time.time())}.wav"
+
+        # Start ScreenCaptureKit recording
+        success = self._screencapture.start_recording(output_path=output_path)
+
+        if not success:
+            self.logger.error("Failed to start ScreenCaptureKit recording")
+            return False
+
+        # Store recording info
+        self._screencapture_output_path = output_path
+        self.level_callback = level_callback
+        self.current_level = 0.0
+        self.state = RecordingState.RECORDING
+
+        self.logger.info(f"ScreenCaptureKit recording started: {output_path}")
+
+        # Start level monitoring thread
+        self.recording_thread = threading.Thread(
+            target=self._screencapture_monitor_loop,
+            daemon=True
+        )
+        self.recording_thread.start()
+
+        return True
+
+    def _screencapture_monitor_loop(self):
+        """Monitor ScreenCaptureKit recording and provide level updates"""
+        import time
+
+        while self.state == RecordingState.RECORDING:
+            # Get current duration
+            duration = self._screencapture.get_recording_duration()
+
+            # Simulate level updates (ScreenCaptureKit doesn't provide real-time levels)
+            # Read the file periodically to calculate levels
+            if self._screencapture_output_path and self._screencapture_output_path.exists():
+                try:
+                    import soundfile as sf
+                    import numpy as np
+
+                    # Read current file
+                    data, sr = sf.read(str(self._screencapture_output_path))
+
+                    if len(data) > 0:
+                        # Calculate RMS from recent samples
+                        recent_samples = data[-int(sr * 0.1):]  # Last 100ms
+                        if len(recent_samples) > 0:
+                            rms = np.sqrt(np.mean(recent_samples ** 2))
+                            dbfs = self._rms_to_dbfs(rms)
+                            level = self._dbfs_to_display(dbfs)
+
+                            # Update level with ballistics
+                            self.current_level = self._apply_ballistics(level, self.current_level)
+
+                            # Call callback
+                            if self.level_callback:
+                                try:
+                                    self.level_callback(self.current_level)
+                                except:
+                                    pass
+                except:
+                    pass
+
+            time.sleep(0.1)  # Update every 100ms
+
+    def _stop_screencapture_recording(self, save_path: Optional[Path] = None) -> Optional[RecordingInfo]:
+        """
+        Stop ScreenCaptureKit recording and save file
+
+        Args:
+            save_path: Path to save (default: temp)
+
+        Returns:
+            RecordingInfo or None on error
+        """
+        import shutil
+
+        # Stop ScreenCaptureKit recording
+        self.state = RecordingState.STOPPED
+        output_path = self._screencapture.stop_recording()
+
+        if not output_path or not output_path.exists():
+            self.logger.error("ScreenCaptureKit recording failed - no output file")
+            return None
+
+        try:
+            # Read the file to get info
+            data, sr = sf.read(str(output_path))
+            duration = len(data) / sr
+            peak_level = float(np.max(np.abs(data)))
+
+            self.logger.info(f"Recorded {duration:.1f}s, peak level: {peak_level:.2f}")
+
+            # Determine final save path
+            if save_path:
+                final_path = Path(save_path)
+                final_path.parent.mkdir(parents=True, exist_ok=True)
+            else:
+                # Default: Temp directory
+                timestamp = time.strftime("%Y%m%d_%H%M%S")
+                final_path = TEMP_DIR / f"recording_{timestamp}.wav"
+                final_path.parent.mkdir(parents=True, exist_ok=True)
+
+            # Move/copy file to final location
+            if output_path != final_path:
+                shutil.move(str(output_path), str(final_path))
+
+            self.logger.info(f"Recording saved: {final_path}")
+
+            # Reset state
+            self.state = RecordingState.IDLE
+            self._screencapture_output_path = None
+
+            return RecordingInfo(
+                duration_seconds=duration,
+                sample_rate=int(sr),
+                channels=data.shape[1] if data.ndim > 1 else 1,
+                file_path=final_path,
+                peak_level=peak_level
+            )
+
+        except Exception as e:
+            self.logger.error(f"Error saving ScreenCaptureKit recording: {e}", exc_info=True)
+            return None
 
     def _rms_to_dbfs(self, rms: float) -> float:
         """
@@ -469,6 +621,11 @@ class Recorder:
 
         self.logger.info("Stopping recording...")
 
+        # Check if using ScreenCaptureKit
+        if self._selected_backend == RecordingBackend.SCREENCAPTURE_KIT and self._screencapture_output_path:
+            return self._stop_screencapture_recording(save_path)
+
+        # Otherwise use SoundCard/BlackHole logic
         # Signalisiere Thread zu stoppen
         self._stop_event.set()
         self.state = RecordingState.STOPPED

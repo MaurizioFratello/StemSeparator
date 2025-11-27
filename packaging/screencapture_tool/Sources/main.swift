@@ -209,14 +209,17 @@ struct ScreenCaptureRecorder {
 
             // Audio configuration
             streamConfig.capturesAudio = true
-            streamConfig.excludesCurrentProcessAudio = true
+            streamConfig.excludesCurrentProcessAudio = false  // Capture ALL audio including current process
             streamConfig.sampleRate = 48000  // 48kHz
             streamConfig.channelCount = 2     // Stereo
 
-            // We don't need video for audio-only recording, but we need to configure it
-            streamConfig.width = 1
-            streamConfig.height = 1
+            // Video configuration - needed even for audio-only capture
+            // Use minimal but valid dimensions (macOS 15+ may reject 1x1)
+            streamConfig.width = 100
+            streamConfig.height = 100
             streamConfig.minimumFrameInterval = CMTime(value: 1, timescale: 1)
+            streamConfig.pixelFormat = kCVPixelFormatType_32BGRA
+            streamConfig.showsCursor = false
 
             // Create recorder delegate
             let recorder = AudioRecorder(outputPath: outputPath, duration: duration)
