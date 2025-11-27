@@ -242,9 +242,9 @@ class UploadWidget(QWidget):
     def _on_files_dropped(self, file_paths: List[Path]):
         """Handle dropped files from drag-and-drop"""
         for file_path in file_paths:
-            self._add_file(file_path)
+            self.add_file(file_path)
     
-    def _add_file(self, file_path: Path):
+    def add_file(self, file_path: Path):
         """
         Add file to list with validation
         
@@ -295,7 +295,7 @@ class UploadWidget(QWidget):
         if file_dialog.exec():
             file_paths = file_dialog.selectedFiles()
             for file_path_str in file_paths:
-                self._add_file(Path(file_path_str))
+                self.add_file(Path(file_path_str))
     
     @Slot()
     def _on_remove_selected_clicked(self):

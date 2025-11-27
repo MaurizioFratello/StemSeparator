@@ -313,17 +313,26 @@ class ScreenCaptureRecorder:
             # Signal stop
             self._stop_event.set()
 
-            # Terminate the process gracefully
-            self._recording_process.terminate()
+            # Send SIGINT (like Ctrl+C) for graceful shutdown
+            # This should trigger the signal handler in the Swift binary
+            import signal as sig
+            self._recording_process.send_signal(sig.SIGINT)
 
-            # Wait for it to finish (with timeout)
+            # Wait longer for graceful shutdown (10 seconds)
             try:
-                self._recording_process.wait(timeout=5)
+                self._recording_process.wait(timeout=10)
+                self.logger.info("Recording process stopped gracefully")
             except subprocess.TimeoutExpired:
-                # Force kill if it doesn't stop
-                self.logger.warning("Recording process didn't stop gracefully, killing...")
-                self._recording_process.kill()
-                self._recording_process.wait()
+                # If SIGINT didn't work, try SIGTERM
+                self.logger.warning("SIGINT timeout, trying SIGTERM...")
+                self._recording_process.terminate()
+                try:
+                    self._recording_process.wait(timeout=3)
+                except subprocess.TimeoutExpired:
+                    # Force kill if nothing else works
+                    self.logger.warning("Recording process didn't stop, killing...")
+                    self._recording_process.kill()
+                    self._recording_process.wait()
 
             output_path = self._current_output_path
 

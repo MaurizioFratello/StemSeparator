@@ -325,43 +325,88 @@ class Recorder:
 
         return True
 
+    def get_current_level(self) -> float:
+        """
+        Get current audio level (0.0-1.0)
+        
+        Returns:
+            Current smoothed level
+        """
+        return self.current_level
+
     def _screencapture_monitor_loop(self):
         """Monitor ScreenCaptureKit recording and provide level updates"""
         import time
 
+        self.logger.info("Starting ScreenCaptureKit monitor loop")
+        last_log_time = 0
+        last_update_time = time.time()
+        
         while self.state == RecordingState.RECORDING:
-            # Get current duration
-            duration = self._screencapture.get_recording_duration()
-
-            # Simulate level updates (ScreenCaptureKit doesn't provide real-time levels)
-            # Read the file periodically to calculate levels
+            # Level update from growing file
             if self._screencapture_output_path and self._screencapture_output_path.exists():
                 try:
-                    import soundfile as sf
-                    import numpy as np
-
-                    # Read current file
-                    data, sr = sf.read(str(self._screencapture_output_path))
-
-                    if len(data) > 0:
-                        # Calculate RMS from recent samples
-                        recent_samples = data[-int(sr * 0.1):]  # Last 100ms
-                        if len(recent_samples) > 0:
-                            rms = np.sqrt(np.mean(recent_samples ** 2))
-                            dbfs = self._rms_to_dbfs(rms)
-                            level = self._dbfs_to_display(dbfs)
-
-                            # Update level with ballistics
-                            self.current_level = self._apply_ballistics(level, self.current_level)
-
-                            # Call callback
-                            if self.level_callback:
+                    # Read raw bytes from the growing file (skip WAV header parsing which fails on incomplete files)
+                    # Format: Float32 (4 bytes), Stereo (2 channels) -> 8 bytes per frame
+                    # Sample rate: 48000 Hz
+                    bytes_per_frame = 8
+                    frames_needed = int(48000 * 0.1)  # Last 100ms
+                    bytes_needed = frames_needed * bytes_per_frame
+                    
+                    file_size = self._screencapture_output_path.stat().st_size
+                    
+                    current_time = time.time()
+                    
+                    # Log file size periodically (debug)
+                    if current_time - last_log_time > 2.0:
+                        self.logger.debug(f"Monitor: File size {file_size} bytes, Path: {self._screencapture_output_path}")
+                        last_log_time = current_time
+                    
+                    # WAV header is typically 44 bytes
+                    if file_size > 44:
+                        with open(self._screencapture_output_path, 'rb') as f:
+                            # Determine where to seek
+                            if file_size - 44 < bytes_needed:
+                                # File is smaller than window, read what we have
+                                f.seek(44)
+                            else:
+                                # Seek to end minus window
+                                f.seek(max(44, file_size - bytes_needed))
+                            
+                            raw_data = f.read()
+                            
+                            if raw_data:
+                                # Convert to numpy array
                                 try:
-                                    self.level_callback(self.current_level)
-                                except:
-                                    pass
-                except:
-                    pass
+                                    audio_data = np.frombuffer(raw_data, dtype=np.float32)
+                                    
+                                    if len(audio_data) > 0:
+                                        # Calculate RMS
+                                        rms = np.sqrt(np.mean(audio_data ** 2))
+                                        dbfs = self._rms_to_dbfs(rms)
+                                        level = self._dbfs_to_display(dbfs)
+
+                                        # Calculate time delta for ballistics
+                                        dt = current_time - last_update_time
+                                        last_update_time = current_time
+
+                                        # Update level with ballistics
+                                        self.current_level = float(self._apply_ballistics(level, dt))
+                                        
+                                        # Call callback
+                                        if self.level_callback:
+                                            try:
+                                                self.level_callback(self.current_level)
+                                            except Exception as e:
+                                                self.logger.error(f"Error in level callback: {e}")
+                                except Exception as e:
+                                    self.logger.error(f"Monitor conversion error: {e}")
+                except Exception as e:
+                    self.logger.error(f"Monitor error: {e}")
+            else:
+                if time.time() - last_log_time > 2.0:
+                     self.logger.warning(f"Monitor: Output file not found or path not set: {self._screencapture_output_path}")
+                     last_log_time = time.time()
 
             time.sleep(0.1)  # Update every 100ms
 
@@ -388,6 +433,16 @@ class Recorder:
         try:
             # Read the file to get info
             data, sr = sf.read(str(output_path))
+
+            # Check if file has any data
+            if len(data) == 0:
+                self.logger.error("ScreenCaptureKit recording is empty - no audio samples captured")
+                self.logger.error("Possible causes:")
+                self.logger.error("  - Screen Recording permission not granted")
+                self.logger.error("  - No audio was playing during recording")
+                self.logger.error("  - macOS audio routing issue")
+                return None
+
             duration = len(data) / sr
             peak_level = float(np.max(np.abs(data)))
 
@@ -701,6 +756,11 @@ class Recorder:
         Returns:
             Duration in Sekunden
         """
+        # Check if actively using ScreenCaptureKit (indicated by output path being set)
+        if self._screencapture_output_path and self._screencapture:
+            return self._screencapture.get_recording_duration()
+
+        # Fallback to standard chunk-based duration (BlackHole/SoundCard)
         if not self.recorded_chunks:
             return 0.0
 

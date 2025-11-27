@@ -280,7 +280,7 @@ class RecordingWidget(QWidget):
     def _on_start_clicked(self):
         """
         Start recording
-
+        
         WHY: Initiates recording in background thread with level callback
         """
         device_data = self.device_combo.currentData()
@@ -303,7 +303,12 @@ class RecordingWidget(QWidget):
             device_name = device_data
             using_screencapture = False
 
+        # Reset Level Meter before starting
+        self.level_meter.setValue(0)
+        
         # Start recording with level callback
+        # IMPORTANT: We pass self._on_level_update which emits the signal to the GUI thread
+        # self.ctx.logger().info(f"Starting recording with callback: {self._on_level_update}")
         success = self.recorder.start_recording(
             device_name=device_name,
             level_callback=self._on_level_update
@@ -446,7 +451,7 @@ class RecordingWidget(QWidget):
         IMPORTANT: Do NOT update GUI directly from here - use signal instead!
         """
         # Emit signal - Qt will marshal this to the GUI thread safely
-        self.level_updated.emit(level)
+        self.level_updated.emit(float(level))
     
     @Slot(float)
     def _update_level_meter(self, level: float):
@@ -454,17 +459,9 @@ class RecordingWidget(QWidget):
         Update level meter (runs in GUI thread)
 
         WHY: Receives level_updated signal and safely updates GUI
-
-        IMPORTANT: The level value now represents calibrated dBFS scale:
-                   - 0.0 = -60 dBFS (silence/very quiet)
-                   - 0.5 = -30 dBFS (moderate level)
-                   - 1.0 = 0 dBFS (digital full scale - clipping!)
-
-        Professional audio meter color standards:
-                   - Green: Normal operating range (below -12 dBFS, level < 0.80)
-                   - Yellow: High but safe range (-12 to -3 dBFS, level 0.80-0.95)
-                   - Red: Danger zone (above -3 dBFS, level > 0.95) - risk of clipping
         """
+        # print(f"DEBUG GUI: Updating meter to {level:.3f}")
+        
         # Convert level (0.0-1.0) to percentage for display
         level_percent = int(level * 100)
         self.level_meter.setValue(level_percent)
@@ -502,10 +499,12 @@ class RecordingWidget(QWidget):
     @Slot()
     def _update_display(self):
         """
-        Update duration display and state label
+        Update duration display, state label, and level meter (polling)
         
-        WHY: Called by timer every 100ms to show current recording time
+        WHY: Called by timer every 100ms. Handles both duration and level updates.
+             Polling is more robust than signals for cross-thread updates from ScreenCaptureKit.
         """
+        # Update Duration
         duration = self.recorder.get_recording_duration()
         
         # Format duration as MM:SS.d
@@ -513,7 +512,7 @@ class RecordingWidget(QWidget):
         seconds = duration % 60
         self.duration_label.setText(f"Duration: {minutes:02d}:{seconds:04.1f}")
         
-        # Update state label
+        # Update State Label
         state = self.recorder.get_state()
         state_text = {
             RecordingState.IDLE: "Ready",
@@ -529,6 +528,12 @@ class RecordingWidget(QWidget):
             self.state_label.setStyleSheet("color: red; font-weight: bold;")
         else:
             self.state_label.setStyleSheet("")
+
+        # Update Level Meter (Polling)
+        # If recording or monitoring, get level directly from recorder
+        if state == RecordingState.RECORDING or self.recorder.is_monitoring():
+            level = self.recorder.get_current_level()
+            self._update_level_meter(level)
     
     def apply_translations(self):
         """

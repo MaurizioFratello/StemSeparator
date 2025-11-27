@@ -2,11 +2,27 @@ import Foundation
 import ScreenCaptureKit
 import AVFoundation
 
+// Global flag for signal handling
+// Note: This is safe because signal handlers are the only writers
+// and the main thread is the only reader
+nonisolated(unsafe) var shouldStop = false
+
+// Signal handler for graceful termination
+func setupSignalHandlers() {
+    signal(SIGINT) { _ in
+        shouldStop = true
+    }
+    signal(SIGTERM) { _ in
+        shouldStop = true
+    }
+}
+
 /// Simple ScreenCaptureKit-based audio recorder for system audio
 /// This tool captures system audio without requiring BlackHole or other virtual audio drivers
 @main
 struct ScreenCaptureRecorder {
     static func main() async {
+        setupSignalHandlers()
         let args = CommandLine.arguments
 
         // Print usage if no arguments
@@ -235,11 +251,21 @@ struct ScreenCaptureRecorder {
 
             print("✓ Recording... (press Ctrl+C to stop early)")
 
-            // Record for specified duration
-            try await Task.sleep(nanoseconds: UInt64(duration * 1_000_000_000))
+            // Record for specified duration, checking for stop signal
+            let startTime = Date()
+            let endTime = startTime.addingTimeInterval(duration)
+
+            while Date() < endTime && !shouldStop {
+                // Sleep in small increments to check stop flag frequently
+                try await Task.sleep(nanoseconds: 100_000_000) // 0.1 seconds
+            }
 
             // Stop capture
-            print("\n✓ Stopping capture...")
+            if shouldStop {
+                print("\n✓ Stopping capture (interrupted)...")
+            } else {
+                print("\n✓ Stopping capture...")
+            }
             try await stream.stopCapture()
 
             // Finalize recording
@@ -311,9 +337,7 @@ class AudioRecorder: NSObject, SCStreamOutput {
         do {
             audioFile = try AVAudioFile(
                 forWriting: fileURL,
-                settings: format.settings,
-                commonFormat: .pcmFormatFloat32,
-                interleaved: false
+                settings: format.settings
             )
             print("✓ Audio file initialized: \(format.sampleRate)Hz, \(format.channelCount) channels")
         } catch {
@@ -327,20 +351,48 @@ class AudioRecorder: NSObject, SCStreamOutput {
             return
         }
 
-        // Get audio buffer list
-        var audioBufferList = AudioBufferList()
+        // Get audio buffer list size first
+        var bufferListSize: Int = 0
         var blockBuffer: CMBlockBuffer?
 
-        CMSampleBufferGetAudioBufferListWithRetainedBlockBuffer(
+        var status = CMSampleBufferGetAudioBufferListWithRetainedBlockBuffer(
             sampleBuffer,
-            bufferListSizeNeededOut: nil,
-            bufferListOut: &audioBufferList,
-            bufferListSize: MemoryLayout<AudioBufferList>.size,
+            bufferListSizeNeededOut: &bufferListSize,
+            bufferListOut: nil,
+            bufferListSize: 0,
             blockBufferAllocator: nil,
             blockBufferMemoryAllocator: nil,
             flags: 0,
+            blockBufferOut: nil
+        )
+
+        guard status == noErr, bufferListSize > 0 else {
+            print("Error: Failed to get buffer list size: \(status), size: \(bufferListSize)")
+            return
+        }
+
+        // Allocate buffer list with malloc for proper size
+        let audioBufferListPtr = UnsafeMutableRawPointer.allocate(
+            byteCount: bufferListSize,
+            alignment: MemoryLayout<AudioBufferList>.alignment
+        ).assumingMemoryBound(to: AudioBufferList.self)
+        defer { audioBufferListPtr.deallocate() }
+
+        status = CMSampleBufferGetAudioBufferListWithRetainedBlockBuffer(
+            sampleBuffer,
+            bufferListSizeNeededOut: nil,
+            bufferListOut: audioBufferListPtr,
+            bufferListSize: bufferListSize,
+            blockBufferAllocator: nil,
+            blockBufferMemoryAllocator: nil,
+            flags: kCMSampleBufferFlag_AudioBufferList_Assure16ByteAlignment,
             blockBufferOut: &blockBuffer
         )
+
+        guard status == noErr else {
+            print("Error: Failed to get audio buffer list: \(status)")
+            return
+        }
 
         // Get frame count
         let frameCount = CMSampleBufferGetNumSamples(sampleBuffer)
@@ -352,13 +404,20 @@ class AudioRecorder: NSObject, SCStreamOutput {
 
         pcmBuffer.frameLength = AVAudioFrameCount(frameCount)
 
-        // Copy audio data to PCM buffer
+        // Copy audio data from AudioBufferList to PCM buffer
         let channels = Int(format.channelCount)
-        for channel in 0..<channels {
-            if let channelData = pcmBuffer.floatChannelData?[channel],
-               let sourceData = audioBufferList.mBuffers.mData?.assumingMemoryBound(to: Float.self) {
-                channelData.update(from: sourceData, count: frameCount)
+        let buffers = UnsafeMutableAudioBufferListPointer(audioBufferListPtr)
+
+        // Copy each channel's data
+        for (channelIndex, buffer) in buffers.enumerated() {
+            guard channelIndex < channels,
+                  let sourceData = buffer.mData?.assumingMemoryBound(to: Float.self),
+                  let channelData = pcmBuffer.floatChannelData?[channelIndex] else {
+                continue
             }
+
+            // Copy the samples for this channel
+            channelData.update(from: sourceData, count: frameCount)
         }
 
         // Write to file
