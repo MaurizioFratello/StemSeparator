@@ -56,25 +56,71 @@ class ScreenCaptureRecorder:
             True if binary found and executable
         """
         # Try multiple possible locations
-        possible_paths = [
-            # Development build location
+        possible_paths = []
+        
+        # Development build locations
+        possible_paths.extend([
             Path(__file__).parent.parent / "packaging/screencapture_tool/.build/release/screencapture-recorder",
             Path(__file__).parent.parent / "packaging/screencapture_tool/.build/arm64-apple-macosx/release/screencapture-recorder",
-
-            # Packaged application location (when using PyInstaller)
-            Path(sys._MEIPASS) / "screencapture-recorder" if getattr(sys, 'frozen', False) else None,
-
-            # System-wide installation
-            Path("/usr/local/bin/screencapture-recorder"),
-        ]
-
+            Path(__file__).parent.parent / "packaging/screencapture_tool/.build/x86_64-apple-macosx/release/screencapture-recorder",
+        ])
+        
+        # Packaged application locations (when using PyInstaller)
+        if getattr(sys, 'frozen', False):
+            # PyInstaller bundle structure on macOS:
+            # App.app/Contents/
+            #   MacOS/StemSeparator (sys.executable)
+            #   Frameworks/screencapture-recorder (our binary)
+            #   Resources/ (sys._MEIPASS points here or to a temp extract dir)
+            
+            # Try relative to executable first (most reliable)
+            if hasattr(sys, 'executable') and sys.executable:
+                exe_path = Path(sys.executable)
+                if exe_path.exists():
+                    # From MacOS/StemSeparator -> Contents/Frameworks/
+                    bundle_frameworks = exe_path.parent.parent / "Frameworks" / "screencapture-recorder"
+                    possible_paths.append(bundle_frameworks)
+            
+            # Try via sys._MEIPASS (extracted temp directory)
+            if hasattr(sys, '_MEIPASS'):
+                meipass = Path(sys._MEIPASS)
+                # Check if MEIPASS is in the bundle or temp directory
+                possible_paths.extend([
+                    meipass / "screencapture-recorder",
+                    meipass.parent / "Frameworks" / "screencapture-recorder",
+                ])
+                
+                # If MEIPASS is a temp directory, try to find the bundle
+                # by going up to find the app bundle structure
+                current = meipass
+                for _ in range(5):  # Limit search depth
+                    parent = current.parent
+                    if parent.name.endswith('.app') or (parent / 'Contents' / 'Frameworks').exists():
+                        possible_paths.append(parent / "Contents" / "Frameworks" / "screencapture-recorder")
+                        break
+                    current = parent
+        
+        # System-wide installation
+        possible_paths.append(Path("/usr/local/bin/screencapture-recorder"))
+        
+        # Try all paths
         for path in possible_paths:
             if path and path.exists() and path.is_file():
-                self._binary_path = path
-                self.logger.info(f"Found screencapture-recorder at: {path}")
-                return True
+                # Verify it's actually executable
+                import os
+                if os.access(path, os.X_OK):
+                    self._binary_path = path
+                    self.logger.info(f"Found screencapture-recorder at: {path}")
+                    return True
+                else:
+                    self.logger.warning(f"Found screencapture-recorder but not executable: {path}")
 
-        self.logger.warning("screencapture-recorder binary not found")
+        # Log all attempted paths for debugging
+        self.logger.warning("screencapture-recorder binary not found. Searched paths:")
+        for path in possible_paths:
+            if path:
+                self.logger.warning(f"  - {path} (exists: {path.exists()})")
+        
         return False
 
     def is_available(self) -> ScreenCaptureInfo:
@@ -117,39 +163,104 @@ class ScreenCaptureRecorder:
                 error="screencapture-recorder binary not found"
             )
 
+        # Optional: Check permission directly via Quartz (if available)
+        # This helps diagnose permission issues before testing the binary
+        try:
+            from Quartz import CGPreflightScreenCaptureAccess
+            has_permission = CGPreflightScreenCaptureAccess()
+            if not has_permission:
+                self.logger.warning("Screen Recording permission not granted to app")
+                return ScreenCaptureInfo(
+                    available=False,
+                    version=macos_version,
+                    error="Screen Recording permission not granted. Please enable it in System Settings → Privacy & Security → Screen Recording"
+                )
+            else:
+                self.logger.info("Screen Recording permission confirmed via Quartz")
+        except ImportError:
+            # Quartz not available - continue with binary test
+            self.logger.debug("Quartz not available for permission check, continuing with binary test")
+        except Exception as e:
+            self.logger.debug(f"Permission check via Quartz failed: {e}, continuing with binary test")
+
         # Test if ScreenCaptureKit actually works (permissions, etc.)
         try:
+            self.logger.info(f"Testing ScreenCaptureKit with binary: {self._binary_path}")
+            
+            # Combine stdout and stderr to capture all output
+            # ScreenCaptureKit errors may go to either stream
             result = subprocess.run(
                 [str(self._binary_path), "test"],
                 capture_output=True,
                 text=True,
-                timeout=5
+                timeout=10  # Increased timeout for bundled apps
             )
 
+            # Log full output - use INFO level so it's visible
+            stdout_preview = result.stdout[:1000] if result.stdout else ""
+            stderr_preview = result.stderr[:1000] if result.stderr else ""
+            self.logger.info(f"Binary test result: returncode={result.returncode}")
+            if stdout_preview:
+                self.logger.info(f"  stdout: {stdout_preview}")
+            if stderr_preview:
+                self.logger.info(f"  stderr: {stderr_preview}")
+
             if result.returncode == 0:
+                self.logger.info("ScreenCaptureKit test passed - available for use")
                 return ScreenCaptureInfo(
                     available=True,
                     version=macos_version,
                     error=None
                 )
             else:
+                # Combine stdout and stderr for error message
+                # Swift prints errors to stdout, not stderr
+                output = (result.stdout or "").strip()
+                error_output = (result.stderr or "").strip()
+                
+                # Prefer stdout for error messages (Swift prints there)
+                if error_output:
+                    error_msg = f"{output}\n{error_output}".strip() if output else error_output
+                else:
+                    error_msg = output if output else "Unknown error (no output)"
+                
+                self.logger.warning(f"ScreenCaptureKit test failed (exit {result.returncode}): {error_msg}")
                 return ScreenCaptureInfo(
                     available=False,
                     version=macos_version,
-                    error=f"Test failed: {result.stderr}"
+                    error=f"Test failed (exit {result.returncode}): {error_msg}"
                 )
 
         except subprocess.TimeoutExpired:
+            self.logger.error("ScreenCaptureKit test timed out")
             return ScreenCaptureInfo(
                 available=False,
                 version=macos_version,
-                error="Test command timed out"
+                error="Test command timed out (permissions may not be granted)"
+            )
+        except FileNotFoundError:
+            error_msg = f"Binary not found or not executable: {self._binary_path}"
+            self.logger.error(error_msg)
+            return ScreenCaptureInfo(
+                available=False,
+                version=macos_version,
+                error=error_msg
+            )
+        except PermissionError:
+            error_msg = f"Permission denied executing binary: {self._binary_path}"
+            self.logger.error(error_msg)
+            return ScreenCaptureInfo(
+                available=False,
+                version=macos_version,
+                error=error_msg
             )
         except Exception as e:
+            error_msg = f"Test error: {str(e)}"
+            self.logger.error(f"ScreenCaptureKit test exception: {error_msg}", exc_info=True)
             return ScreenCaptureInfo(
                 available=False,
                 version=macos_version,
-                error=f"Test failed: {str(e)}"
+                error=error_msg
             )
 
     def list_displays(self) -> list[dict]:
