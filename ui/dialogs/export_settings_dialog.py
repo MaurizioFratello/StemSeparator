@@ -100,34 +100,6 @@ class ExportSettingsDialog(QDialog):
         self.format_combo.addItems(["WAV", "FLAC"])
         self.format_combo.setMinimumHeight(35)
         self.format_combo.setMinimumWidth(120)  # Ensure readable width
-        # Improve dropdown readability with wider dropdown
-        self.format_combo.setStyleSheet("""
-            QComboBox {
-                padding: 5px 10px;
-                font-size: 13pt;
-            }
-            QComboBox::drop-down {
-                width: 20px;
-            }
-            QComboBox QAbstractItemView {
-                font-size: 13pt;
-                min-width: 120px;
-                background-color: #2b2b2b;
-                selection-background-color: #4a9eff;
-                outline: none;
-                border: 1px solid rgba(255, 255, 255, 0.2);
-                margin: 0px;
-                padding: 0px;
-            }
-            QComboBox QAbstractItemView::item {
-                padding: 6px 10px;
-                min-height: 20px;
-                background-color: transparent;
-            }
-            QComboBox QAbstractItemView::item:selected {
-                background-color: #4a9eff;
-            }
-        """)
         format_col.addWidget(self.format_combo)
         format_col.addStretch()
         format_options_row.addLayout(format_col)
@@ -142,34 +114,6 @@ class ExportSettingsDialog(QDialog):
         self.bit_depth_combo.setCurrentIndex(1)  # Default: 24 bit
         self.bit_depth_combo.setMinimumHeight(35)
         self.bit_depth_combo.setMinimumWidth(120)  # Ensure readable width
-        # Improve dropdown readability with wider dropdown
-        self.bit_depth_combo.setStyleSheet("""
-            QComboBox {
-                padding: 5px 10px;
-                font-size: 13pt;
-            }
-            QComboBox::drop-down {
-                width: 20px;
-            }
-            QComboBox QAbstractItemView {
-                font-size: 13pt;
-                min-width: 120px;
-                background-color: #2b2b2b;
-                selection-background-color: #4a9eff;
-                outline: none;
-                border: 1px solid rgba(255, 255, 255, 0.2);
-                margin: 0px;
-                padding: 0px;
-            }
-            QComboBox QAbstractItemView::item {
-                padding: 6px 10px;
-                min-height: 20px;
-                background-color: transparent;
-            }
-            QComboBox QAbstractItemView::item:selected {
-                background-color: #4a9eff;
-            }
-        """)
         depth_col.addWidget(self.bit_depth_combo)
         depth_col.addStretch()
         format_options_row.addLayout(depth_col)
