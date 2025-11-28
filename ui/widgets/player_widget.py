@@ -17,6 +17,7 @@ from PySide6.QtGui import QDragEnterEvent, QDropEvent
 from ui.app_context import AppContext
 from core.player import get_player, PlaybackState
 from ui.theme import ThemeManager
+from ui.dialogs import ExportSettingsDialog
 
 
 class DragDropListWidget(QListWidget):
@@ -743,37 +744,160 @@ class PlayerWidget(QWidget):
 
     @Slot()
     def _on_export(self):
-        """Export mixed audio to file"""
+        """Export audio with configurable settings (chunking, format, etc.)"""
         if not self.stem_files:
             return
 
-        save_path, file_filter = QFileDialog.getSaveFileName(
-            self,
-            "Export Mixed Audio",
-            "",
-            "WAV Files (*.wav);;FLAC Files (*.flac)"
+        # Show export settings dialog
+        # Calculate duration in seconds from samples
+        duration_seconds = self.player.duration_samples / self.player.sample_rate if self.player.sample_rate > 0 else 0.0
+
+        dialog = ExportSettingsDialog(
+            duration_seconds=duration_seconds,
+            num_stems=len(self.stem_files),
+            parent=self
         )
 
-        if not save_path:
+        if dialog.exec() != ExportSettingsDialog.Accepted:
+            # User cancelled
             return
 
-        # Determine format from filter
-        file_format = 'WAV' if 'WAV' in file_filter else 'FLAC'
+        # Get settings from dialog
+        settings = dialog.get_settings()
 
-        # Export
-        success = self.player.export_mix(Path(save_path), file_format=file_format)
-
-        if success:
-            QMessageBox.information(
+        # Ask user for output location
+        if settings.enable_chunking and settings.export_mode == 'individual':
+            # Individual stems with chunking - ask for directory
+            output_dir = QFileDialog.getExistingDirectory(
                 self,
-                "Export Successful",
-                f"Mixed audio exported to:\n{save_path}"
+                "Select Output Directory for Stem Chunks",
+                ""
             )
+
+            if not output_dir:
+                return
+
+            output_path = Path(output_dir)
+
         else:
+            # Mixed audio (with or without chunking) - ask for file
+            extension = f".{settings.file_format.lower()}"
+            filter_str = f"{settings.file_format} Files (*{extension})"
+
+            save_path, _ = QFileDialog.getSaveFileName(
+                self,
+                "Export Audio",
+                "",
+                filter_str
+            )
+
+            if not save_path:
+                return
+
+            output_path = Path(save_path)
+
+        # Execute export based on settings
+        success = False
+        result_message = ""
+
+        try:
+            if settings.enable_chunking:
+                if settings.export_mode == 'mixed':
+                    # Mixed audio in chunks
+                    chunk_paths = self.player.export_mix_chunked(
+                        output_path,
+                        settings.chunk_length,
+                        file_format=settings.file_format,
+                        bit_depth=settings.bit_depth
+                    )
+
+                    if chunk_paths:
+                        success = True
+                        result_message = (
+                            f"Mixed audio exported as {len(chunk_paths)} chunks:\n"
+                            f"{output_path.parent}\n\n"
+                            f"Files: {output_path.stem}_1{output_path.suffix}, "
+                            f"{output_path.stem}_2{output_path.suffix}, ..."
+                        )
+                    else:
+                        result_message = "Failed to export chunks. Check the log for details."
+
+                else:  # individual stems
+                    # Individual stems in chunks
+                    all_chunks = self.player.export_stems_chunked(
+                        output_path,
+                        settings.chunk_length,
+                        file_format=settings.file_format,
+                        bit_depth=settings.bit_depth
+                    )
+
+                    if all_chunks:
+                        success = True
+                        total_files = sum(len(chunks) for chunks in all_chunks.values())
+                        stems_list = ", ".join(all_chunks.keys())
+                        result_message = (
+                            f"Exported {len(all_chunks)} stems as {total_files} total chunks:\n"
+                            f"{output_path}\n\n"
+                            f"Stems: {stems_list}"
+                        )
+                    else:
+                        result_message = "Failed to export stem chunks. Check the log for details."
+
+            else:
+                # No chunking - standard export
+                if settings.export_mode == 'mixed':
+                    # Standard mixed export
+                    success = self.player.export_mix(
+                        output_path,
+                        file_format=settings.file_format,
+                        bit_depth=settings.bit_depth
+                    )
+
+                    if success:
+                        result_message = f"Mixed audio exported to:\n{output_path}"
+                    else:
+                        result_message = "Failed to export mixed audio. Check the log for details."
+
+                else:  # individual stems without chunking
+                    # Export individual stems as full files
+                    all_chunks = self.player.export_stems_chunked(
+                        output_path,
+                        chunk_length_seconds=999999,  # Very long chunks = no splitting
+                        file_format=settings.file_format,
+                        bit_depth=settings.bit_depth
+                    )
+
+                    if all_chunks:
+                        success = True
+                        stems_list = ", ".join(all_chunks.keys())
+                        result_message = (
+                            f"Exported {len(all_chunks)} individual stems:\n"
+                            f"{output_path}\n\n"
+                            f"Stems: {stems_list}"
+                        )
+                    else:
+                        result_message = "Failed to export stems. Check the log for details."
+
+            # Show result message
+            if success:
+                QMessageBox.information(
+                    self,
+                    "Export Successful",
+                    result_message
+                )
+            else:
+                QMessageBox.critical(
+                    self,
+                    "Export Failed",
+                    result_message
+                )
+
+        except Exception as e:
+            self.ctx.logger().error(f"Export error: {e}", exc_info=True)
             QMessageBox.critical(
                 self,
                 "Export Failed",
-                "Failed to export mixed audio. Check the log for details."
+                f"An error occurred during export:\n{str(e)}"
             )
 
     def _on_position_update(self, position: float, duration: float):
