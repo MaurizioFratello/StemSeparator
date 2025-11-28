@@ -51,11 +51,11 @@ class ExportSettingsDialog(QDialog):
 
         self.setWindowTitle("Export Settings")
         self.setModal(True)
-        self.setMinimumWidth(600)
-        self.setMinimumHeight(500)
+        self.setMinimumWidth(594)  # 660 - 10%
+        self.setMinimumHeight(633)  # 575 + 10%
 
-        # Set a comfortable initial size
-        self.resize(650, 550)
+        # Set a comfortable initial size (width -10%, height +10% from previous)
+        self.resize(644, 696)
 
         self._setup_ui()
         self._connect_signals()
@@ -72,6 +72,8 @@ class ExportSettingsDialog(QDialog):
 
         header = QLabel(title)
         header.setObjectName("card_header")
+        header.setFixedHeight(30)  # Fixed height for consistent sizing
+        header.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)  # Consistent alignment
         layout.addWidget(header)
 
         return card, layout
@@ -82,56 +84,123 @@ class ExportSettingsDialog(QDialog):
         main_layout.setSpacing(15)
         main_layout.setContentsMargins(20, 20, 20, 20)
 
-        # === ROW 1: File Format + Export Mode (side by side) ===
-        top_row = QHBoxLayout()
-        top_row.setSpacing(15)
-
-        # File Format Card (left)
+        # === File Format (full width) ===
         format_card, format_layout = self._create_card("File Format")
-        format_card.setMaximumWidth(300)
+
+        # Create horizontal layout for format options
+        format_options_row = QHBoxLayout()
+        format_options_row.setSpacing(20)
 
         # Format selection
-        format_row = QHBoxLayout()
+        format_col = QHBoxLayout()
         format_label = QLabel("Format:")
         format_label.setMinimumWidth(80)
-        format_row.addWidget(format_label)
+        format_col.addWidget(format_label)
         self.format_combo = QComboBox()
         self.format_combo.addItems(["WAV", "FLAC"])
-        self.format_combo.setMinimumHeight(30)
-        format_row.addWidget(self.format_combo)
-        format_layout.addLayout(format_row)
+        self.format_combo.setMinimumHeight(35)
+        self.format_combo.setMinimumWidth(120)  # Ensure readable width
+        # Improve dropdown readability with wider dropdown
+        self.format_combo.setStyleSheet("""
+            QComboBox {
+                padding: 5px 10px;
+                font-size: 13pt;
+            }
+            QComboBox::drop-down {
+                width: 20px;
+            }
+            QComboBox QAbstractItemView {
+                font-size: 13pt;
+                min-width: 120px;
+                background-color: #2b2b2b;
+                selection-background-color: #4a9eff;
+                outline: none;
+                border: 1px solid rgba(255, 255, 255, 0.2);
+                margin: 0px;
+                padding: 0px;
+            }
+            QComboBox QAbstractItemView::item {
+                padding: 6px 10px;
+                min-height: 20px;
+                background-color: transparent;
+            }
+            QComboBox QAbstractItemView::item:selected {
+                background-color: #4a9eff;
+            }
+        """)
+        format_col.addWidget(self.format_combo)
+        format_col.addStretch()
+        format_options_row.addLayout(format_col)
 
         # Bit depth selection
-        depth_row = QHBoxLayout()
+        depth_col = QHBoxLayout()
         depth_label = QLabel("Bit Depth:")
         depth_label.setMinimumWidth(80)
-        depth_row.addWidget(depth_label)
+        depth_col.addWidget(depth_label)
         self.bit_depth_combo = QComboBox()
         self.bit_depth_combo.addItems(["16 bit", "24 bit", "32 bit"])
         self.bit_depth_combo.setCurrentIndex(1)  # Default: 24 bit
-        self.bit_depth_combo.setMinimumHeight(30)
-        depth_row.addWidget(self.bit_depth_combo)
-        format_layout.addLayout(depth_row)
+        self.bit_depth_combo.setMinimumHeight(35)
+        self.bit_depth_combo.setMinimumWidth(120)  # Ensure readable width
+        # Improve dropdown readability with wider dropdown
+        self.bit_depth_combo.setStyleSheet("""
+            QComboBox {
+                padding: 5px 10px;
+                font-size: 13pt;
+            }
+            QComboBox::drop-down {
+                width: 20px;
+            }
+            QComboBox QAbstractItemView {
+                font-size: 13pt;
+                min-width: 120px;
+                background-color: #2b2b2b;
+                selection-background-color: #4a9eff;
+                outline: none;
+                border: 1px solid rgba(255, 255, 255, 0.2);
+                margin: 0px;
+                padding: 0px;
+            }
+            QComboBox QAbstractItemView::item {
+                padding: 6px 10px;
+                min-height: 20px;
+                background-color: transparent;
+            }
+            QComboBox QAbstractItemView::item:selected {
+                background-color: #4a9eff;
+            }
+        """)
+        depth_col.addWidget(self.bit_depth_combo)
+        depth_col.addStretch()
+        format_options_row.addLayout(depth_col)
 
-        top_row.addWidget(format_card)
+        format_layout.addLayout(format_options_row)
 
-        # Export Mode Card (right)
+        main_layout.addWidget(format_card)
+
+        # === Export Mode (full width) ===
         mode_card, mode_layout = self._create_card("Export Mode")
 
         self.mode_button_group = QButtonGroup(self)
 
-        self.mode_mixed = QRadioButton("Mixed Audio")
+        # Create horizontal layout for radio buttons
+        mode_options_row = QHBoxLayout()
+        mode_options_row.setSpacing(30)
+
+        self.mode_mixed = QRadioButton("Mixed Audio (all stems combined)")
         self.mode_mixed.setChecked(True)
         self.mode_button_group.addButton(self.mode_mixed)
-        mode_layout.addWidget(self.mode_mixed)
+        mode_options_row.addWidget(self.mode_mixed)
 
-        self.mode_individual = QRadioButton(f"Individual Stems ({self.num_stems} files)")
+        self.mode_individual = QRadioButton(f"Individual Stems ({self.num_stems} separate files)")
         self.mode_button_group.addButton(self.mode_individual)
-        mode_layout.addWidget(self.mode_individual)
+        mode_options_row.addWidget(self.mode_individual)
 
-        top_row.addWidget(mode_card)
+        mode_options_row.addStretch()
 
-        main_layout.addLayout(top_row)
+        mode_layout.addLayout(mode_options_row)
+
+        main_layout.addWidget(mode_card)
 
         # === ROW 2: Chunk Splitting ===
         chunk_card, chunk_layout = self._create_card("Chunk Splitting")
@@ -155,9 +224,43 @@ class ExportSettingsDialog(QDialog):
         self.chunk_length.setSuffix(" seconds")
         self.chunk_length.setDecimals(1)  # One decimal place
         self.chunk_length.setSingleStep(0.5)  # Increment by 0.5 seconds
-        self.chunk_length.setMinimumHeight(30)
-        self.chunk_length.setMaximumWidth(180)
+        self.chunk_length.setMinimumHeight(35)
+        self.chunk_length.setMaximumWidth(200)
         self.chunk_length.setEnabled(False)  # Disabled until checkbox is checked
+        self.chunk_length.setButtonSymbols(QDoubleSpinBox.UpDownArrows)
+        # Add tooltips for clear +/- indication
+        self.chunk_length.setToolTip(
+            "Use arrows to adjust chunk length:\n"
+            "▲ (Up) = Increase by 0.5s\n"
+            "▼ (Down) = Decrease by 0.5s"
+        )
+        # Improve spinbox readability and button visibility
+        self.chunk_length.setStyleSheet("""
+            QDoubleSpinBox {
+                padding: 5px 10px;
+                font-size: 13pt;
+            }
+            QDoubleSpinBox::up-button {
+                subcontrol-origin: border;
+                subcontrol-position: top right;
+                width: 16px;
+                border-left: 1px solid rgba(255, 255, 255, 0.2);
+            }
+            QDoubleSpinBox::down-button {
+                subcontrol-origin: border;
+                subcontrol-position: bottom right;
+                width: 16px;
+                border-left: 1px solid rgba(255, 255, 255, 0.2);
+            }
+            QDoubleSpinBox::up-arrow {
+                width: 7px;
+                height: 7px;
+            }
+            QDoubleSpinBox::down-arrow {
+                width: 7px;
+                height: 7px;
+            }
+        """)
         length_row.addWidget(self.chunk_length)
         length_row.addStretch()
         chunk_layout.addLayout(length_row)
