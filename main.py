@@ -5,6 +5,9 @@ Stem Separator - Main Entry Point
 KI-gestützte Audio Stem Separation mit modernsten Open-Source-Modellen
 """
 import sys
+import os
+import fcntl
+import atexit
 from pathlib import Path
 
 # Füge Projekt-Root zum Python Path hinzu
@@ -13,9 +16,75 @@ sys.path.insert(0, str(Path(__file__).parent))
 from utils.logger import get_logger
 from utils.i18n import set_language
 from core.model_manager import get_model_manager
-from config import APP_NAME, APP_VERSION, DEFAULT_LANGUAGE, LOG_FILE
+from config import APP_NAME, APP_VERSION, DEFAULT_LANGUAGE, LOG_FILE, USER_DIR
 
 logger = get_logger()
+
+# Single-instance lock file
+LOCK_FILE = USER_DIR / ".stemseparator.lock"
+_lock_file_handle = None
+
+
+def acquire_lock():
+    """
+    Acquire single-instance lock
+    
+    WHY: Prevent multiple app instances from running simultaneously,
+    which causes resource conflicts and infinite loop behavior.
+    """
+    global _lock_file_handle
+    
+    try:
+        # Create lock file directory if needed
+        LOCK_FILE.parent.mkdir(parents=True, exist_ok=True)
+        
+        # Try to open lock file in exclusive mode
+        _lock_file_handle = open(LOCK_FILE, 'w')
+        
+        # Try to acquire exclusive lock (non-blocking)
+        fcntl.flock(_lock_file_handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        
+        # Write PID to lock file
+        _lock_file_handle.write(str(os.getpid()) + '\n')
+        _lock_file_handle.flush()
+        
+        # Register cleanup function
+        atexit.register(release_lock)
+        
+        logger.info(f"Single-instance lock acquired: {LOCK_FILE}")
+        return True
+        
+    except (IOError, OSError) as e:
+        # Lock file is locked by another instance
+        if _lock_file_handle:
+            _lock_file_handle.close()
+            _lock_file_handle = None
+        
+        logger.warning(f"Another instance is already running (lock: {LOCK_FILE})")
+        return False
+
+
+def release_lock():
+    """Release single-instance lock"""
+    global _lock_file_handle
+    
+    if _lock_file_handle:
+        try:
+            fcntl.flock(_lock_file_handle.fileno(), fcntl.LOCK_UN)
+            _lock_file_handle.close()
+            _lock_file_handle = None
+            
+            # Remove lock file
+            if LOCK_FILE.exists():
+                LOCK_FILE.unlink()
+            
+            logger.info("Single-instance lock released")
+        except Exception as e:
+            logger.warning(f"Error releasing lock: {e}")
+
+
+# Import os after path setup
+import os
 
 
 def check_dependencies():
@@ -71,8 +140,23 @@ def initialize_app():
 def main():
     """Main Entry Point"""
     try:
+        # CRITICAL: Check for single instance (prevent multiple app instances)
+        if not acquire_lock():
+            from PySide6.QtWidgets import QApplication, QMessageBox
+            
+            # Create minimal QApplication for message box
+            app = QApplication(sys.argv)
+            QMessageBox.warning(
+                None,
+                "Already Running",
+                f"{APP_NAME} is already running.\n\n"
+                "Please close the existing instance before starting a new one."
+            )
+            sys.exit(1)
+        
         # Prüfe Dependencies
         if not check_dependencies():
+            release_lock()
             sys.exit(1)
 
         # Initialisiere App
@@ -110,7 +194,9 @@ def main():
         try:
             window = MainWindow()
             window.show()
-            sys.exit(app.exec())
+            exit_code = app.exec()
+            release_lock()  # Release lock before exit
+            sys.exit(exit_code)
         except Exception as gui_error:  # pragma: no cover - GUI bootstrap failure is fatal
             logger.critical(
                 f"Failed to start GUI: {gui_error}",
@@ -125,9 +211,11 @@ def main():
 
     except KeyboardInterrupt:
         logger.info("\nShutdown requested by user")
+        release_lock()
         sys.exit(0)
     except Exception as e:
         logger.critical(f"Fatal error: {e}", exc_info=True)
+        release_lock()
         sys.exit(1)
 
 
