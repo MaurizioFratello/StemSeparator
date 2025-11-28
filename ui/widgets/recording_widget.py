@@ -392,10 +392,14 @@ class RecordingWidget(QWidget):
         info = self.recorder.stop_recording()
         
         if info:
-            self.ctx.logger().info(
+            log_msg = (
                 f"Recording saved: {info.file_path} "
-                f"({info.duration_seconds:.1f}s, peak: {info.peak_level:.2f})"
+                f"({info.duration_seconds:.1f}s, peak: {info.peak_level:.2f}"
             )
+            if info.trimmed_silence_duration > 0:
+                log_msg += f", trimmed: {info.trimmed_silence_duration:.1f}s"
+            log_msg += ")"
+            self.ctx.logger().info(log_msg)
             
             # Convert peak level to dBFS for display
             peak_dbfs = self._peak_to_dbfs(info.peak_level)
@@ -405,16 +409,26 @@ class RecordingWidget(QWidget):
                 peak_display = f"{peak_dbfs:.1f} dB (CLIP!)"
             else:
                 peak_display = f"{peak_dbfs:.1f} dB"
-            
-            QMessageBox.information(
-                self,
-                "Recording Saved",
+
+            # Build message with optional silence trimming info
+            message = (
                 f"Recording saved successfully!\n\n"
                 f"Duration: {info.duration_seconds:.1f}s\n"
                 f"Sample Rate: {info.sample_rate} Hz\n"
                 f"Channels: {info.channels}\n"
-                f"Peak Level: {peak_display}\n\n"
-                f"File: {info.file_path.name}"
+                f"Peak Level: {peak_display}\n"
+            )
+
+            # Add trimmed silence info if any was removed
+            if info.trimmed_silence_duration > 0:
+                message += f"Trimmed Silence: {info.trimmed_silence_duration:.1f}s removed from start\n"
+
+            message += f"\nFile: {info.file_path.name}"
+
+            QMessageBox.information(
+                self,
+                "Recording Saved",
+                message
             )
             
             # Emit signal for potential downstream processing
