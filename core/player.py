@@ -16,6 +16,7 @@ import soundfile as sf
 
 from config import RECORDING_SAMPLE_RATE
 from utils.logger import get_logger
+from utils.audio_processing import export_audio_chunks
 
 logger = get_logger()
 
@@ -681,6 +682,155 @@ class AudioPlayer:
         except Exception as e:
             self.logger.error(f"Failed to export mix: {e}", exc_info=True)
             return False
+
+    def export_mix_chunked(
+        self,
+        output_file: Path,
+        chunk_length_seconds: float,
+        file_format: str = 'WAV',
+        bit_depth: int = 24
+    ) -> Optional[list[Path]]:
+        """
+        Export mixed audio split into chunks
+
+        Args:
+            output_file: Base output file path (e.g., "output.wav")
+                        Chunks will be saved as "output_1.wav", "output_2.wav", etc.
+            chunk_length_seconds: Target length of each chunk in seconds
+            file_format: Audio format ('WAV', 'FLAC')
+            bit_depth: Bit depth (16, 24, 32)
+
+        Returns:
+            List of chunk file paths if successful, None on error
+        """
+        if not self.stems:
+            self.logger.error("No stems loaded, cannot export")
+            return None
+
+        try:
+            self.logger.info(
+                f"Exporting mixed audio in {chunk_length_seconds}s chunks to {output_file}"
+            )
+
+            # Mix entire audio
+            mixed_audio = self._mix_stems(0, self.duration_samples)
+
+            # Export as chunks (mixed_audio is already in (channels, samples) format)
+            chunk_paths = export_audio_chunks(
+                mixed_audio,
+                self.sample_rate,
+                output_file,
+                chunk_length_seconds,
+                file_format=file_format,
+                bit_depth=bit_depth
+            )
+
+            if chunk_paths:
+                self.logger.info(
+                    f"Successfully exported {len(chunk_paths)} chunks "
+                    f"({chunk_length_seconds}s each)"
+                )
+                return chunk_paths
+            else:
+                self.logger.error("No chunks were created")
+                return None
+
+        except Exception as e:
+            self.logger.error(f"Failed to export chunked mix: {e}", exc_info=True)
+            return None
+
+    def export_stems_chunked(
+        self,
+        output_dir: Path,
+        chunk_length_seconds: float,
+        file_format: str = 'WAV',
+        bit_depth: int = 24
+    ) -> Optional[Dict[str, list[Path]]]:
+        """
+        Export individual stems split into chunks
+
+        Args:
+            output_dir: Directory to save stem chunks
+            chunk_length_seconds: Target length of each chunk in seconds
+            file_format: Audio format ('WAV', 'FLAC')
+            bit_depth: Bit depth (16, 24, 32)
+
+        Returns:
+            Dictionary mapping stem names to lists of chunk file paths,
+            or None on error
+
+        Example:
+            {
+                'vocals': [vocals_1.wav, vocals_2.wav, vocals_3.wav],
+                'drums': [drums_1.wav, drums_2.wav, drums_3.wav],
+                ...
+            }
+        """
+        if not self.stems:
+            self.logger.error("No stems loaded, cannot export")
+            return None
+
+        try:
+            self.logger.info(
+                f"Exporting {len(self.stems)} stems in {chunk_length_seconds}s chunks "
+                f"to {output_dir}"
+            )
+
+            output_dir.mkdir(parents=True, exist_ok=True)
+
+            all_chunks = {}
+
+            for stem_name, stem_audio in self.stems.items():
+                # Get stem settings (volume, mute, solo)
+                settings = self.stem_settings.get(stem_name)
+
+                if not settings:
+                    # No settings found - use defaults
+                    settings = StemSettings()
+
+                if settings.is_muted:
+                    self.logger.info(f"Skipping muted stem: {stem_name}")
+                    continue
+
+                # Apply volume to stem
+                stem_audio_with_volume = stem_audio * settings.volume
+
+                # Generate output path for this stem
+                extension = f".{file_format.lower()}"
+                stem_output_path = output_dir / f"{stem_name}{extension}"
+
+                # Export stem as chunks (with volume applied)
+                chunk_paths = export_audio_chunks(
+                    stem_audio_with_volume,
+                    self.sample_rate,
+                    stem_output_path,
+                    chunk_length_seconds,
+                    file_format=file_format,
+                    bit_depth=bit_depth
+                )
+
+                if chunk_paths:
+                    all_chunks[stem_name] = chunk_paths
+                    self.logger.info(
+                        f"Exported {stem_name}: {len(chunk_paths)} chunks"
+                    )
+                else:
+                    self.logger.warning(f"No chunks created for stem: {stem_name}")
+
+            if all_chunks:
+                total_files = sum(len(chunks) for chunks in all_chunks.values())
+                self.logger.info(
+                    f"Successfully exported {len(all_chunks)} stems, "
+                    f"{total_files} total chunk files"
+                )
+                return all_chunks
+            else:
+                self.logger.error("No chunks were created for any stem")
+                return None
+
+        except Exception as e:
+            self.logger.error(f"Failed to export chunked stems: {e}", exc_info=True)
+            return None
 
     def cleanup(self):
         """Cleanup resources"""
