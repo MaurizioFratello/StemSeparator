@@ -86,6 +86,7 @@ def main():
 
         app = QApplication(sys.argv)
         app.setApplicationName(APP_NAME)
+        app.setApplicationDisplayName(APP_NAME)  # macOS menu bar & fullscreen title
         app.setApplicationVersion(APP_VERSION)
 
         # Apply theme at application level for consistent styling
