@@ -80,14 +80,24 @@ def main():
 
         # Starte GUI
         from PySide6.QtWidgets import QApplication, QMessageBox
+        from PySide6.QtGui import QIcon
 
         from ui.main_window import MainWindow
         from ui.theme import ThemeManager
+        from config import ICONS_DIR
 
         app = QApplication(sys.argv)
         app.setApplicationName(APP_NAME)
         app.setApplicationDisplayName(APP_NAME)  # macOS menu bar & fullscreen title
         app.setApplicationVersion(APP_VERSION)
+        
+        # Set application icon (for Dock, menu bar, etc.)
+        icon_path = ICONS_DIR / "app_icon_1024.png"
+        if icon_path.exists():
+            app.setWindowIcon(QIcon(str(icon_path)))
+            logger.info(f"Application icon set: {icon_path}")
+        else:
+            logger.warning(f"Icon not found: {icon_path}")
 
         # Apply theme at application level for consistent styling
         try:

@@ -69,6 +69,11 @@ class MainWindow(QMainWindow):
 
         self.setWindowTitle(APP_NAME)
         self.resize(1400, 900)  # Larger default size for modern displays
+        
+        # Set window icon
+        icon_path = ICONS_DIR / "app_icon_1024.png"
+        if icon_path.exists():
+            self.setWindowIcon(QIcon(str(icon_path)))
 
         # macOS-specific window configuration
         if platform.system() == "Darwin":
