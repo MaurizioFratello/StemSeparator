@@ -18,6 +18,7 @@ from config import (
 )
 from utils.logger import get_logger
 from utils.error_handler import error_handler
+from utils.audio_processing import trim_leading_silence
 
 logger = get_logger()
 
@@ -45,6 +46,7 @@ class RecordingInfo:
     channels: int
     file_path: Optional[Path] = None
     peak_level: float = 0.0  # Peak audio level (0.0 - 1.0)
+    trimmed_silence_duration: float = 0.0  # Duration of silence trimmed from start (seconds)
 
 
 class Recorder:
@@ -443,6 +445,14 @@ class Recorder:
                 self.logger.error("  - macOS audio routing issue")
                 return None
 
+            # Trim leading silence (automatic for recordings)
+            data, trimmed_duration = trim_leading_silence(
+                data,
+                sr,
+                threshold_db=-40.0,
+                min_silence_duration=0.5
+            )
+
             duration = len(data) / sr
             peak_level = float(np.max(np.abs(data)))
 
@@ -458,9 +468,12 @@ class Recorder:
                 final_path = TEMP_DIR / f"recording_{timestamp}.wav"
                 final_path.parent.mkdir(parents=True, exist_ok=True)
 
-            # Move/copy file to final location
-            if output_path != final_path:
-                shutil.move(str(output_path), str(final_path))
+            # Write trimmed audio to final location
+            sf.write(str(final_path), data, sr)
+
+            # Clean up temporary file
+            if output_path.exists() and output_path != final_path:
+                output_path.unlink()
 
             self.logger.info(f"Recording saved: {final_path}")
 
@@ -473,7 +486,8 @@ class Recorder:
                 sample_rate=int(sr),
                 channels=data.shape[1] if data.ndim > 1 else 1,
                 file_path=final_path,
-                peak_level=peak_level
+                peak_level=peak_level,
+                trimmed_silence_duration=trimmed_duration
             )
 
         except Exception as e:
@@ -698,6 +712,14 @@ class Recorder:
             # Concatenate alle Chunks
             audio_data = np.concatenate(self.recorded_chunks, axis=0)
 
+            # Trim leading silence (automatic for recordings)
+            audio_data, trimmed_duration = trim_leading_silence(
+                audio_data,
+                self.sample_rate,
+                threshold_db=-40.0,
+                min_silence_duration=0.5
+            )
+
             duration = len(audio_data) / self.sample_rate
             peak_level = float(np.max(np.abs(audio_data)))
 
@@ -742,7 +764,8 @@ class Recorder:
                 sample_rate=self.sample_rate,
                 channels=self.channels,
                 file_path=save_path,
-                peak_level=peak_level
+                peak_level=peak_level,
+                trimmed_silence_duration=trimmed_duration
             )
 
         except Exception as e:
