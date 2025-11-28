@@ -22,6 +22,13 @@ from utils.error_handler import error_handler
 logger = get_logger()
 
 
+class RecordingBackend(Enum):
+    """Recording Backend Options"""
+    SCREENCAPTURE_KIT = "screencapture_kit"  # macOS 13+ native ScreenCaptureKit
+    BLACKHOLE = "blackhole"  # BlackHole virtual audio driver
+    AUTO = "auto"  # Auto-select best available
+
+
 class RecordingState(Enum):
     """Recording States"""
     IDLE = "idle"
@@ -43,7 +50,7 @@ class RecordingInfo:
 class Recorder:
     """System Audio Recorder"""
 
-    def __init__(self):
+    def __init__(self, backend: RecordingBackend = RecordingBackend.AUTO):
         self.logger = logger
         self.state = RecordingState.IDLE
 
@@ -79,11 +86,26 @@ class Recorder:
         self.db_range_min = -60.0  # Bottom of meter
         self.db_range_max = 0.0    # Top of meter (clipping)
 
-        # SoundCard
+        # Backend selection
+        self.backend = backend
+        self._selected_backend: Optional[RecordingBackend] = None
+
+        # SoundCard (for BlackHole backend)
         self._soundcard = None
         self._import_soundcard()
 
-        self.logger.info("Recorder initialized")
+        # ScreenCaptureKit (for ScreenCaptureKit backend)
+        self._screencapture = None
+        self._screencapture_output_path: Optional[Path] = None
+        self._import_screencapture()
+
+        # Detect and select backend
+        if self.backend == RecordingBackend.AUTO:
+            self._select_best_backend()
+        else:
+            self._selected_backend = self.backend
+
+        self.logger.info(f"Recorder initialized with backend: {self._selected_backend}")
 
     def _import_soundcard(self) -> bool:
         """Importiert SoundCard Library"""
@@ -93,8 +115,41 @@ class Recorder:
             self.logger.info("SoundCard library loaded")
             return True
         except ImportError:
-            self.logger.error("SoundCard not installed. Recording will not work.")
+            self.logger.warning("SoundCard not installed. BlackHole backend will not be available.")
             return False
+
+    def _import_screencapture(self) -> bool:
+        """Import ScreenCaptureKit wrapper"""
+        try:
+            from core.screencapture_recorder import ScreenCaptureRecorder
+            self._screencapture = ScreenCaptureRecorder()
+            info = self._screencapture.is_available()
+            if info.available:
+                self.logger.info(f"ScreenCaptureKit available (macOS {info.version})")
+                return True
+            else:
+                self.logger.info(f"ScreenCaptureKit not available: {info.error}")
+                return False
+        except Exception as e:
+            self.logger.warning(f"ScreenCaptureKit not available: {e}")
+            return False
+
+    def _select_best_backend(self):
+        """Auto-select the best available recording backend"""
+        # Prefer ScreenCaptureKit on macOS 13+ (no driver installation needed)
+        if self._screencapture and self._screencapture.is_available().available:
+            self._selected_backend = RecordingBackend.SCREENCAPTURE_KIT
+            self.logger.info("Auto-selected ScreenCaptureKit backend (native macOS 13+)")
+        elif self._soundcard and self.find_blackhole_device():
+            self._selected_backend = RecordingBackend.BLACKHOLE
+            self.logger.info("Auto-selected BlackHole backend")
+        elif self._soundcard:
+            # SoundCard available but no BlackHole - still use it for other devices
+            self._selected_backend = RecordingBackend.BLACKHOLE
+            self.logger.warning("BlackHole not found, but SoundCard available for other devices")
+        else:
+            self._selected_backend = None
+            self.logger.error("No recording backend available")
 
     def get_available_devices(self) -> List[str]:
         """
@@ -156,7 +211,7 @@ class Recorder:
         Startet Aufnahme
 
         Args:
-            device_name: Name des Recording-Devices (default: BlackHole)
+            device_name: Name des Recording-Devices (None = use selected backend)
             level_callback: Callback für Audio-Level Updates
 
         Returns:
@@ -166,14 +221,24 @@ class Recorder:
             self.logger.warning("Already recording")
             return False
 
-        if not self._soundcard:
-            self.logger.error("SoundCard not available")
-            return False
-
         # Stop monitoring if active
         if self._is_monitoring:
             self.logger.info("Stopping monitoring before starting recording")
             self.stop_monitoring()
+
+        # If device_name is None, use the selected backend
+        if device_name is None and self._selected_backend == RecordingBackend.SCREENCAPTURE_KIT:
+            # Use ScreenCaptureKit
+            if not self._screencapture:
+                self.logger.error("ScreenCaptureKit not available")
+                return False
+
+            return self._start_screencapture_recording(level_callback)
+
+        # Otherwise use SoundCard/BlackHole (existing logic)
+        if not self._soundcard:
+            self.logger.error("SoundCard not available")
+            return False
 
         # Finde Device
         if device_name:
@@ -218,6 +283,202 @@ class Recorder:
         self.recording_thread.start()
 
         return True
+
+    def _start_screencapture_recording(self, level_callback: Optional[Callable[[float], None]]) -> bool:
+        """
+        Start recording using ScreenCaptureKit
+
+        Args:
+            level_callback: Callback for audio level updates
+
+        Returns:
+            True if started successfully
+        """
+        from pathlib import Path
+        import tempfile
+
+        # Create temporary output file
+        temp_dir = Path(tempfile.gettempdir())
+        output_path = temp_dir / f"screencapture_recording_{int(time.time())}.wav"
+
+        # Start ScreenCaptureKit recording
+        success = self._screencapture.start_recording(output_path=output_path)
+
+        if not success:
+            self.logger.error("Failed to start ScreenCaptureKit recording")
+            return False
+
+        # Store recording info
+        self._screencapture_output_path = output_path
+        self.level_callback = level_callback
+        self.current_level = 0.0
+        self.state = RecordingState.RECORDING
+
+        self.logger.info(f"ScreenCaptureKit recording started: {output_path}")
+
+        # Start level monitoring thread
+        self.recording_thread = threading.Thread(
+            target=self._screencapture_monitor_loop,
+            daemon=True
+        )
+        self.recording_thread.start()
+
+        return True
+
+    def get_current_level(self) -> float:
+        """
+        Get current audio level (0.0-1.0)
+        
+        Returns:
+            Current smoothed level
+        """
+        return self.current_level
+
+    def _screencapture_monitor_loop(self):
+        """Monitor ScreenCaptureKit recording and provide level updates"""
+        import time
+
+        self.logger.info("Starting ScreenCaptureKit monitor loop")
+        last_log_time = 0
+        last_update_time = time.time()
+        
+        while self.state == RecordingState.RECORDING:
+            # Level update from growing file
+            if self._screencapture_output_path and self._screencapture_output_path.exists():
+                try:
+                    # Read raw bytes from the growing file (skip WAV header parsing which fails on incomplete files)
+                    # Format: Float32 (4 bytes), Stereo (2 channels) -> 8 bytes per frame
+                    # Sample rate: 48000 Hz
+                    bytes_per_frame = 8
+                    frames_needed = int(48000 * 0.1)  # Last 100ms
+                    bytes_needed = frames_needed * bytes_per_frame
+                    
+                    file_size = self._screencapture_output_path.stat().st_size
+                    
+                    current_time = time.time()
+                    
+                    # Log file size periodically (debug)
+                    if current_time - last_log_time > 2.0:
+                        self.logger.debug(f"Monitor: File size {file_size} bytes, Path: {self._screencapture_output_path}")
+                        last_log_time = current_time
+                    
+                    # WAV header is typically 44 bytes
+                    if file_size > 44:
+                        with open(self._screencapture_output_path, 'rb') as f:
+                            # Determine where to seek
+                            if file_size - 44 < bytes_needed:
+                                # File is smaller than window, read what we have
+                                f.seek(44)
+                            else:
+                                # Seek to end minus window
+                                f.seek(max(44, file_size - bytes_needed))
+                            
+                            raw_data = f.read()
+                            
+                            if raw_data:
+                                # Convert to numpy array
+                                try:
+                                    audio_data = np.frombuffer(raw_data, dtype=np.float32)
+                                    
+                                    if len(audio_data) > 0:
+                                        # Calculate RMS
+                                        rms = np.sqrt(np.mean(audio_data ** 2))
+                                        dbfs = self._rms_to_dbfs(rms)
+                                        level = self._dbfs_to_display(dbfs)
+
+                                        # Calculate time delta for ballistics
+                                        dt = current_time - last_update_time
+                                        last_update_time = current_time
+
+                                        # Update level with ballistics
+                                        self.current_level = float(self._apply_ballistics(level, dt))
+                                        
+                                        # Call callback
+                                        if self.level_callback:
+                                            try:
+                                                self.level_callback(self.current_level)
+                                            except Exception as e:
+                                                self.logger.error(f"Error in level callback: {e}")
+                                except Exception as e:
+                                    self.logger.error(f"Monitor conversion error: {e}")
+                except Exception as e:
+                    self.logger.error(f"Monitor error: {e}")
+            else:
+                if time.time() - last_log_time > 2.0:
+                     self.logger.warning(f"Monitor: Output file not found or path not set: {self._screencapture_output_path}")
+                     last_log_time = time.time()
+
+            time.sleep(0.1)  # Update every 100ms
+
+    def _stop_screencapture_recording(self, save_path: Optional[Path] = None) -> Optional[RecordingInfo]:
+        """
+        Stop ScreenCaptureKit recording and save file
+
+        Args:
+            save_path: Path to save (default: temp)
+
+        Returns:
+            RecordingInfo or None on error
+        """
+        import shutil
+
+        # Stop ScreenCaptureKit recording
+        self.state = RecordingState.STOPPED
+        output_path = self._screencapture.stop_recording()
+
+        if not output_path or not output_path.exists():
+            self.logger.error("ScreenCaptureKit recording failed - no output file")
+            return None
+
+        try:
+            # Read the file to get info
+            data, sr = sf.read(str(output_path))
+
+            # Check if file has any data
+            if len(data) == 0:
+                self.logger.error("ScreenCaptureKit recording is empty - no audio samples captured")
+                self.logger.error("Possible causes:")
+                self.logger.error("  - Screen Recording permission not granted")
+                self.logger.error("  - No audio was playing during recording")
+                self.logger.error("  - macOS audio routing issue")
+                return None
+
+            duration = len(data) / sr
+            peak_level = float(np.max(np.abs(data)))
+
+            self.logger.info(f"Recorded {duration:.1f}s, peak level: {peak_level:.2f}")
+
+            # Determine final save path
+            if save_path:
+                final_path = Path(save_path)
+                final_path.parent.mkdir(parents=True, exist_ok=True)
+            else:
+                # Default: Temp directory
+                timestamp = time.strftime("%Y%m%d_%H%M%S")
+                final_path = TEMP_DIR / f"recording_{timestamp}.wav"
+                final_path.parent.mkdir(parents=True, exist_ok=True)
+
+            # Move/copy file to final location
+            if output_path != final_path:
+                shutil.move(str(output_path), str(final_path))
+
+            self.logger.info(f"Recording saved: {final_path}")
+
+            # Reset state
+            self.state = RecordingState.IDLE
+            self._screencapture_output_path = None
+
+            return RecordingInfo(
+                duration_seconds=duration,
+                sample_rate=int(sr),
+                channels=data.shape[1] if data.ndim > 1 else 1,
+                file_path=final_path,
+                peak_level=peak_level
+            )
+
+        except Exception as e:
+            self.logger.error(f"Error saving ScreenCaptureKit recording: {e}", exc_info=True)
+            return None
 
     def _rms_to_dbfs(self, rms: float) -> float:
         """
@@ -415,6 +676,11 @@ class Recorder:
 
         self.logger.info("Stopping recording...")
 
+        # Check if using ScreenCaptureKit
+        if self._selected_backend == RecordingBackend.SCREENCAPTURE_KIT and self._screencapture_output_path:
+            return self._stop_screencapture_recording(save_path)
+
+        # Otherwise use SoundCard/BlackHole logic
         # Signalisiere Thread zu stoppen
         self._stop_event.set()
         self.state = RecordingState.STOPPED
@@ -490,6 +756,11 @@ class Recorder:
         Returns:
             Duration in Sekunden
         """
+        # Check if actively using ScreenCaptureKit (indicated by output path being set)
+        if self._screencapture_output_path and self._screencapture:
+            return self._screencapture.get_recording_duration()
+
+        # Fallback to standard chunk-based duration (BlackHole/SoundCard)
         if not self.recorded_chunks:
             return 0.0
 
@@ -674,6 +945,19 @@ class Recorder:
         except Exception as e:
             self.logger.error(f"Error in monitoring loop: {e}", exc_info=True)
             self._is_monitoring = False
+
+    def get_backend_info(self) -> dict:
+        """
+        Get information about the current recording backend
+
+        Returns:
+            Dictionary with backend info
+        """
+        return {
+            'backend': self._selected_backend.value if self._selected_backend else None,
+            'screencapture_available': self._screencapture is not None and self._screencapture.is_available().available,
+            'blackhole_available': self._soundcard is not None and self.find_blackhole_device() is not None,
+        }
 
 
 # Globale Instanz

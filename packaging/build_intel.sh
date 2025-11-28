@@ -59,11 +59,51 @@ else
     echo -e "${GREEN}✓ Found $MODEL_COUNT model files${NC}"
 fi
 
+# Build Swift ScreenCapture tool
+echo ""
+echo -e "${BLUE}Building Swift ScreenCapture tool...${NC}"
+SCREENCAPTURE_DIR="packaging/screencapture_tool"
+if [ ! -d "$SCREENCAPTURE_DIR" ]; then
+    echo -e "${YELLOW}Warning: ScreenCapture tool directory not found${NC}"
+    echo -e "${YELLOW}ScreenCaptureKit recording will not be available${NC}"
+else
+    cd "$SCREENCAPTURE_DIR"
+    if [ -f "build.sh" ]; then
+        if ./build.sh > /dev/null 2>&1; then
+            echo -e "${GREEN}✓ ScreenCapture tool built successfully${NC}"
+        else
+            echo -e "${YELLOW}Warning: ScreenCapture tool build failed${NC}"
+            echo -e "${YELLOW}ScreenCaptureKit recording will not be available${NC}"
+        fi
+    else
+        echo -e "${YELLOW}Warning: build.sh not found in screencapture_tool${NC}"
+    fi
+    cd - > /dev/null
+fi
+
 # Clean previous builds
 echo ""
 echo -e "${BLUE}Cleaning previous builds...${NC}"
-rm -rf build/ dist/StemSeparator-intel.app dist/StemSeparator-intel.dmg
+
+# Ensure StemSeparator is not running
+if pgrep -f "StemSeparator" > /dev/null; then
+    echo -e "${YELLOW}StemSeparator is running. Attempting to close it...${NC}"
+    pkill -f "StemSeparator" || true
+    sleep 2
+fi
+
+# Force remove directory if it exists
+if [ -d "dist/StemSeparator" ]; then
+    echo -e "${YELLOW}Removing dist/StemSeparator...${NC}"
+    rm -rf "dist/StemSeparator" || echo -e "${RED}Failed to remove dist/StemSeparator. Check permissions or if file is in use.${NC}"
+fi
+
+rm -rf build/ dist/StemSeparator-intel.app dist/StemSeparator-intel.dmg dist/StemSeparator
 echo -e "${GREEN}✓ Clean complete${NC}"
+
+# Ensure build directory structure exists for PyInstaller
+mkdir -p build/StemSeparator-intel
+mkdir -p dist
 
 # Run PyInstaller
 echo ""
@@ -75,7 +115,10 @@ echo ""
 export KMP_DUPLICATE_LIB_OK=TRUE
 export OMP_NUM_THREADS=1
 
-pyinstaller --clean packaging/StemSeparator-intel.spec
+# Note: We don't use --clean here because we already cleaned manually above
+# and --clean might interfere with directory creation
+# Use --noconfirm to avoid interactive prompts when PyInstaller needs to remove directories
+pyinstaller --noconfirm packaging/StemSeparator-intel.spec
 
 # Check if build succeeded
 if [ ! -d "dist/StemSeparator-intel.app" ]; then

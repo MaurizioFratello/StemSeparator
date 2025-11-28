@@ -48,6 +48,27 @@ icons_dir = resources_dir / 'icons'
 if icons_dir.exists() and any(icons_dir.iterdir()):
     datas.append((str(icons_dir), 'resources/icons'))
 
+# ScreenCapture tool binary
+# Try multiple possible build locations for the Swift binary
+screencapture_tool_dir = project_root / 'packaging' / 'screencapture_tool'
+binary_paths = [
+    screencapture_tool_dir / '.build' / 'x86_64-apple-macosx' / 'release' / 'screencapture-recorder',
+    screencapture_tool_dir / '.build' / 'release' / 'screencapture-recorder',
+    screencapture_tool_dir / 'ScreenCaptureRecorder.app' / 'Contents' / 'MacOS' / 'screencapture-recorder',
+]
+
+screencapture_binary = None
+for path in binary_paths:
+    if path.exists() and path.is_file():
+        screencapture_binary = path
+        break
+
+if screencapture_binary:
+    # Bundle the binary to the root of sys._MEIPASS so it can be found
+    datas.append((str(screencapture_binary), '.'))
+else:
+    print("WARNING: screencapture-recorder binary not found. ScreenCaptureKit recording will not be available.")
+
 
 # Hidden imports that PyInstaller might miss
 hiddenimports = [
@@ -126,6 +147,14 @@ excludes = [
 ]
 
 
+# Ensure build directory exists for PyInstaller
+# WHY: PyInstaller needs this directory to create base_library.zip during analysis
+build_dir = project_root / 'build' / 'StemSeparator-intel'
+build_dir.mkdir(parents=True, exist_ok=True)
+dist_dir = project_root / 'dist'
+dist_dir.mkdir(parents=True, exist_ok=True)
+
+
 a = Analysis(
     [str(project_root / 'main.py')],
     pathex=[str(project_root)],
@@ -192,6 +221,9 @@ app = BUNDLE(
 
         # Audio permissions
         'NSMicrophoneUsageDescription': 'StemSeparator needs access to record system audio for stem separation.',
+        
+        # Screen Recording permission (required for ScreenCaptureKit on macOS 13+)
+        'NSScreenCaptureUsageDescription': 'StemSeparator needs screen recording access to capture system audio without requiring BlackHole driver installation.',
 
         # Document types
         'CFBundleDocumentTypes': [

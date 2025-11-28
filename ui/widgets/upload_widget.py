@@ -221,14 +221,14 @@ class UploadWidget(QWidget):
         self.model_combo.clear()
 
         for model_id, model_info in model_manager.available_models.items():
-            # Format: "✓ Model Name - Stems: Vocals, Drums, Bass, Other"
-            status = "✓" if model_info.downloaded else "⚠"
+            # Format: "Model Name - Stems: Vocals, Drums, Bass, Other" (with ⚠ for non-downloaded)
+            status = "⚠ " if not model_info.downloaded else ""
             # Get stem names if available, otherwise show count
             if hasattr(model_info, 'stem_names') and model_info.stem_names:
                 stems_info = ', '.join(model_info.stem_names)
-                text = f"{status} {model_info.name} - {stems_info}"
+                text = f"{status}{model_info.name} - {stems_info}"
             else:
-                text = f"{status} {model_info.name} ({model_info.stems} stems)"
+                text = f"{status}{model_info.name} ({model_info.stems} stems)"
             self.model_combo.addItem(text, userData=model_id)
 
         # Select default model
@@ -242,9 +242,9 @@ class UploadWidget(QWidget):
     def _on_files_dropped(self, file_paths: List[Path]):
         """Handle dropped files from drag-and-drop"""
         for file_path in file_paths:
-            self._add_file(file_path)
+            self.add_file(file_path)
     
-    def _add_file(self, file_path: Path):
+    def add_file(self, file_path: Path):
         """
         Add file to list with validation
         
@@ -295,7 +295,7 @@ class UploadWidget(QWidget):
         if file_dialog.exec():
             file_paths = file_dialog.selectedFiles()
             for file_path_str in file_paths:
-                self._add_file(Path(file_path_str))
+                self.add_file(Path(file_path_str))
     
     @Slot()
     def _on_remove_selected_clicked(self):
@@ -366,12 +366,12 @@ class UploadWidget(QWidget):
             # Load Single Models
             model_manager = self.ctx.model_manager()
             for model_id, model_info in model_manager.available_models.items():
-                status = "✓" if model_info.downloaded else "⚠"
+                status = "⚠ " if not model_info.downloaded else ""
                 if hasattr(model_info, 'stem_names') and model_info.stem_names:
                     stems_info = ', '.join(model_info.stem_names)
-                    text = f"{status} {model_info.name} - {stems_info}"
+                    text = f"{status}{model_info.name} - {stems_info}"
                 else:
-                    text = f"{status} {model_info.name} ({model_info.stems} stems)"
+                    text = f"{status}{model_info.name} ({model_info.stems} stems)"
                 self.model_combo.addItem(text, userData=model_id)
                 
             # Select default model
