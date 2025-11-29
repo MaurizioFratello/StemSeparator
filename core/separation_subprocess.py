@@ -62,8 +62,10 @@ def run_separation_subprocess(
 
     # Parse output files
     stems = {}
+    print(f"DEBUG: audio-separator returned {len(output_files) if output_files else 0} output files", file=sys.stderr)
     if isinstance(output_files, list):
         for file_path in output_files:
+            print(f"DEBUG: Processing output file: {file_path}", file=sys.stderr)
             file_path = Path(file_path)
 
             # Make absolute if needed
@@ -72,14 +74,33 @@ def run_separation_subprocess(
 
             # Extract stem name from filename
             # Format: filename_(stem).wav or filename_(stem)_modelname.wav
-            match = re.search(r'\(([^)]+)\)', file_path.stem)
-            if match:
-                stem_name = match.group(1)
+            # WHY: Use findall and get the LAST match, because input files might 
+            # contain parentheses in the filename (e.g., "Song(2025)_(Vocals).wav")
+            matches = re.findall(r'\(([^)]+)\)', file_path.stem)
+            
+            # Known stem names to help identify the correct match
+            known_stems = {'vocals', 'vocal', 'instrumental', 'drums', 'drum', 
+                          'bass', 'other', 'piano', 'guitar', 'no_vocals', 'no_other'}
+            
+            stem_name = None
+            if matches:
+                # Try to find a known stem name in the matches (prefer last occurrence)
+                for match in reversed(matches):
+                    if match.lower() in known_stems:
+                        stem_name = match
+                        break
+                
+                # If no known stem found, use the last parentheses content
+                if stem_name is None:
+                    stem_name = matches[-1]
             else:
+                # Fallback: use last underscore-separated part
                 stem_name = file_path.stem.split('_')[-1]
 
             stems[stem_name] = str(file_path)  # Convert to string for JSON serialization
+            print(f"DEBUG: Extracted stem '{stem_name}' from {file_path.name}", file=sys.stderr)
 
+    print(f"DEBUG: Final stems dict: {list(stems.keys())}", file=sys.stderr)
     return stems
 
 

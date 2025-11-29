@@ -207,11 +207,30 @@ class Separator:
 
         stems = error_handler.retry_with_fallback(separation_func)
 
+        # Rename files to unified naming scheme (stem name at end, no model suffix)
+        # WHY: audio-separator generates names with model suffix, we want unified format
+        renamed_stems = {}
+        for stem_name, stem_path in stems.items():
+            # Create unified filename: {audio_file.stem}_({stem_name}).wav
+            new_path = output_dir / f"{audio_file.stem}_({stem_name}).wav"
+            
+            # Only rename if different
+            if stem_path != new_path:
+                if new_path.exists():
+                    # Remove old file if exists (shouldn't happen, but be safe)
+                    new_path.unlink()
+                
+                # Rename file
+                stem_path.rename(new_path)
+                self.logger.debug(f"Renamed {stem_path.name} -> {new_path.name}")
+            
+            renamed_stems[stem_name] = new_path
+
         return SeparationResult(
             success=True,
             input_file=audio_file,
             output_dir=output_dir,
-            stems=stems,
+            stems=renamed_stems,
             model_used=model_id,
             device_used=self.device_manager.get_device(),
             duration_seconds=0  # Wird später gesetzt
@@ -299,8 +318,9 @@ class Separator:
         for stem_name, chunk_tuples in separated_chunks.items():
             self.logger.info(f"Merging {len(chunk_tuples)} chunks for {stem_name}")
 
-            # Use parentheses around stem name for consistent naming with ensemble mode
-            output_file = output_dir / f"{audio_file.stem}_({stem_name})_{model_id}.wav"
+            # Unified naming: stem name at the end, no model suffix
+            # WHY: Consistent naming across ensemble and normal modes
+            output_file = output_dir / f"{audio_file.stem}_({stem_name}).wav"
 
             merged_audio = self.chunk_processor.merge_chunks(
                 chunk_tuples,
