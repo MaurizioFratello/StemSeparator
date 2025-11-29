@@ -161,7 +161,8 @@ class EnsembleSeparator:
         combined_stems = self._combine_stems_weighted(
             results,
             weights,
-            models[:len(results)]  # Only models that succeeded
+            models[:len(results)],  # Only models that succeeded
+            ensemble_config  # Pass config to determine expected stems
         )
         combining_time = time.time() - combining_start
 
@@ -179,8 +180,9 @@ class EnsembleSeparator:
 
         final_stems = {}
         for stem_name, audio_data in combined_stems.items():
-            # Use parentheses around stem name for better parsing compatibility
-            output_file = output_dir / f"{audio_file.stem}_({stem_name})_ensemble.wav"
+            # Unified naming: stem name at the end, no ensemble/model suffix
+            # WHY: Consistent naming across ensemble and normal modes
+            output_file = output_dir / f"{audio_file.stem}_({stem_name}).wav"
 
             # Transpose to (samples, channels) for soundfile
             audio_to_save = audio_data.T
@@ -220,7 +222,8 @@ class EnsembleSeparator:
         self,
         results: List[SeparationResult],
         weights_config: Dict[str, List[float]],
-        model_ids: List[str]
+        model_ids: List[str],
+        ensemble_config: str = 'balanced'
     ) -> Dict[str, np.ndarray]:
         """
         Kombiniert Stems mit stem-spezifischen Gewichten
@@ -238,15 +241,59 @@ class EnsembleSeparator:
         """
         combined = {}
 
-        # Finde alle Stem-Namen über alle Results
-        all_stem_names = set()
+        # Determine expected output stems based on ensemble config and model capabilities
+        # WHY: We should output all stems that have weights defined and are available
+        # from at least one model, not just collect arbitrary stems from files
+        from config import ENSEMBLE_CONFIGS, MODELS
+        
+        # Get expected stems from weights_config (these are the stems we want to output)
+        expected_stems = set(weights_config.keys())
+        
+        # Also collect stems that are actually produced by models (fallback)
+        all_stem_names_from_files = set()
         for result in results:
-            # Extract stem names from filenames
             for stem_file in result.stems.values():
                 stem_name = self._extract_stem_name(stem_file)
-                all_stem_names.add(stem_name)
-
-        self.logger.debug(f"Found stems: {all_stem_names}")
+                all_stem_names_from_files.add(stem_name)
+        
+        # For Quality-Ensemble and similar configs, prioritize stems from 4-stem models
+        # This ensures we output the full set (vocals, drums, bass, other) even if
+        # 2-stem models only produce vocals and instrumental
+        config_info = ENSEMBLE_CONFIGS.get(ensemble_config, {})
+        config_models = config_info.get('models', [])
+        
+        # Get stem names from model configs (most comprehensive set)
+        model_based_stems = set()
+        for model_id in config_models:
+            if model_id in MODELS:
+                model_stems = MODELS[model_id].get('stem_names', [])
+                # Normalize to lowercase
+                model_based_stems.update([s.lower() for s in model_stems])
+        
+        # Combine: Use expected stems from weights, but also include any stems
+        # that models actually produce (except instrumental which is handled separately)
+        all_stem_names = expected_stems.copy()
+        all_stem_names.update([s for s in all_stem_names_from_files if s != 'instrumental'])
+        
+        # For ensembles with 4-stem models, include the 4-stem set
+        # WHY: Even if 2-stem models only provide vocals, the 4-stem models 
+        # (bs-roformer, demucs_4s) provide drums/bass/other
+        if any(model_id in ['bs-roformer', 'demucs_4s', 'demucs_6s'] for model_id in config_models):
+            four_stem_set = {'vocals', 'drums', 'bass', 'other'}
+            all_stem_names.update(four_stem_set)
+        
+        # Remove instrumental from final output
+        # WHY: Instrumental is only relevant for 2-stem models (vocals/instrumental split)
+        # We don't want to output it separately when we have individual instrument stems
+        if 'instrumental' in all_stem_names and len(all_stem_names) > 2:
+            all_stem_names.remove('instrumental')
+        
+        self.logger.info(
+            f"Target stems for ensemble output: {sorted(all_stem_names)} "
+            f"(from config weights: {sorted(expected_stems)}, "
+            f"from files: {sorted(all_stem_names_from_files)}, "
+            f"from model configs: {sorted(model_based_stems)})"
+        )
 
         # Für jeden Stem: gewichteter Durchschnitt
         for stem_name in all_stem_names:
@@ -285,9 +332,15 @@ class EnsembleSeparator:
                             f"Failed to load {stem_name} from {model_ids[i]}: {e}"
                         )
                 else:
-                    self.logger.debug(
-                        f"Stem {stem_name} not found in result from {model_ids[i]} "
-                        f"(weight {stem_weights[i]:.2f} will be redistributed)"
+                    # Model doesn't have this specific stem - skip it
+                    # WHY: Only use models that actually output pure stems for each type
+                    # - 2-stem models (mel-roformer) only contribute to vocals
+                    # - 4-stem models (bs-roformer, demucs) contribute to all stems
+                    # DO NOT use "instrumental" for drums/bass/other because it's a MIX
+                    # of all instruments, not a pure stem!
+                    self.logger.info(
+                        f"Stem '{stem_name}' not available from {model_ids[i]} "
+                        f"(2-stem model only has vocals/instrumental) - skipping for this stem"
                     )
 
             if not stem_audios:
@@ -418,20 +471,42 @@ class EnsembleSeparator:
         return combined
 
     def _extract_stem_name(self, file_path: Path) -> str:
-        """Extrahiert Stem-Name aus Dateinamen"""
+        """
+        Extrahiert Stem-Name aus Dateinamen
+        
+        WHY: Uses findall with known stem detection because input files might
+        contain parentheses in the filename (e.g., "Song(2025)_(Vocals).wav")
+        """
         name = file_path.stem
 
-        # Remove filename prefix (e.g., "song_(vocals)_model" -> "vocals")
-        # Try to extract from parentheses first
-        import re
-        match = re.search(r'\(([^)]+)\)', name)
-        if match:
-            return match.group(1).lower()
-
-        # Otherwise look for known stem names
+        # Known stem names for matching
         stem_keywords = ['vocals', 'vocal', 'drums', 'drum', 'bass', 'other',
-                        'piano', 'guitar', 'instrumental', 'instrum']
+                        'piano', 'guitar', 'instrumental', 'instrum', 'no_vocals', 'no_other']
 
+        # Find all parentheses content
+        import re
+        matches = re.findall(r'\(([^)]+)\)', name)
+        
+        if matches:
+            # Try to find a known stem name in the matches (prefer last occurrence)
+            for match in reversed(matches):
+                match_lower = match.lower()
+                for keyword in stem_keywords:
+                    if keyword in match_lower or match_lower in keyword:
+                        # Standardize names
+                        if keyword in ['vocal', 'vocals']:
+                            return 'vocals'
+                        elif keyword in ['drum', 'drums']:
+                            return 'drums'
+                        elif keyword in ['instrum', 'instrumental']:
+                            return 'instrumental'
+                        else:
+                            return keyword
+            
+            # If no known stem found, return the last match
+            return matches[-1].lower()
+
+        # Fallback: look for known stem names anywhere in filename
         name_lower = name.lower()
         for keyword in stem_keywords:
             if keyword in name_lower:

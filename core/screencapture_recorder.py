@@ -187,25 +187,39 @@ class ScreenCaptureRecorder:
         try:
             self.logger.info(f"Testing ScreenCaptureKit with binary: {self._binary_path}")
             
-            # Combine stdout and stderr to capture all output
-            # ScreenCaptureKit errors may go to either stream
-            result = subprocess.run(
+            # Use Popen instead of run() to properly handle timeout and kill
+            # WHY: subprocess.run() with timeout leaves zombie processes if it times out
+            process = subprocess.Popen(
                 [str(self._binary_path), "test"],
-                capture_output=True,
-                text=True,
-                timeout=10  # Increased timeout for bundled apps
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True
             )
+            
+            try:
+                stdout, stderr = process.communicate(timeout=10)
+                returncode = process.returncode
+            except subprocess.TimeoutExpired:
+                # IMPORTANT: Kill the process on timeout to prevent zombie processes
+                process.kill()
+                process.wait()
+                self.logger.error("ScreenCaptureKit test timed out - process killed")
+                return ScreenCaptureInfo(
+                    available=False,
+                    version=macos_version,
+                    error="Test command timed out (permissions may not be granted)"
+                )
 
             # Log full output - use INFO level so it's visible
-            stdout_preview = result.stdout[:1000] if result.stdout else ""
-            stderr_preview = result.stderr[:1000] if result.stderr else ""
-            self.logger.info(f"Binary test result: returncode={result.returncode}")
+            stdout_preview = stdout[:1000] if stdout else ""
+            stderr_preview = stderr[:1000] if stderr else ""
+            self.logger.info(f"Binary test result: returncode={returncode}")
             if stdout_preview:
                 self.logger.info(f"  stdout: {stdout_preview}")
             if stderr_preview:
                 self.logger.info(f"  stderr: {stderr_preview}")
 
-            if result.returncode == 0:
+            if returncode == 0:
                 self.logger.info("ScreenCaptureKit test passed - available for use")
                 return ScreenCaptureInfo(
                     available=True,
@@ -215,8 +229,8 @@ class ScreenCaptureRecorder:
             else:
                 # Combine stdout and stderr for error message
                 # Swift prints errors to stdout, not stderr
-                output = (result.stdout or "").strip()
-                error_output = (result.stderr or "").strip()
+                output = (stdout or "").strip()
+                error_output = (stderr or "").strip()
                 
                 # Prefer stdout for error messages (Swift prints there)
                 if error_output:
@@ -224,20 +238,12 @@ class ScreenCaptureRecorder:
                 else:
                     error_msg = output if output else "Unknown error (no output)"
                 
-                self.logger.warning(f"ScreenCaptureKit test failed (exit {result.returncode}): {error_msg}")
+                self.logger.warning(f"ScreenCaptureKit test failed (exit {returncode}): {error_msg}")
                 return ScreenCaptureInfo(
                     available=False,
                     version=macos_version,
-                    error=f"Test failed (exit {result.returncode}): {error_msg}"
+                    error=f"Test failed (exit {returncode}): {error_msg}"
                 )
-
-        except subprocess.TimeoutExpired:
-            self.logger.error("ScreenCaptureKit test timed out")
-            return ScreenCaptureInfo(
-                available=False,
-                version=macos_version,
-                error="Test command timed out (permissions may not be granted)"
-            )
         except FileNotFoundError:
             error_msg = f"Binary not found or not executable: {self._binary_path}"
             self.logger.error(error_msg)

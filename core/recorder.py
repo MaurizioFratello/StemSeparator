@@ -803,6 +803,23 @@ class Recorder:
         if self.state in [RecordingState.RECORDING, RecordingState.PAUSED]:
             self.logger.info("Cancelling recording...")
 
+            # ScreenCaptureKit Cleanup
+            # WHY: ScreenCaptureKit subprocess must be stopped explicitly,
+            # otherwise it keeps running and blocks subsequent recordings
+            if self._selected_backend == RecordingBackend.SCREENCAPTURE_KIT and self._screencapture:
+                self.logger.info("Stopping ScreenCaptureKit process due to cancellation")
+                self._screencapture.stop_recording()
+                
+                # Clean up temp file
+                if self._screencapture_output_path and self._screencapture_output_path.exists():
+                    try:
+                        self._screencapture_output_path.unlink()
+                        self.logger.info(f"Deleted temp file: {self._screencapture_output_path}")
+                    except Exception as e:
+                        self.logger.warning(f"Failed to delete temp file: {e}")
+                
+                self._screencapture_output_path = None
+
             # Stoppe Thread
             self._stop_event.set()
             self.state = RecordingState.IDLE

@@ -206,7 +206,7 @@ coll = COLLECT(
 app = BUNDLE(
     coll,
     name='StemSeparator-arm64.app',
-    icon=str(Path(SPECPATH) / 'icon.icns') if (Path(SPECPATH) / 'icon.icns').exists() else None,
+    icon=str(resources_dir / 'icons' / 'app_icon.icns') if (resources_dir / 'icons' / 'app_icon.icns').exists() else None,
     bundle_identifier=BUNDLE_ID,
     version=APP_VERSION,
     info_plist={

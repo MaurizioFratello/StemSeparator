@@ -17,7 +17,7 @@ from PySide6.QtGui import QDragEnterEvent, QDropEvent
 from ui.app_context import AppContext
 from core.player import get_player, PlaybackState
 from ui.theme import ThemeManager
-from ui.dialogs import ExportSettingsDialog
+from ui.dialogs import ExportSettingsDialog, LoopExportDialog
 
 
 class DragDropListWidget(QListWidget):
@@ -375,11 +375,16 @@ class PlayerWidget(QWidget):
         self.btn_export.setEnabled(False)
         # Export uses primary style (default)
 
+        self.btn_export_loops = QPushButton("🔁 Export Loops")
+        self.btn_export_loops.setEnabled(False)
+        self.btn_export_loops.setToolTip("Export as musical loops for samplers (2/4/8 bars)")
+
         buttons_layout.addWidget(self.btn_play)
         buttons_layout.addWidget(self.btn_pause)
         buttons_layout.addWidget(self.btn_stop)
         buttons_layout.addStretch()
         buttons_layout.addWidget(self.btn_export)
+        buttons_layout.addWidget(self.btn_export_loops)
         controls_layout.addLayout(buttons_layout)
 
         main_layout.addWidget(controls_card)
@@ -406,6 +411,7 @@ class PlayerWidget(QWidget):
         self.btn_pause.clicked.connect(self._on_pause)
         self.btn_stop.clicked.connect(self._on_stop)
         self.btn_export.clicked.connect(self._on_export)
+        self.btn_export_loops.clicked.connect(self._on_export_loops)
 
     @Slot()
     def _on_load_dir(self):
@@ -551,6 +557,7 @@ class PlayerWidget(QWidget):
         self.btn_pause.setEnabled(False)
         self.btn_stop.setEnabled(False)
         self.btn_export.setEnabled(False)
+        self.btn_export_loops.setEnabled(False)
 
         # Reset info label
         self.info_label.setText(
@@ -641,6 +648,7 @@ class PlayerWidget(QWidget):
                 # Enable controls (but Play button will check sounddevice availability)
                 self.btn_play.setEnabled(True)
                 self.btn_export.setEnabled(True)  # Export works without sounddevice
+                self.btn_export_loops.setEnabled(True)  # Loop export also works without sounddevice
                 self.position_slider.setEnabled(True)
 
                 # Update duration
@@ -680,6 +688,55 @@ class PlayerWidget(QWidget):
         
         # Update button states based on loaded stems
         self._update_button_states()
+
+    def _get_common_filename(self) -> str:
+        """
+        Extract common filename from first loaded stem.
+        
+        WHY: Provides consistent base name for all exports derived from the original
+        source file that was separated into stems.
+        
+        Returns:
+            Common filename (e.g., "MySong" from "MySong_(vocals)_ensemble.wav")
+            Returns "export" as fallback if no stems are loaded
+        """
+        if not self.stem_files:
+            return "export"
+        
+        # Get first stem file path
+        first_stem_path = Path(list(self.stem_files.values())[0])
+        stem_name = first_stem_path.stem
+        
+        # Try to extract common filename by removing stem name and model suffixes
+        import re
+        
+        # Pattern 1: "songname_(StemName)_modelname" -> "songname"
+        match = re.search(r'^(.+?)_\([^)]+\)', stem_name)
+        if match:
+            return match.group(1)
+        
+        # Pattern 2: "songname_stemname_modelname" -> "songname"
+        # Known suffixes to remove
+        ignore_suffixes = {'ensemble', 'bs-roformer', 'mel-roformer', 'demucs',
+                          'htdemucs', '4s', '6s', 'v4', 'demucs4s', 'demucs6s'}
+        
+        parts = stem_name.split('_')
+        # Find where stem name starts (usually after common filename)
+        # Common pattern: commonname_stemname_suffix
+        if len(parts) >= 2:
+            # Try to identify stem name (common stem names)
+            common_stem_names = ['vocals', 'vocal', 'drums', 'drum', 'bass', 'other',
+                                'piano', 'guitar', 'instrumental', 'instrum']
+            
+            # Find first part that looks like a stem name
+            for i, part in enumerate(parts[1:], 1):
+                part_lower = part.lower()
+                if part_lower in common_stem_names or any(suffix in part_lower for suffix in ignore_suffixes):
+                    # Everything before this is the common filename
+                    return '_'.join(parts[:i])
+        
+        # Fallback: use first part or whole name if no pattern matches
+        return parts[0] if parts else stem_name
 
     @Slot(str, int)
     def _on_stem_volume_changed(self, stem_name: str, volume: int):
@@ -799,6 +856,9 @@ class PlayerWidget(QWidget):
         # Execute export based on settings
         success = False
         result_message = ""
+        
+        # Get common filename from first loaded stem
+        common_filename = self._get_common_filename()
 
         try:
             if settings.enable_chunking:
@@ -808,7 +868,8 @@ class PlayerWidget(QWidget):
                         output_path,
                         settings.chunk_length,
                         file_format=settings.file_format,
-                        bit_depth=settings.bit_depth
+                        bit_depth=settings.bit_depth,
+                        common_filename=common_filename
                     )
 
                     if chunk_paths:
@@ -816,8 +877,8 @@ class PlayerWidget(QWidget):
                         result_message = (
                             f"Mixed audio exported as {len(chunk_paths)} chunks:\n"
                             f"{output_path.parent}\n\n"
-                            f"Files: {output_path.stem}_1{output_path.suffix}, "
-                            f"{output_path.stem}_2{output_path.suffix}, ..."
+                            f"Files: {common_filename}_01{output_path.suffix}, "
+                            f"{common_filename}_02{output_path.suffix}, ..."
                         )
                     else:
                         result_message = "Failed to export chunks. Check the log for details."
@@ -828,7 +889,8 @@ class PlayerWidget(QWidget):
                         output_path,
                         settings.chunk_length,
                         file_format=settings.file_format,
-                        bit_depth=settings.bit_depth
+                        bit_depth=settings.bit_depth,
+                        common_filename=common_filename
                     )
 
                     if all_chunks:
@@ -898,6 +960,365 @@ class PlayerWidget(QWidget):
                 self,
                 "Export Failed",
                 f"An error occurred during export:\n{str(e)}"
+            )
+
+    def _get_audio_for_bpm_detection(self) -> tuple[Path, str]:
+        """
+        Get the best audio source for BPM detection with hierarchical selection.
+
+        Priority:
+        1. Drums stem (best for rhythm detection)
+        2. Mixed audio of all stems (fallback)
+
+        Returns:
+            Tuple of (audio_file_path, source_description)
+        """
+        import tempfile
+        import soundfile as sf
+
+        # Priority 1: Check if drums stem is available
+        drums_stem_names = ['drums', 'Drums', 'DRUMS', 'drum', 'Drum', 'DRUM']
+        for stem_name in drums_stem_names:
+            if stem_name in self.stem_files:
+                drums_path = Path(self.stem_files[stem_name])
+                self.ctx.logger().info(f"Using drums stem for BPM detection: {drums_path.name}")
+                return drums_path, f"drums stem ({drums_path.name})"
+
+        # Priority 2: No drums found, create mixed audio from all stems
+        self.ctx.logger().info("No drums stem found, using mixed audio for BPM detection")
+
+        # Mix all stems
+        mixed_audio = self.player._mix_stems(0, self.player.duration_samples)
+        if mixed_audio is None or len(mixed_audio) == 0:
+            # Fallback to first available stem if mixing fails
+            first_stem_name = list(self.stem_files.keys())[0]
+            first_stem_path = Path(self.stem_files[first_stem_name])
+            self.ctx.logger().warning(
+                f"Failed to mix stems, falling back to first stem: {first_stem_name}"
+            )
+            return first_stem_path, f"first available stem ({first_stem_name})"
+
+        # Transpose to (samples, channels) for soundfile
+        mixed_audio = mixed_audio.T
+
+        # Create temporary file with mixed audio
+        try:
+            temp_file = tempfile.NamedTemporaryFile(
+                suffix='.wav',
+                delete=False,
+                prefix='bpm_detect_'
+            )
+            temp_path = Path(temp_file.name)
+            temp_file.close()
+
+            # Write mixed audio to temp file
+            sf.write(
+                str(temp_path),
+                mixed_audio,
+                self.player.sample_rate,
+                subtype='PCM_24'
+            )
+
+            self.ctx.logger().info(f"Created mixed audio for BPM detection: {temp_path.name}")
+            return temp_path, "mixed audio (all stems)"
+
+        except Exception as e:
+            self.ctx.logger().error(f"Failed to create mixed audio file for BPM detection: {e}")
+            # Final fallback: use first stem
+            first_stem_name = list(self.stem_files.keys())[0]
+            first_stem_path = Path(self.stem_files[first_stem_name])
+            return first_stem_path, f"first available stem ({first_stem_name})"
+
+    @Slot()
+    def _on_export_loops(self):
+        """Export audio as sampler loops with BPM-based bar lengths"""
+        if not self.stem_files:
+            return
+
+        try:
+            # Check if stems are loaded
+            if not self.player.stems:
+                QMessageBox.warning(
+                    self,
+                    "Export Failed",
+                    "No stems loaded. Please load audio files first."
+                )
+                return
+
+            # Mix all stems to get complete audio
+            # _mix_stems returns audio in shape (channels, samples)
+            mixed_audio = self.player._mix_stems(0, self.player.duration_samples)
+
+            if mixed_audio is None or len(mixed_audio) == 0:
+                QMessageBox.warning(
+                    self,
+                    "Export Failed",
+                    "Unable to mix audio for export. Please try loading stems again."
+                )
+                return
+
+            # Transpose to (samples, channels) for soundfile compatibility
+            mixed_audio = mixed_audio.T
+
+            # Detect BPM using hierarchical source selection
+            from core.sampler_export import detect_audio_bpm
+            bpm_source_file, source_description = self._get_audio_for_bpm_detection()
+            detected_bpm, bpm_message = detect_audio_bpm(bpm_source_file)
+
+            # Clean up temporary file if it was created for mixed audio
+            if 'bpm_detect_' in str(bpm_source_file):
+                try:
+                    bpm_source_file.unlink()
+                except Exception as e:
+                    self.ctx.logger().warning(f"Failed to delete temp BPM detection file: {e}")
+
+            self.ctx.logger().info(
+                f"BPM detection: {detected_bpm:.1f} BPM from {source_description} - {bpm_message}"
+            )
+
+            # Calculate duration
+            duration_seconds = self.player.duration_samples / self.player.sample_rate if self.player.sample_rate > 0 else 0.0
+
+            # Get common filename from first loaded stem
+            common_filename = self._get_common_filename()
+
+            # Show loop export dialog
+            dialog = LoopExportDialog(
+                detected_bpm=detected_bpm,
+                duration_seconds=duration_seconds,
+                num_stems=len(self.stem_files),
+                parent=self
+            )
+
+            if dialog.exec() != LoopExportDialog.Accepted:
+                return
+
+            # Get settings from dialog
+            settings = dialog.get_settings()
+
+            # Ask user for output directory
+            output_dir = QFileDialog.getExistingDirectory(
+                self,
+                "Select Output Directory for Loop Export"
+            )
+
+            if not output_dir:
+                return
+
+            output_path = Path(output_dir)
+
+            # Import required modules
+            import tempfile
+            import soundfile as sf
+            from core.sampler_export import export_sampler_loops
+            from PySide6.QtWidgets import QProgressDialog, QApplication
+
+            # Check export mode
+            if settings.export_mode == 'individual':
+                # Export each stem individually
+                self._export_individual_stems(
+                    output_path=output_path,
+                    settings=settings
+                )
+            else:
+                # Export mixed audio (original logic)
+                with tempfile.NamedTemporaryFile(
+                    suffix='.wav',
+                    delete=False,
+                    dir=str(output_path.parent)
+                ) as temp_file:
+                    temp_path = Path(temp_file.name)
+
+                    try:
+                        # Export current mix to temporary file
+                        sf.write(
+                            str(temp_path),
+                            mixed_audio,
+                            self.player.sample_rate,
+                            subtype='PCM_24'
+                        )
+
+                        # Progress dialog
+                        progress_dialog = QProgressDialog(
+                            "Preparing export...",
+                            None,
+                            0,
+                            100,
+                            self
+                        )
+                        progress_dialog.setWindowTitle("Exporting Loops")
+                        progress_dialog.setWindowModality(Qt.WindowModal)
+                        progress_dialog.setMinimumDuration(0)
+                        progress_dialog.setValue(0)
+
+                        # Export with progress callback
+                        def progress_callback(message: str, percent: int):
+                            progress_dialog.setLabelText(message)
+                            progress_dialog.setValue(percent)
+                            QApplication.processEvents()
+
+                        result = export_sampler_loops(
+                            input_path=temp_path,
+                            output_dir=output_path,
+                            bpm=settings.bpm,
+                            bars=settings.bars,
+                            sample_rate=settings.sample_rate,
+                            bit_depth=settings.bit_depth,
+                            channels=settings.channels,
+                            file_format=settings.file_format,
+                            progress_callback=progress_callback,
+                            common_filename=common_filename,
+                            stem_name=None  # Mixed audio, no stem name
+                        )
+
+                        # Close progress dialog
+                        progress_dialog.setValue(100)
+                        progress_dialog.close()
+                        QApplication.processEvents()
+
+                        # Show result
+                        if result.success:
+                            warning_text = ""
+                            if result.warning_messages:
+                                warning_text = "\n\nWarnings:\n" + "\n".join(f"• {w}" for w in result.warning_messages)
+
+                            QMessageBox.information(
+                                self,
+                                "Export Successful",
+                                f"Exported {result.chunk_count} loop file(s) to:\n{output_path}\n\n"
+                                f"Format: {settings.file_format}, {settings.bit_depth} bit, "
+                                f"{'Stereo' if settings.channels == 2 else 'Mono'}\n"
+                                f"Loop length: {settings.bars} bars at {settings.bpm} BPM"
+                                f"{warning_text}"
+                            )
+                        else:
+                            QMessageBox.critical(
+                                self,
+                                "Export Failed",
+                                f"Loop export failed:\n{result.error_message}"
+                            )
+
+                    finally:
+                        # Clean up temporary file
+                        try:
+                            temp_path.unlink()
+                        except Exception as e:
+                            self.ctx.logger().warning(f"Failed to delete temp file {temp_path}: {e}")
+
+        except Exception as e:
+            self.ctx.logger().error(f"Loop export error: {e}", exc_info=True)
+            QMessageBox.critical(
+                self,
+                "Export Failed",
+                f"An error occurred during loop export:\n{str(e)}"
+            )
+
+    def _export_individual_stems(self, output_path: Path, settings):
+        """Export each stem individually as loops"""
+        import soundfile as sf
+        from core.sampler_export import export_sampler_loops
+        from PySide6.QtWidgets import QProgressDialog, QApplication
+
+        # Get common filename from first loaded stem
+        common_filename = self._get_common_filename()
+
+        try:
+            # Create progress dialog for overall progress
+            overall_progress = QProgressDialog(
+                "Preparing stem export...",
+                None,
+                0,
+                len(self.stem_files) * 100,
+                self
+            )
+            overall_progress.setWindowTitle("Exporting Individual Stems")
+            overall_progress.setWindowModality(Qt.WindowModal)
+            overall_progress.setMinimumDuration(0)
+            overall_progress.setValue(0)
+
+            total_chunks = 0
+            all_warnings = []
+            stem_results = []
+
+            # Export each stem
+            for stem_idx, (stem_name, stem_path) in enumerate(self.stem_files.items()):
+                stem_file = Path(stem_path)
+
+                # Update overall progress
+                base_progress = stem_idx * 100
+                overall_progress.setLabelText(f"Exporting {stem_name}...")
+                overall_progress.setValue(base_progress)
+                QApplication.processEvents()
+
+                # Progress callback for this stem
+                def progress_callback(message: str, percent: int):
+                    overall_progress.setLabelText(f"Exporting {stem_name}...\n{message}")
+                    overall_progress.setValue(base_progress + percent)
+                    QApplication.processEvents()
+
+                # Export this stem as loops
+                result = export_sampler_loops(
+                    input_path=stem_file,
+                    output_dir=output_path,
+                    bpm=settings.bpm,
+                    bars=settings.bars,
+                    sample_rate=settings.sample_rate,
+                    bit_depth=settings.bit_depth,
+                    channels=settings.channels,
+                    file_format=settings.file_format,
+                    progress_callback=progress_callback,
+                    common_filename=common_filename,
+                    stem_name=stem_name  # Individual stem export
+                )
+
+                if result.success:
+                    total_chunks += result.chunk_count
+                    stem_results.append((stem_name, result.chunk_count))
+                    if result.warning_messages:
+                        all_warnings.extend([f"{stem_name}: {w}" for w in result.warning_messages])
+                else:
+                    # Log error but continue with other stems
+                    self.ctx.logger().error(f"Failed to export {stem_name}: {result.error_message}")
+                    all_warnings.append(f"{stem_name}: Export failed - {result.error_message}")
+
+            # Close progress dialog
+            overall_progress.setValue(len(self.stem_files) * 100)
+            overall_progress.close()
+            QApplication.processEvents()
+
+            # Show summary
+            if total_chunks > 0:
+                # Build summary text
+                summary_lines = [f"• {name}: {count} file(s)" for name, count in stem_results]
+                summary_text = "\n".join(summary_lines)
+
+                warning_text = ""
+                if all_warnings:
+                    warning_text = "\n\nWarnings:\n" + "\n".join(f"• {w}" for w in all_warnings)
+
+                QMessageBox.information(
+                    self,
+                    "Export Successful",
+                    f"Exported {total_chunks} loop file(s) total from {len(stem_results)} stem(s) to:\n{output_path}\n\n"
+                    f"{summary_text}\n\n"
+                    f"Format: {settings.file_format}, {settings.bit_depth} bit, "
+                    f"{'Stereo' if settings.channels == 2 else 'Mono'}\n"
+                    f"Loop length: {settings.bars} bars at {settings.bpm} BPM"
+                    f"{warning_text}"
+                )
+            else:
+                QMessageBox.critical(
+                    self,
+                    "Export Failed",
+                    "Failed to export any stems. Check the log for details."
+                )
+
+        except Exception as e:
+            self.ctx.logger().error(f"Individual stem export error: {e}", exc_info=True)
+            QMessageBox.critical(
+                self,
+                "Export Failed",
+                f"An error occurred during individual stem export:\n{str(e)}"
             )
 
     def _on_position_update(self, position: float, duration: float):

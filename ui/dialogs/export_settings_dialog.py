@@ -9,7 +9,7 @@ from typing import Optional, NamedTuple
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QCheckBox,
     QSpinBox, QDoubleSpinBox, QComboBox, QPushButton, QGroupBox,
-    QRadioButton, QButtonGroup, QFrame, QSizePolicy
+    QRadioButton, QButtonGroup, QFrame, QSizePolicy, QApplication
 )
 from PySide6.QtCore import Qt, QSize
 
@@ -51,11 +51,18 @@ class ExportSettingsDialog(QDialog):
 
         self.setWindowTitle("Export Settings")
         self.setModal(True)
-        self.setMinimumWidth(594)  # 660 - 10%
-        self.setMinimumHeight(633)  # 575 + 10%
-
-        # Set a comfortable initial size (width -10%, height +10% from previous)
-        self.resize(644, 696)
+        
+        # Set dimensions to use screen height minus 10%
+        # WHY: Configure dialog to use 90% of screen height for better field visibility
+        # while leaving small margin for system UI elements
+        screen = QApplication.primaryScreen().availableGeometry()
+        screen_height = screen.height()
+        default_width = 644  # Keep current width
+        default_height = int(screen_height * 0.9)  # Screen height minus 10%
+        
+        self.setMinimumWidth(default_width)
+        self.setMinimumHeight(default_height)
+        self.resize(default_width, default_height)  # Set default size to full screen height
 
         self._setup_ui()
         self._connect_signals()
@@ -100,34 +107,6 @@ class ExportSettingsDialog(QDialog):
         self.format_combo.addItems(["WAV", "FLAC"])
         self.format_combo.setMinimumHeight(35)
         self.format_combo.setMinimumWidth(120)  # Ensure readable width
-        # Improve dropdown readability with wider dropdown
-        self.format_combo.setStyleSheet("""
-            QComboBox {
-                padding: 5px 10px;
-                font-size: 13pt;
-            }
-            QComboBox::drop-down {
-                width: 20px;
-            }
-            QComboBox QAbstractItemView {
-                font-size: 13pt;
-                min-width: 120px;
-                background-color: #2b2b2b;
-                selection-background-color: #4a9eff;
-                outline: none;
-                border: 1px solid rgba(255, 255, 255, 0.2);
-                margin: 0px;
-                padding: 0px;
-            }
-            QComboBox QAbstractItemView::item {
-                padding: 6px 10px;
-                min-height: 20px;
-                background-color: transparent;
-            }
-            QComboBox QAbstractItemView::item:selected {
-                background-color: #4a9eff;
-            }
-        """)
         format_col.addWidget(self.format_combo)
         format_col.addStretch()
         format_options_row.addLayout(format_col)
@@ -142,34 +121,6 @@ class ExportSettingsDialog(QDialog):
         self.bit_depth_combo.setCurrentIndex(1)  # Default: 24 bit
         self.bit_depth_combo.setMinimumHeight(35)
         self.bit_depth_combo.setMinimumWidth(120)  # Ensure readable width
-        # Improve dropdown readability with wider dropdown
-        self.bit_depth_combo.setStyleSheet("""
-            QComboBox {
-                padding: 5px 10px;
-                font-size: 13pt;
-            }
-            QComboBox::drop-down {
-                width: 20px;
-            }
-            QComboBox QAbstractItemView {
-                font-size: 13pt;
-                min-width: 120px;
-                background-color: #2b2b2b;
-                selection-background-color: #4a9eff;
-                outline: none;
-                border: 1px solid rgba(255, 255, 255, 0.2);
-                margin: 0px;
-                padding: 0px;
-            }
-            QComboBox QAbstractItemView::item {
-                padding: 6px 10px;
-                min-height: 20px;
-                background-color: transparent;
-            }
-            QComboBox QAbstractItemView::item:selected {
-                background-color: #4a9eff;
-            }
-        """)
         depth_col.addWidget(self.bit_depth_combo)
         depth_col.addStretch()
         format_options_row.addLayout(depth_col)
