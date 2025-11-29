@@ -9,9 +9,9 @@ from typing import Optional, NamedTuple
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QSpinBox,
     QComboBox, QPushButton, QRadioButton, QButtonGroup,
-    QFrame, QMessageBox, QApplication
+    QFrame, QMessageBox, QApplication, QProgressBar
 )
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, Signal, QRunnable, QThreadPool, QObject
 
 from utils.loop_math import get_minimum_bpm, is_valid_for_sampler
 
@@ -25,6 +25,43 @@ class LoopExportSettings(NamedTuple):
     channels: int  # Channels (1=mono, 2=stereo)
     file_format: str  # File format ('WAV', 'AIFF', or 'FLAC')
     export_mode: str  # Export mode ('mixed' or 'individual')
+
+
+class BPMDetectionWorker(QRunnable):
+    """
+    Background worker for BPM detection.
+
+    PURPOSE: Detect BPM without blocking GUI thread
+    CONTEXT: BPM detection uses librosa and can take 2-10 seconds
+    """
+
+    class Signals(QObject):
+        finished = Signal(float, str, str)  # detected_bpm, message, source_description
+        error = Signal(str)  # error_message
+
+    def __init__(self, audio_path: Path, source_description: str, logger):
+        super().__init__()
+        self.audio_path = audio_path
+        self.source_description = source_description
+        self.logger = logger
+        self.signals = self.Signals()
+
+    def run(self):
+        """Execute BPM detection in background"""
+        try:
+            from core.sampler_export import detect_audio_bpm
+
+            detected_bpm, bpm_message = detect_audio_bpm(self.audio_path)
+
+            self.logger.info(
+                f"BPM detection: {detected_bpm:.1f} BPM from {self.source_description} - {bpm_message}"
+            )
+
+            self.signals.finished.emit(detected_bpm, bpm_message, self.source_description)
+
+        except Exception as e:
+            self.logger.error(f"BPM detection error: {e}", exc_info=True)
+            self.signals.error.emit(str(e))
 
 
 class LoopExportDialog(QDialog):
@@ -44,7 +81,7 @@ class LoopExportDialog(QDialog):
 
     def __init__(
         self,
-        detected_bpm: Optional[float] = None,
+        player_widget=None,
         duration_seconds: float = 0.0,
         num_stems: int = 1,
         parent=None
@@ -53,15 +90,18 @@ class LoopExportDialog(QDialog):
         Initialize loop export dialog.
 
         Args:
-            detected_bpm: Auto-detected BPM (optional, will be rounded to int)
+            player_widget: Reference to PlayerWidget for BPM detection (optional)
             duration_seconds: Total duration of audio in seconds (for preview)
             num_stems: Number of loaded stems (for individual export preview)
             parent: Parent widget
         """
         super().__init__(parent)
+        self.player_widget = player_widget
         self.duration_seconds = duration_seconds
         self.num_stems = num_stems
-        self.detected_bpm = round(detected_bpm) if detected_bpm else 120
+        self.detected_bpm = 120  # Default until detection runs
+        self.temp_bpm_file = None  # Track temp file for cleanup
+        self.thread_pool = QThreadPool()
 
         self.setWindowTitle("Sampler Loop Export")
         self.setModal(True)
@@ -136,15 +176,32 @@ class LoopExportDialog(QDialog):
         self.bpm_spin.setMinimumHeight(35)
         self.bpm_spin.setMinimumWidth(150)
         bpm_label_row.addWidget(self.bpm_spin)
+
+        # Detect BPM button
+        self.detect_bpm_btn = QPushButton("🎵 Detect BPM")
+        self.detect_bpm_btn.setMinimumHeight(35)
+        self.detect_bpm_btn.setMinimumWidth(130)
+        self.detect_bpm_btn.setEnabled(self.player_widget is not None)
+        bpm_label_row.addWidget(self.detect_bpm_btn)
+
         bpm_label_row.addStretch()
         bpm_container.addLayout(bpm_label_row)
 
         # BPM info label
-        self.bpm_info_label = QLabel(
-            f"💡 Auto-detected: {self.detected_bpm} BPM (editable)"
-        )
+        self.bpm_info_label = QLabel("💡 Click 'Detect BPM' for automatic detection")
         self.bpm_info_label.setStyleSheet("color: rgba(255, 255, 255, 0.6); font-size: 11pt;")
         bpm_container.addWidget(self.bpm_info_label)
+
+        # Progress bar (hidden by default)
+        self.bpm_progress = QProgressBar()
+        self.bpm_progress.setMinimum(0)
+        self.bpm_progress.setMaximum(0)  # Indeterminate mode
+        self.bpm_progress.setTextVisible(True)
+        self.bpm_progress.setFormat("Analyzing audio...")
+        self.bpm_progress.setMinimumHeight(8)
+        self.bpm_progress.setMaximumHeight(8)
+        self.bpm_progress.setVisible(False)
+        bpm_container.addWidget(self.bpm_progress)
 
         row1_horizontal.addLayout(bpm_container)
 
@@ -323,6 +380,8 @@ class LoopExportDialog(QDialog):
         self.channels_combo.currentIndexChanged.connect(self._on_settings_changed)
         self.format_combo.currentIndexChanged.connect(self._on_settings_changed)
 
+        self.detect_bpm_btn.clicked.connect(self._on_detect_bpm)
+
         self.btn_export.clicked.connect(self.accept)
         self.btn_cancel.clicked.connect(self.reject)
 
@@ -455,6 +514,94 @@ class LoopExportDialog(QDialog):
 
         self.preview_label.setText(preview)
 
+    def _on_detect_bpm(self):
+        """Handle BPM detection button click"""
+        if not self.player_widget:
+            QMessageBox.warning(
+                self,
+                "Detection Unavailable",
+                "BPM detection is not available in this context."
+            )
+            return
+
+        try:
+            # Disable button and show progress
+            self.detect_bpm_btn.setEnabled(False)
+            self.bpm_progress.setVisible(True)
+            self.bpm_info_label.setText("🔄 Detecting BPM from audio...")
+
+            # Get audio source for BPM detection
+            bpm_source_file, source_description = self.player_widget._get_audio_for_bpm_detection()
+
+            # Track temp file for cleanup
+            if 'bpm_detect_' in str(bpm_source_file):
+                self.temp_bpm_file = bpm_source_file
+
+            # Get logger from player widget context
+            logger = self.player_widget.ctx.logger()
+
+            # Create and start worker
+            worker = BPMDetectionWorker(bpm_source_file, source_description, logger)
+            worker.signals.finished.connect(self._on_bpm_detected)
+            worker.signals.error.connect(self._on_bpm_error)
+
+            self.thread_pool.start(worker)
+
+        except Exception as e:
+            self._on_bpm_error(str(e))
+
+    def _on_bpm_detected(self, detected_bpm: float, message: str, source_description: str):
+        """Handle successful BPM detection"""
+        # Update UI
+        self.detected_bpm = round(detected_bpm)
+        self.bpm_spin.setValue(self.detected_bpm)
+        self.bpm_info_label.setText(
+            f"✓ Detected: {self.detected_bpm} BPM from {source_description}"
+        )
+        self.bpm_progress.setVisible(False)
+        self.detect_bpm_btn.setEnabled(True)
+
+        # Update validation and preview
+        self._update_validation()
+        self._update_preview()
+
+        # Cleanup temp file
+        self._cleanup_temp_bpm_file()
+
+    def _on_bpm_error(self, error_message: str):
+        """Handle BPM detection error"""
+        self.bpm_info_label.setText(f"⚠ Detection failed: {error_message}")
+        self.bpm_progress.setVisible(False)
+        self.detect_bpm_btn.setEnabled(True)
+
+        # Cleanup temp file
+        self._cleanup_temp_bpm_file()
+
+        QMessageBox.warning(
+            self,
+            "BPM Detection Failed",
+            f"Could not detect BPM:\n{error_message}\n\nPlease enter BPM manually."
+        )
+
+    def _cleanup_temp_bpm_file(self):
+        """Clean up temporary BPM detection file if it exists"""
+        if self.temp_bpm_file:
+            try:
+                if self.temp_bpm_file.exists():
+                    self.temp_bpm_file.unlink()
+            except Exception as e:
+                if self.player_widget:
+                    self.player_widget.ctx.logger().warning(
+                        f"Failed to delete temp BPM detection file: {e}"
+                    )
+            finally:
+                self.temp_bpm_file = None
+
+    def closeEvent(self, event):
+        """Cleanup when dialog is closed"""
+        self._cleanup_temp_bpm_file()
+        super().closeEvent(event)
+
     def get_settings(self) -> LoopExportSettings:
         """
         Get loop export settings from dialog.
@@ -494,9 +641,8 @@ if __name__ == "__main__":
 
     app = QApplication(sys.argv)
 
-    # Test with detected BPM of 128.5 (will be rounded to 129)
-    # and 180 second audio
-    dialog = LoopExportDialog(detected_bpm=128.5, duration_seconds=180.0)
+    # Test with 180 second audio (BPM detection not available in standalone test)
+    dialog = LoopExportDialog(player_widget=None, duration_seconds=180.0)
 
     if dialog.exec() == QDialog.Accepted:
         settings = dialog.get_settings()

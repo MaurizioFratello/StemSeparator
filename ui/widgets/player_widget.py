@@ -1060,31 +1060,15 @@ class PlayerWidget(QWidget):
             # Transpose to (samples, channels) for soundfile compatibility
             mixed_audio = mixed_audio.T
 
-            # Detect BPM using hierarchical source selection
-            from core.sampler_export import detect_audio_bpm
-            bpm_source_file, source_description = self._get_audio_for_bpm_detection()
-            detected_bpm, bpm_message = detect_audio_bpm(bpm_source_file)
-
-            # Clean up temporary file if it was created for mixed audio
-            if 'bpm_detect_' in str(bpm_source_file):
-                try:
-                    bpm_source_file.unlink()
-                except Exception as e:
-                    self.ctx.logger().warning(f"Failed to delete temp BPM detection file: {e}")
-
-            self.ctx.logger().info(
-                f"BPM detection: {detected_bpm:.1f} BPM from {source_description} - {bpm_message}"
-            )
-
             # Calculate duration
             duration_seconds = self.player.duration_samples / self.player.sample_rate if self.player.sample_rate > 0 else 0.0
 
             # Get common filename from first loaded stem
             common_filename = self._get_common_filename()
 
-            # Show loop export dialog
+            # Show loop export dialog (BPM detection moved inside dialog)
             dialog = LoopExportDialog(
-                detected_bpm=detected_bpm,
+                player_widget=self,
                 duration_seconds=duration_seconds,
                 num_stems=len(self.stem_files),
                 parent=self
