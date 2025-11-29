@@ -69,8 +69,33 @@ if [ ! -d "$SCREENCAPTURE_DIR" ]; then
 else
     cd "$SCREENCAPTURE_DIR"
     if [ -f "build.sh" ]; then
+        # Build with explicit architecture for arm64
+        # WHY: Ensure we build the correct architecture binary for Apple Silicon
         if ./build.sh > /dev/null 2>&1; then
-            echo -e "${GREEN}✓ ScreenCapture tool built successfully${NC}"
+            # Verify binary exists in expected location
+            BINARY_PATH=".build/arm64-apple-macosx/release/screencapture-recorder"
+            if [ ! -f "$BINARY_PATH" ]; then
+                # Fallback to generic release path
+                BINARY_PATH=".build/release/screencapture-recorder"
+            fi
+            
+            if [ -f "$BINARY_PATH" ]; then
+                # Ensure binary is executable
+                chmod +x "$BINARY_PATH" 2>/dev/null || true
+                
+                # Verify it's actually executable
+                if [ -x "$BINARY_PATH" ]; then
+                    BINARY_SIZE=$(du -h "$BINARY_PATH" | cut -f1)
+                    echo -e "${GREEN}✓ ScreenCapture tool built successfully${NC}"
+                    echo -e "${BLUE}  Binary: $BINARY_PATH ($BINARY_SIZE)${NC}"
+                else
+                    echo -e "${YELLOW}Warning: Binary exists but is not executable${NC}"
+                    echo -e "${YELLOW}ScreenCaptureKit recording may not work${NC}"
+                fi
+            else
+                echo -e "${YELLOW}Warning: ScreenCapture tool build completed but binary not found${NC}"
+                echo -e "${YELLOW}ScreenCaptureKit recording will not be available${NC}"
+            fi
         else
             echo -e "${YELLOW}Warning: ScreenCapture tool build failed${NC}"
             echo -e "${YELLOW}ScreenCaptureKit recording will not be available${NC}"
@@ -102,8 +127,25 @@ rm -rf build/ dist/StemSeparator-arm64.app dist/StemSeparator-arm64.dmg dist/Ste
 echo -e "${GREEN}✓ Clean complete${NC}"
 
 # Ensure build directory structure exists for PyInstaller
-mkdir -p build/StemSeparator-arm64
+# WHY: PyInstaller requires this directory to exist and be writable before it runs
+BUILD_DIR="build/StemSeparator-arm64"
+mkdir -p "$BUILD_DIR"
 mkdir -p dist
+
+# Verify build directory is writable
+if [ ! -w "$BUILD_DIR" ]; then
+    echo -e "${RED}Error: Build directory is not writable: $BUILD_DIR${NC}"
+    exit 1
+fi
+
+# Test write access
+if ! touch "$BUILD_DIR/.write_test" 2>/dev/null; then
+    echo -e "${RED}Error: Cannot write to build directory: $BUILD_DIR${NC}"
+    exit 1
+fi
+rm -f "$BUILD_DIR/.write_test"
+
+echo -e "${GREEN}✓ Build directory ready: $BUILD_DIR${NC}"
 
 # Run PyInstaller
 echo ""

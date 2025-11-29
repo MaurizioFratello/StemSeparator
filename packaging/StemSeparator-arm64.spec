@@ -49,25 +49,50 @@ if icons_dir.exists() and any(icons_dir.iterdir()):
     datas.append((str(icons_dir), 'resources/icons'))
 
 # ScreenCapture tool binary
-# Try multiple possible build locations for the Swift binary
+# WHY: Bundle the Swift ScreenCaptureKit binary for native macOS 13+ audio recording
+# The binary is searched in multiple locations to support different build configurations
 screencapture_tool_dir = project_root / 'packaging' / 'screencapture_tool'
 binary_paths = [
+    # Primary: Architecture-specific build (arm64 on Apple Silicon)
     screencapture_tool_dir / '.build' / 'arm64-apple-macosx' / 'release' / 'screencapture-recorder',
+    # Fallback: Generic release build
     screencapture_tool_dir / '.build' / 'release' / 'screencapture-recorder',
+    # Alternative: App bundle location (if built as app)
     screencapture_tool_dir / 'ScreenCaptureRecorder.app' / 'Contents' / 'MacOS' / 'screencapture-recorder',
 ]
 
 screencapture_binary = None
 for path in binary_paths:
     if path.exists() and path.is_file():
-        screencapture_binary = path
-        break
+        # Verify binary is executable
+        import os
+        if os.access(path, os.X_OK):
+            screencapture_binary = path
+            print(f"Found screencapture-recorder binary: {path}")
+            break
+        else:
+            # Try to make it executable
+            try:
+                os.chmod(path, 0o755)
+                if os.access(path, os.X_OK):
+                    screencapture_binary = path
+                    print(f"Found and made executable: {path}")
+                    break
+            except Exception as e:
+                print(f"Warning: Binary found but cannot make executable: {path} ({e})")
 
 if screencapture_binary:
     # Bundle the binary to the root of sys._MEIPASS so it can be found
+    # WHY: Python code searches sys._MEIPASS root first, then Frameworks/
+    # Placing it at root ensures it's found immediately
     datas.append((str(screencapture_binary), '.'))
+    print(f"Bundling screencapture-recorder to app bundle root")
 else:
     print("WARNING: screencapture-recorder binary not found. ScreenCaptureKit recording will not be available.")
+    print("  Searched paths:")
+    for path in binary_paths:
+        exists = "✓" if path.exists() else "✗"
+        print(f"    {exists} {path}")
 
 
 # Hidden imports that PyInstaller might miss
@@ -150,8 +175,26 @@ excludes = [
 
 # Ensure build directory exists for PyInstaller
 # WHY: PyInstaller needs this directory to create base_library.zip during analysis
+# CRITICAL: This must exist before Analysis() is called, otherwise PyInstaller fails
 build_dir = project_root / 'build' / 'StemSeparator-arm64'
-build_dir.mkdir(parents=True, exist_ok=True)
+try:
+    build_dir.mkdir(parents=True, exist_ok=True)
+    # Verify directory was actually created and is writable
+    if not build_dir.exists():
+        raise RuntimeError(f"Failed to create build directory: {build_dir}")
+    # Test write access by creating a temporary file
+    test_file = build_dir / '.write_test'
+    try:
+        test_file.write_text('test')
+        test_file.unlink()
+    except Exception as e:
+        raise RuntimeError(f"Build directory is not writable: {build_dir} ({e})")
+except Exception as e:
+    import sys
+    print(f"ERROR: Cannot create build directory: {build_dir}")
+    print(f"  Error: {e}")
+    sys.exit(1)
+
 dist_dir = project_root / 'dist'
 dist_dir.mkdir(parents=True, exist_ok=True)
 
