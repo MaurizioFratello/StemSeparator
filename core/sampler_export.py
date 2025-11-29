@@ -104,7 +104,9 @@ def export_sampler_loops(
     channels: int = 2,
     file_format: str = 'WAV',
     max_duration_seconds: float = 20.0,
-    progress_callback: Optional[Callable[[str, int], None]] = None
+    progress_callback: Optional[Callable[[str, int], None]] = None,
+    common_filename: Optional[str] = None,
+    stem_name: Optional[str] = None
 ) -> ExportResult:
     """
     Export audio as musically-timed sampler loops.
@@ -131,18 +133,22 @@ def export_sampler_loops(
         file_format: Export format ('WAV', 'AIFF', or 'FLAC')
         max_duration_seconds: Maximum chunk duration for sampler compatibility (default: 20.0)
         progress_callback: Optional callback(message: str, percent: int) for progress updates
+        common_filename: Common filename extracted from first loaded stem (e.g., "MySong")
+        stem_name: Stem name for individual stem exports (e.g., "vocals"), None for mixed
 
     Returns:
         ExportResult with success status, files, warnings, and metadata
 
     File Naming Convention:
-        Single chunk: "<basename>_<BPM>_<bars>t.<ext>"
-        Multiple chunks: "<basename>_<BPM>_<bars>t_part<NN>.<ext>"
+        Mixed single: "<common_filename>_<BPM>BPM_<bars>T.<ext>"
+        Mixed multiple: "<common_filename>_<BPM>BPM_<bars>T_<NN>.<ext>"
+        Individual single: "<common_filename>_<stem_name>_<BPM>BPM_<bars>T.<ext>"
+        Individual multiple: "<common_filename>_<stem_name>_<BPM>BPM_<bars>T_<NN>.<ext>"
 
         Examples:
-            "MyLoop_120_4t.wav"
-            "Bassline_98_2t_part01.flac"
-            "DrumBreak_140_8t_part02.wav"
+            "MySong_120BPM_4T.wav"
+            "MySong_98BPM_2T_01.flac"
+            "MySong_vocals_140BPM_8T_02.wav"
 
     Behavior:
         - Export always starts at sample 0 (no automatic grid alignment in v1)
@@ -278,7 +284,15 @@ def export_sampler_loops(
 
     # Setup output directory and file naming
     output_dir.mkdir(parents=True, exist_ok=True)
-    base_name = input_path.stem  # Filename without extension
+    
+    # Use common_filename if provided, otherwise fall back to input_path.stem
+    if common_filename:
+        base_name = common_filename
+        if stem_name:
+            base_name = f"{common_filename}_{stem_name}"
+    else:
+        base_name = input_path.stem  # Fallback to input filename
+    
     extension = f".{file_format.lower()}"
 
     # Determine soundfile subtype
@@ -357,13 +371,17 @@ def export_sampler_loops(
         if bit_depth == 16:
             chunk_data = apply_tpdf_dither(chunk_data, bit_depth)
 
-        # Generate filename
+        # Generate filename with unified naming convention
+        # WHY: Consistent format with BPM suffix, 4T format for bars, and two-digit numbering
+        bpm_str = f"{bpm}BPM"
+        bars_str = f"{bars}T"
+        
         if num_chunks == 1:
-            # Single chunk: <name>_<BPM>_<bars>t.<ext>
-            filename = f"{base_name}_{bpm}_{bars}t{extension}"
+            # Single chunk: <name>_<BPM>BPM_<bars>T.<ext>
+            filename = f"{base_name}_{bpm_str}_{bars_str}{extension}"
         else:
-            # Multiple chunks: <name>_<BPM>_<bars>t_part<NN>.<ext>
-            filename = f"{base_name}_{bpm}_{bars}t_part{chunk_idx + 1:02d}{extension}"
+            # Multiple chunks: <name>_<BPM>BPM_<bars>T_<NN>.<ext>
+            filename = f"{base_name}_{bpm_str}_{bars_str}_{chunk_idx + 1:02d}{extension}"
 
         output_path = output_dir / filename
 

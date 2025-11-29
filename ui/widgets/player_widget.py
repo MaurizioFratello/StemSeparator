@@ -689,6 +689,55 @@ class PlayerWidget(QWidget):
         # Update button states based on loaded stems
         self._update_button_states()
 
+    def _get_common_filename(self) -> str:
+        """
+        Extract common filename from first loaded stem.
+        
+        WHY: Provides consistent base name for all exports derived from the original
+        source file that was separated into stems.
+        
+        Returns:
+            Common filename (e.g., "MySong" from "MySong_(vocals)_ensemble.wav")
+            Returns "export" as fallback if no stems are loaded
+        """
+        if not self.stem_files:
+            return "export"
+        
+        # Get first stem file path
+        first_stem_path = Path(list(self.stem_files.values())[0])
+        stem_name = first_stem_path.stem
+        
+        # Try to extract common filename by removing stem name and model suffixes
+        import re
+        
+        # Pattern 1: "songname_(StemName)_modelname" -> "songname"
+        match = re.search(r'^(.+?)_\([^)]+\)', stem_name)
+        if match:
+            return match.group(1)
+        
+        # Pattern 2: "songname_stemname_modelname" -> "songname"
+        # Known suffixes to remove
+        ignore_suffixes = {'ensemble', 'bs-roformer', 'mel-roformer', 'demucs',
+                          'htdemucs', '4s', '6s', 'v4', 'demucs4s', 'demucs6s'}
+        
+        parts = stem_name.split('_')
+        # Find where stem name starts (usually after common filename)
+        # Common pattern: commonname_stemname_suffix
+        if len(parts) >= 2:
+            # Try to identify stem name (common stem names)
+            common_stem_names = ['vocals', 'vocal', 'drums', 'drum', 'bass', 'other',
+                                'piano', 'guitar', 'instrumental', 'instrum']
+            
+            # Find first part that looks like a stem name
+            for i, part in enumerate(parts[1:], 1):
+                part_lower = part.lower()
+                if part_lower in common_stem_names or any(suffix in part_lower for suffix in ignore_suffixes):
+                    # Everything before this is the common filename
+                    return '_'.join(parts[:i])
+        
+        # Fallback: use first part or whole name if no pattern matches
+        return parts[0] if parts else stem_name
+
     @Slot(str, int)
     def _on_stem_volume_changed(self, stem_name: str, volume: int):
         """Handle stem volume change"""
@@ -807,6 +856,9 @@ class PlayerWidget(QWidget):
         # Execute export based on settings
         success = False
         result_message = ""
+        
+        # Get common filename from first loaded stem
+        common_filename = self._get_common_filename()
 
         try:
             if settings.enable_chunking:
@@ -816,7 +868,8 @@ class PlayerWidget(QWidget):
                         output_path,
                         settings.chunk_length,
                         file_format=settings.file_format,
-                        bit_depth=settings.bit_depth
+                        bit_depth=settings.bit_depth,
+                        common_filename=common_filename
                     )
 
                     if chunk_paths:
@@ -824,8 +877,8 @@ class PlayerWidget(QWidget):
                         result_message = (
                             f"Mixed audio exported as {len(chunk_paths)} chunks:\n"
                             f"{output_path.parent}\n\n"
-                            f"Files: {output_path.stem}_1{output_path.suffix}, "
-                            f"{output_path.stem}_2{output_path.suffix}, ..."
+                            f"Files: {common_filename}_01{output_path.suffix}, "
+                            f"{common_filename}_02{output_path.suffix}, ..."
                         )
                     else:
                         result_message = "Failed to export chunks. Check the log for details."
@@ -836,7 +889,8 @@ class PlayerWidget(QWidget):
                         output_path,
                         settings.chunk_length,
                         file_format=settings.file_format,
-                        bit_depth=settings.bit_depth
+                        bit_depth=settings.bit_depth,
+                        common_filename=common_filename
                     )
 
                     if all_chunks:
@@ -1025,6 +1079,9 @@ class PlayerWidget(QWidget):
             # Calculate duration
             duration_seconds = self.player.duration_samples / self.player.sample_rate if self.player.sample_rate > 0 else 0.0
 
+            # Get common filename from first loaded stem
+            common_filename = self._get_common_filename()
+
             # Show loop export dialog
             dialog = LoopExportDialog(
                 detected_bpm=detected_bpm,
@@ -1109,7 +1166,9 @@ class PlayerWidget(QWidget):
                             bit_depth=settings.bit_depth,
                             channels=settings.channels,
                             file_format=settings.file_format,
-                            progress_callback=progress_callback
+                            progress_callback=progress_callback,
+                            common_filename=common_filename,
+                            stem_name=None  # Mixed audio, no stem name
                         )
 
                         # Close progress dialog
@@ -1160,6 +1219,9 @@ class PlayerWidget(QWidget):
         from core.sampler_export import export_sampler_loops
         from PySide6.QtWidgets import QProgressDialog, QApplication
 
+        # Get common filename from first loaded stem
+        common_filename = self._get_common_filename()
+
         try:
             # Create progress dialog for overall progress
             overall_progress = QProgressDialog(
@@ -1204,7 +1266,9 @@ class PlayerWidget(QWidget):
                     bit_depth=settings.bit_depth,
                     channels=settings.channels,
                     file_format=settings.file_format,
-                    progress_callback=progress_callback
+                    progress_callback=progress_callback,
+                    common_filename=common_filename,
+                    stem_name=stem_name  # Individual stem export
                 )
 
                 if result.success:

@@ -8,8 +8,8 @@ from pathlib import Path
 from typing import Optional, NamedTuple
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QSpinBox,
-    QComboBox, QPushButton, QGroupBox, QRadioButton, QButtonGroup,
-    QFrame, QMessageBox
+    QComboBox, QPushButton, QRadioButton, QButtonGroup,
+    QFrame, QMessageBox, QApplication
 )
 from PySide6.QtCore import Qt
 
@@ -65,8 +65,18 @@ class LoopExportDialog(QDialog):
 
         self.setWindowTitle("Sampler Loop Export")
         self.setModal(True)
-        self.setMinimumWidth(550)
-        self.setMinimumHeight(600)
+        
+        # Set dimensions to use screen height minus 10%
+        # WHY: Configure dialog to use 90% of screen height for better field visibility
+        # while leaving small margin for system UI elements
+        screen = QApplication.primaryScreen().availableGeometry()
+        screen_height = screen.height()
+        default_width = 780  # Keep current width
+        default_height = int(screen_height * 0.9)  # Screen height minus 10%
+        
+        self.setMinimumWidth(default_width)
+        self.setMinimumHeight(default_height)
+        self.resize(default_width, default_height)  # Set default size to full screen height
 
         self._setup_ui()
         self._connect_signals()
@@ -91,18 +101,32 @@ class LoopExportDialog(QDialog):
         return card, layout
 
     def _setup_ui(self):
-        """Setup dialog UI"""
+        """
+        Setup dialog UI with horizontal layout for compact arrangement.
+        
+        WHY: Reduces window height by arranging elements horizontally:
+        - Row 1: BPM + Loop Length (side by side)
+        - Row 2: Export Mode + Audio Format (side by side)
+        """
         main_layout = QVBoxLayout(self)
         main_layout.setSpacing(15)
         main_layout.setContentsMargins(20, 20, 20, 20)
 
-        # === BPM Settings ===
-        bpm_card, bpm_layout = self._create_card("Tempo (BPM)")
+        # === Row 1: BPM + Loop Length ===
+        row1_card, row1_layout = self._create_card("Tempo & Loop Length")
 
-        bpm_row = QHBoxLayout()
-        bpm_label = QLabel("BPM:")
-        bpm_label.setMinimumWidth(100)
-        bpm_row.addWidget(bpm_label)
+        row1_horizontal = QHBoxLayout()
+        row1_horizontal.setSpacing(30)
+
+        # BPM Section (left side)
+        bpm_container = QVBoxLayout()
+        bpm_container.setSpacing(8)
+
+        bpm_label_row = QHBoxLayout()
+        bpm_label_row.setSpacing(10)
+        bpm_label_text = QLabel("BPM:")
+        bpm_label_text.setMinimumWidth(60)
+        bpm_label_row.addWidget(bpm_label_text)
 
         self.bpm_spin = QSpinBox()
         self.bpm_spin.setMinimum(1)
@@ -111,83 +135,88 @@ class LoopExportDialog(QDialog):
         self.bpm_spin.setSuffix(" BPM")
         self.bpm_spin.setMinimumHeight(35)
         self.bpm_spin.setMinimumWidth(150)
-        bpm_row.addWidget(self.bpm_spin)
-
-        bpm_row.addStretch()
-        bpm_layout.addLayout(bpm_row)
+        bpm_label_row.addWidget(self.bpm_spin)
+        bpm_label_row.addStretch()
+        bpm_container.addLayout(bpm_label_row)
 
         # BPM info label
         self.bpm_info_label = QLabel(
             f"💡 Auto-detected: {self.detected_bpm} BPM (editable)"
         )
         self.bpm_info_label.setStyleSheet("color: rgba(255, 255, 255, 0.6); font-size: 11pt;")
-        bpm_layout.addWidget(self.bpm_info_label)
+        bpm_container.addWidget(self.bpm_info_label)
 
-        main_layout.addWidget(bpm_card)
+        row1_horizontal.addLayout(bpm_container)
 
-        # === Export Mode ===
+        # Loop Length Section (right side)
+        bars_container = QVBoxLayout()
+        bars_container.setSpacing(8)
+
+        bars_label_row = QHBoxLayout()
+        bars_label_row.setSpacing(10)
+        bars_label_text = QLabel("Loop Length:")
+        bars_label_text.setMinimumWidth(80)
+        bars_label_row.addWidget(bars_label_text)
+
+        self.bars_combo = QComboBox()
+        self.bars_combo.addItems(["2 Bar", "4 Bar", "8 Bar"])
+        self.bars_combo.setCurrentIndex(1)  # Default: 4 Bar
+        self.bars_combo.setMinimumHeight(35)
+        self.bars_combo.setMinimumWidth(120)
+        bars_label_row.addWidget(self.bars_combo)
+        bars_label_row.addStretch()
+        bars_container.addLayout(bars_label_row)
+
+        # Placeholder for spacing (matching BPM info label height)
+        bars_spacer = QLabel()
+        bars_spacer.setFixedHeight(self.bpm_info_label.sizeHint().height())
+        bars_container.addWidget(bars_spacer)
+
+        row1_horizontal.addLayout(bars_container)
+        row1_layout.addLayout(row1_horizontal)
+
+        # Validation label (updated dynamically, spans full width)
+        self.validation_label = QLabel()
+        self.validation_label.setWordWrap(True)
+        self.validation_label.setStyleSheet("padding: 5px;")
+        row1_layout.addWidget(self.validation_label)
+
+        main_layout.addWidget(row1_card)
+
+        # === Row 2: Export Mode + Audio Format ===
+        row2_horizontal = QHBoxLayout()
+        row2_horizontal.setSpacing(15)
+
+        # Export Mode Card (left side)
         mode_card, mode_layout = self._create_card("Export Mode")
 
         self.mode_button_group = QButtonGroup(self)
 
-        # Create horizontal layout for radio buttons
-        mode_options_row = QHBoxLayout()
-        mode_options_row.setSpacing(30)
+        # Create vertical layout for radio buttons
+        mode_options_col = QVBoxLayout()
+        mode_options_col.setSpacing(10)
 
         self.mode_mixed = QRadioButton("Mixed Audio (all stems combined)")
         self.mode_mixed.setChecked(True)
         self.mode_button_group.addButton(self.mode_mixed)
-        mode_options_row.addWidget(self.mode_mixed)
+        mode_options_col.addWidget(self.mode_mixed)
 
         self.mode_individual = QRadioButton(f"Individual Stems ({self.num_stems} separate sets)")
         self.mode_button_group.addButton(self.mode_individual)
-        mode_options_row.addWidget(self.mode_individual)
+        mode_options_col.addWidget(self.mode_individual)
 
-        mode_options_row.addStretch()
+        mode_options_col.addStretch()
+        mode_layout.addLayout(mode_options_col)
 
-        mode_layout.addLayout(mode_options_row)
+        row2_horizontal.addWidget(mode_card)
 
-        main_layout.addWidget(mode_card)
-
-        # === Bar Length ===
-        bars_card, bars_layout = self._create_card("Loop Length")
-
-        self.bars_button_group = QButtonGroup(self)
-
-        bars_options_row = QHBoxLayout()
-        bars_options_row.setSpacing(20)
-
-        self.bars_2 = QRadioButton("2 bars")
-        self.bars_button_group.addButton(self.bars_2)
-        bars_options_row.addWidget(self.bars_2)
-
-        self.bars_4 = QRadioButton("4 bars")
-        self.bars_4.setChecked(True)  # Default
-        self.bars_button_group.addButton(self.bars_4)
-        bars_options_row.addWidget(self.bars_4)
-
-        self.bars_8 = QRadioButton("8 bars")
-        self.bars_button_group.addButton(self.bars_8)
-        bars_options_row.addWidget(self.bars_8)
-
-        bars_options_row.addStretch()
-        bars_layout.addLayout(bars_options_row)
-
-        # Validation label (updated dynamically)
-        self.validation_label = QLabel()
-        self.validation_label.setWordWrap(True)
-        self.validation_label.setStyleSheet("padding: 5px;")
-        bars_layout.addWidget(self.validation_label)
-
-        main_layout.addWidget(bars_card)
-
-        # === Audio Format ===
+        # Audio Format Card (right side)
         format_card, format_layout = self._create_card("Audio Format")
 
         # Sample rate
         sr_row = QHBoxLayout()
         sr_label = QLabel("Sample Rate:")
-        sr_label.setMinimumWidth(100)
+        sr_label.setMinimumWidth(80)
         sr_row.addWidget(sr_label)
 
         self.sample_rate_combo = QComboBox()
@@ -195,14 +224,13 @@ class LoopExportDialog(QDialog):
         self.sample_rate_combo.setCurrentIndex(0)  # Default: 44.1kHz
         self.sample_rate_combo.setMinimumHeight(35)
         sr_row.addWidget(self.sample_rate_combo)
-
         sr_row.addStretch()
         format_layout.addLayout(sr_row)
 
         # Bit depth
         depth_row = QHBoxLayout()
         depth_label = QLabel("Bit Depth:")
-        depth_label.setMinimumWidth(100)
+        depth_label.setMinimumWidth(80)
         depth_row.addWidget(depth_label)
 
         self.bit_depth_combo = QComboBox()
@@ -210,14 +238,13 @@ class LoopExportDialog(QDialog):
         self.bit_depth_combo.setCurrentIndex(1)  # Default: 24 bit
         self.bit_depth_combo.setMinimumHeight(35)
         depth_row.addWidget(self.bit_depth_combo)
-
         depth_row.addStretch()
         format_layout.addLayout(depth_row)
 
         # Channels
         channels_row = QHBoxLayout()
         channels_label = QLabel("Channels:")
-        channels_label.setMinimumWidth(100)
+        channels_label.setMinimumWidth(80)
         channels_row.addWidget(channels_label)
 
         self.channels_combo = QComboBox()
@@ -225,14 +252,13 @@ class LoopExportDialog(QDialog):
         self.channels_combo.setCurrentIndex(0)  # Default: Stereo
         self.channels_combo.setMinimumHeight(35)
         channels_row.addWidget(self.channels_combo)
-
         channels_row.addStretch()
         format_layout.addLayout(channels_row)
 
         # File format
         fmt_row = QHBoxLayout()
         fmt_label = QLabel("Format:")
-        fmt_label.setMinimumWidth(100)
+        fmt_label.setMinimumWidth(80)
         fmt_row.addWidget(fmt_label)
 
         self.format_combo = QComboBox()
@@ -240,11 +266,11 @@ class LoopExportDialog(QDialog):
         self.format_combo.setCurrentIndex(0)  # Default: WAV
         self.format_combo.setMinimumHeight(35)
         fmt_row.addWidget(self.format_combo)
-
         fmt_row.addStretch()
         format_layout.addLayout(fmt_row)
 
-        main_layout.addWidget(format_card)
+        row2_horizontal.addWidget(format_card)
+        main_layout.addLayout(row2_horizontal)
 
         # === Preview ===
         preview_card, preview_layout = self._create_card("Preview")
@@ -290,9 +316,12 @@ class LoopExportDialog(QDialog):
     def _connect_signals(self):
         """Connect UI signals"""
         self.bpm_spin.valueChanged.connect(self._on_settings_changed)
-        self.bars_button_group.buttonToggled.connect(self._on_settings_changed)
+        self.bars_combo.currentIndexChanged.connect(self._on_settings_changed)  # Changed from button group
         self.mode_button_group.buttonToggled.connect(self._on_settings_changed)
         self.sample_rate_combo.currentIndexChanged.connect(self._on_settings_changed)
+        self.bit_depth_combo.currentIndexChanged.connect(self._on_settings_changed)
+        self.channels_combo.currentIndexChanged.connect(self._on_settings_changed)
+        self.format_combo.currentIndexChanged.connect(self._on_settings_changed)
 
         self.btn_export.clicked.connect(self.accept)
         self.btn_cancel.clicked.connect(self.reject)
@@ -303,14 +332,15 @@ class LoopExportDialog(QDialog):
         self._update_preview()
 
     def _get_selected_bars(self) -> int:
-        """Get currently selected bar count"""
-        if self.bars_2.isChecked():
-            return 2
-        elif self.bars_4.isChecked():
-            return 4
-        elif self.bars_8.isChecked():
-            return 8
-        return 4  # Fallback
+        """
+        Get currently selected bar count from ComboBox.
+        
+        WHY: Changed from radio buttons to ComboBox for compact horizontal layout.
+        ComboBox index maps to bar values: 0=2 bars, 1=4 bars, 2=8 bars
+        """
+        index = self.bars_combo.currentIndex()
+        bar_values = [2, 4, 8]
+        return bar_values[index] if 0 <= index < len(bar_values) else 4  # Default to 4 bars
 
     def _update_validation(self):
         """Update BPM+bars validation display"""

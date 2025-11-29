@@ -218,7 +218,7 @@ def export_audio_chunks(
         audio_data: Audio array (channels x samples) - NOTE: different from other functions!
         sample_rate: Sample rate in Hz
         output_path: Base output path (e.g., "/path/to/output.wav")
-                    Chunks will be saved as "output_1.wav", "output_2.wav", etc.
+                    Chunks will be saved as "output_01.wav", "output_02.wav", etc.
         chunk_length_seconds: Target length of each chunk in seconds
         file_format: Audio format ('WAV' or 'FLAC')
         bit_depth: Bit depth (16, 24, or 32)
@@ -237,7 +237,7 @@ def export_audio_chunks(
         >>> chunks = export_audio_chunks(
         >>>     audio, 48000, Path("output.wav"), chunk_length_seconds=20.0
         >>> )
-        >>> # Creates: output_1.wav, output_2.wav, ..., output_9.wav
+        >>> # Creates: output_01.wav, output_02.wav, ..., output_09.wav
         >>> print(f"Created {len(chunks)} chunks")
     """
     if len(audio_data) == 0:
@@ -313,8 +313,9 @@ def export_audio_chunks(
         chunk_data = audio_transposed[current_pos:actual_end]
         chunk_duration = len(chunk_data) / sample_rate
 
-        # Generate filename
-        chunk_path = output_dir / f"{base_name}_{chunk_num}{extension}"
+        # Generate filename with two-digit numbering
+        # WHY: Consistent two-digit format (_01, _02, etc.) for better sorting and organization
+        chunk_path = output_dir / f"{base_name}_{chunk_num:02d}{extension}"
 
         # Save chunk
         try:

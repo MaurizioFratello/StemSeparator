@@ -688,17 +688,19 @@ class AudioPlayer:
         output_file: Path,
         chunk_length_seconds: float,
         file_format: str = 'WAV',
-        bit_depth: int = 24
+        bit_depth: int = 24,
+        common_filename: Optional[str] = None
     ) -> Optional[list[Path]]:
         """
         Export mixed audio split into chunks
 
         Args:
             output_file: Base output file path (e.g., "output.wav")
-                        Chunks will be saved as "output_1.wav", "output_2.wav", etc.
+                        Chunks will be saved as "{common_filename}_01.wav", "{common_filename}_02.wav", etc.
             chunk_length_seconds: Target length of each chunk in seconds
             file_format: Audio format ('WAV', 'FLAC')
             bit_depth: Bit depth (16, 24, 32)
+            common_filename: Common filename extracted from first loaded stem (e.g., "MySong")
 
         Returns:
             List of chunk file paths if successful, None on error
@@ -715,11 +717,20 @@ class AudioPlayer:
             # Mix entire audio
             mixed_audio = self._mix_stems(0, self.duration_samples)
 
+            # Use common_filename if provided, otherwise use output_file.stem
+            if common_filename:
+                # Construct output path with common filename
+                output_dir = output_file.parent
+                extension = output_file.suffix if output_file.suffix else f".{file_format.lower()}"
+                base_output_path = output_dir / f"{common_filename}{extension}"
+            else:
+                base_output_path = output_file
+
             # Export as chunks (mixed_audio is already in (channels, samples) format)
             chunk_paths = export_audio_chunks(
                 mixed_audio,
                 self.sample_rate,
-                output_file,
+                base_output_path,
                 chunk_length_seconds,
                 file_format=file_format,
                 bit_depth=bit_depth
@@ -744,7 +755,8 @@ class AudioPlayer:
         output_dir: Path,
         chunk_length_seconds: float,
         file_format: str = 'WAV',
-        bit_depth: int = 24
+        bit_depth: int = 24,
+        common_filename: Optional[str] = None
     ) -> Optional[Dict[str, list[Path]]]:
         """
         Export individual stems split into chunks
@@ -754,6 +766,7 @@ class AudioPlayer:
             chunk_length_seconds: Target length of each chunk in seconds
             file_format: Audio format ('WAV', 'FLAC')
             bit_depth: Bit depth (16, 24, 32)
+            common_filename: Common filename extracted from first loaded stem (e.g., "MySong")
 
         Returns:
             Dictionary mapping stem names to lists of chunk file paths,
@@ -761,8 +774,8 @@ class AudioPlayer:
 
         Example:
             {
-                'vocals': [vocals_1.wav, vocals_2.wav, vocals_3.wav],
-                'drums': [drums_1.wav, drums_2.wav, drums_3.wav],
+                'vocals': [MySong_vocals_01.wav, MySong_vocals_02.wav, MySong_vocals_03.wav],
+                'drums': [MySong_drums_01.wav, MySong_drums_02.wav, MySong_drums_03.wav],
                 ...
             }
         """
@@ -795,9 +808,14 @@ class AudioPlayer:
                 # Apply volume to stem
                 stem_audio_with_volume = stem_audio * settings.volume
 
-                # Generate output path for this stem
+                # Generate output path for this stem using common filename
                 extension = f".{file_format.lower()}"
-                stem_output_path = output_dir / f"{stem_name}{extension}"
+                if common_filename:
+                    # Format: {common_filename}_{stem_name}.{ext}
+                    stem_output_path = output_dir / f"{common_filename}_{stem_name}{extension}"
+                else:
+                    # Fallback to stem name only
+                    stem_output_path = output_dir / f"{stem_name}{extension}"
 
                 # Export stem as chunks (with volume applied)
                 chunk_paths = export_audio_chunks(

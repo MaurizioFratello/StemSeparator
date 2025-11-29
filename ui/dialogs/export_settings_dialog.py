@@ -9,7 +9,7 @@ from typing import Optional, NamedTuple
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QCheckBox,
     QSpinBox, QDoubleSpinBox, QComboBox, QPushButton, QGroupBox,
-    QRadioButton, QButtonGroup, QFrame, QSizePolicy
+    QRadioButton, QButtonGroup, QFrame, QSizePolicy, QApplication
 )
 from PySide6.QtCore import Qt, QSize
 
@@ -51,11 +51,18 @@ class ExportSettingsDialog(QDialog):
 
         self.setWindowTitle("Export Settings")
         self.setModal(True)
-        self.setMinimumWidth(594)  # 660 - 10%
-        self.setMinimumHeight(633)  # 575 + 10%
-
-        # Set a comfortable initial size (width -10%, height +10% from previous)
-        self.resize(644, 696)
+        
+        # Set dimensions to use screen height minus 10%
+        # WHY: Configure dialog to use 90% of screen height for better field visibility
+        # while leaving small margin for system UI elements
+        screen = QApplication.primaryScreen().availableGeometry()
+        screen_height = screen.height()
+        default_width = 644  # Keep current width
+        default_height = int(screen_height * 0.9)  # Screen height minus 10%
+        
+        self.setMinimumWidth(default_width)
+        self.setMinimumHeight(default_height)
+        self.resize(default_width, default_height)  # Set default size to full screen height
 
         self._setup_ui()
         self._connect_signals()
