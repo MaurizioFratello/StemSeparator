@@ -433,33 +433,43 @@ def export_sampler_loops(
     )
 
 
-def detect_audio_bpm(audio_path: Path) -> Tuple[float, str]:
+def detect_audio_bpm(audio_path: Path) -> Tuple[float, str, Optional[float]]:
     """
     Detect BPM of an audio file (convenience wrapper).
+
+    Uses DeepRhythm if available (95%+ accuracy) or falls back to librosa.
+    DeepRhythm provides confidence scores for better user feedback.
 
     Args:
         audio_path: Path to audio file
 
     Returns:
-        Tuple of (detected_bpm, status_message)
+        Tuple of (detected_bpm, status_message, confidence)
         - detected_bpm: Detected BPM as float (or 120.0 as fallback)
         - status_message: Description of detection result
+        - confidence: 0.0-1.0 for DeepRhythm, None for librosa
 
     Example:
-        >>> bpm, message = detect_audio_bpm(Path("song.wav"))
-        >>> print(f"BPM: {bpm:.1f} - {message}")
-        BPM: 128.0 - Detected successfully
+        >>> bpm, message, confidence = detect_audio_bpm(Path("song.wav"))
+        >>> if confidence:
+        >>>     print(f"BPM: {bpm:.1f} - {message} ({confidence:.0%} confident)")
+        >>> else:
+        >>>     print(f"BPM: {bpm:.1f} - {message}")
     """
     try:
         audio_data, sample_rate = sf.read(str(audio_path), always_2d=False)
-        bpm = detect_bpm(audio_data, sample_rate)
+        bpm, confidence = detect_bpm(audio_data, sample_rate)
 
-        if bpm == 120.0:
+        if bpm == 120.0 and confidence is None:
             # Default fallback (detection may have failed)
-            return bpm, "Detection failed, using default 120 BPM"
+            return bpm, "Detection failed, using default 120 BPM", None
+        elif confidence is not None:
+            # DeepRhythm with confidence
+            return bpm, f"Detected successfully ({confidence:.0%} confident)", confidence
         else:
-            return bpm, f"Detected successfully"
+            # Librosa without confidence
+            return bpm, "Detected successfully (librosa)", None
 
     except Exception as e:
         logger.error(f"BPM detection error for {audio_path}: {e}")
-        return 120.0, f"Error: {e}, using default 120 BPM"
+        return 120.0, f"Error: {e}, using default 120 BPM", None

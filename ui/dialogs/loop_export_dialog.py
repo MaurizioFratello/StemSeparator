@@ -32,11 +32,11 @@ class BPMDetectionWorker(QRunnable):
     Background worker for BPM detection.
 
     PURPOSE: Detect BPM without blocking GUI thread
-    CONTEXT: BPM detection uses librosa and can take 2-10 seconds
+    CONTEXT: BPM detection uses DeepRhythm (fast, 95%+ accurate) or librosa fallback
     """
 
     class Signals(QObject):
-        finished = Signal(float, str, str)  # detected_bpm, message, source_description
+        finished = Signal(float, str, str, float)  # detected_bpm, message, source_description, confidence
         error = Signal(str)  # error_message
 
     def __init__(self, audio_path: Path, source_description: str, logger):
@@ -51,13 +51,15 @@ class BPMDetectionWorker(QRunnable):
         try:
             from core.sampler_export import detect_audio_bpm
 
-            detected_bpm, bpm_message = detect_audio_bpm(self.audio_path)
+            detected_bpm, bpm_message, confidence = detect_audio_bpm(self.audio_path)
 
             self.logger.info(
                 f"BPM detection: {detected_bpm:.1f} BPM from {self.source_description} - {bpm_message}"
             )
 
-            self.signals.finished.emit(detected_bpm, bpm_message, self.source_description)
+            # Emit confidence (use 0.0 if None for signal compatibility)
+            confidence_value = confidence if confidence is not None else 0.0
+            self.signals.finished.emit(detected_bpm, bpm_message, self.source_description, confidence_value)
 
         except Exception as e:
             self.logger.error(f"BPM detection error: {e}", exc_info=True)
@@ -550,14 +552,36 @@ class LoopExportDialog(QDialog):
         except Exception as e:
             self._on_bpm_error(str(e))
 
-    def _on_bpm_detected(self, detected_bpm: float, message: str, source_description: str):
+    def _on_bpm_detected(self, detected_bpm: float, message: str, source_description: str, confidence: float):
         """Handle successful BPM detection"""
         # Update UI
         self.detected_bpm = round(detected_bpm)
         self.bpm_spin.setValue(self.detected_bpm)
-        self.bpm_info_label.setText(
-            f"✓ Detected: {self.detected_bpm} BPM from {source_description}"
-        )
+
+        # Show confidence-based feedback
+        if confidence > 0:
+            # DeepRhythm with confidence score
+            if confidence >= 0.9:
+                confidence_icon = "✓"
+                color_style = "color: rgba(100, 255, 100, 0.9);"
+            elif confidence >= 0.7:
+                confidence_icon = "⚠"
+                color_style = "color: rgba(255, 200, 100, 0.9);"
+            else:
+                confidence_icon = "⚠"
+                color_style = "color: rgba(255, 150, 100, 0.9);"
+
+            self.bpm_info_label.setText(
+                f"{confidence_icon} Detected: {self.detected_bpm} BPM from {source_description} ({confidence:.0%} confident)"
+            )
+            self.bpm_info_label.setStyleSheet(f"{color_style} font-size: 11pt;")
+        else:
+            # Librosa without confidence
+            self.bpm_info_label.setText(
+                f"✓ Detected: {self.detected_bpm} BPM from {source_description} (librosa)"
+            )
+            self.bpm_info_label.setStyleSheet("color: rgba(255, 255, 255, 0.7); font-size: 11pt;")
+
         self.bpm_progress.setVisible(False)
         self.detect_bpm_btn.setEnabled(True)
 

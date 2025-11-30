@@ -13,6 +13,18 @@ from utils.logger import get_logger
 
 logger = get_logger()
 
+# Try to import DeepRhythm for enhanced BPM detection
+try:
+    from deeprhythm import DeepRhythmPredictor
+    DEEPRHYTHM_AVAILABLE = True
+    logger.info("DeepRhythm available for BPM detection")
+except ImportError:
+    DEEPRHYTHM_AVAILABLE = False
+    logger.info("DeepRhythm not available, using librosa for BPM detection")
+
+# Global DeepRhythm predictor (lazy loaded)
+_deeprhythm_predictor = None
+
 
 def trim_leading_silence(
     audio_data: np.ndarray,
@@ -343,12 +355,148 @@ def export_audio_chunks(
     return chunk_paths
 
 
-def detect_bpm(audio_data: np.ndarray, sample_rate: int) -> float:
+def _get_deeprhythm_predictor():
     """
-    Detect BPM (tempo) of audio using librosa's beat tracking.
+    Lazy-load the DeepRhythm predictor model.
 
-    This function uses librosa's tempo estimation algorithm which analyzes
-    the onset strength envelope to determine the most likely tempo.
+    Returns:
+        DeepRhythmPredictor instance or None if unavailable
+    """
+    global _deeprhythm_predictor
+
+    if not DEEPRHYTHM_AVAILABLE:
+        return None
+
+    if _deeprhythm_predictor is None:
+        try:
+            # Try to use CUDA if available, otherwise fall back to CPU
+            try:
+                import torch
+                device = 'cuda' if torch.cuda.is_available() else 'cpu'
+            except ImportError:
+                device = 'cpu'
+
+            _deeprhythm_predictor = DeepRhythmPredictor(device=device)
+            logger.info(f"DeepRhythm model loaded on {device}")
+        except Exception as e:
+            logger.warning(f"Failed to load DeepRhythm model: {e}")
+            return None
+
+    return _deeprhythm_predictor
+
+
+def _detect_bpm_deeprhythm(audio_data: np.ndarray, sample_rate: int) -> Tuple[float, float]:
+    """
+    Detect BPM using DeepRhythm CNN model (more accurate than librosa).
+
+    Args:
+        audio_data: Audio array (mono recommended)
+        sample_rate: Sample rate in Hz
+
+    Returns:
+        Tuple of (bpm, confidence) where confidence is 0.0-1.0
+
+    Raises:
+        Exception: If detection fails
+    """
+    predictor = _get_deeprhythm_predictor()
+    if predictor is None:
+        raise Exception("DeepRhythm predictor not available")
+
+    try:
+        # DeepRhythm expects mono audio
+        if audio_data.ndim > 1:
+            audio_mono = np.mean(audio_data, axis=1)
+        else:
+            audio_mono = audio_data
+
+        # Predict BPM with confidence score
+        bpm, confidence = predictor.predict_from_audio(
+            audio_mono,
+            sample_rate,
+            include_confidence=True
+        )
+
+        return float(bpm), float(confidence)
+
+    except Exception as e:
+        logger.error(f"DeepRhythm detection failed: {e}")
+        raise
+
+
+def _detect_bpm_librosa(audio_data: np.ndarray, sample_rate: int) -> float:
+    """
+    Detect BPM using librosa's beat tracking (fallback method).
+
+    Args:
+        audio_data: Audio array (mono recommended)
+        sample_rate: Sample rate in Hz
+
+    Returns:
+        Detected BPM as float
+
+    Raises:
+        Exception: If detection fails
+    """
+    # Use librosa's tempo estimation with improved parameters
+    # onset_envelope: strength of note onsets over time
+    # aggregate=np.median: robust to tempo variations
+    # hop_length=512: Higher temporal resolution for better accuracy
+    # start_bpm=120: Expected starting tempo (most common range)
+    # std_bpm=1.0: Lower standard deviation = more precise estimation
+    # ac_size=8.0: Auto-correlation window size (default, works well)
+    # max_tempo=240: Prevents double-tempo detection errors
+
+    # Use the newer API if available (librosa >= 0.10.0)
+    try:
+        from librosa.feature.rhythm import tempo as tempo_func
+    except ImportError:
+        # Fallback to old API for older librosa versions
+        tempo_func = librosa.beat.tempo
+
+    tempo = tempo_func(
+        y=audio_data,
+        sr=sample_rate,
+        aggregate=np.median,
+        hop_length=512,
+        start_bpm=120.0,
+        std_bpm=1.0,
+        ac_size=8.0,
+        max_tempo=240.0
+    )
+
+    # librosa.beat.tempo returns an array, extract the first value
+    detected_bpm = float(tempo[0])
+
+    # Additional validation: check for common tempo doubling/halving errors
+    # If BPM is very high, it might be double-tempo
+    if detected_bpm > 180:
+        logger.info(f"Detected high BPM ({detected_bpm:.1f}), checking if half-tempo is more likely")
+        half_tempo = detected_bpm / 2
+        # Accept half-tempo if it falls in typical range (60-180 BPM)
+        if 60 <= half_tempo <= 180:
+            logger.info(f"Using half-tempo: {half_tempo:.1f} BPM")
+            detected_bpm = half_tempo
+
+    # If BPM is very low, it might be half-tempo
+    elif detected_bpm < 60:
+        logger.info(f"Detected low BPM ({detected_bpm:.1f}), checking if double-tempo is more likely")
+        double_tempo = detected_bpm * 2
+        # Accept double-tempo if it falls in typical range (60-180 BPM)
+        if 60 <= double_tempo <= 180:
+            logger.info(f"Using double-tempo: {double_tempo:.1f} BPM")
+            detected_bpm = double_tempo
+
+    return detected_bpm
+
+
+def detect_bpm(audio_data: np.ndarray, sample_rate: int, method: str = 'auto') -> Tuple[float, Optional[float]]:
+    """
+    Detect BPM (tempo) of audio using the best available method.
+
+    Automatically uses DeepRhythm (95%+ accuracy) if available, otherwise
+    falls back to librosa (~75-85% accuracy). DeepRhythm is significantly
+    faster and more accurate, especially for electronic music and drums.
 
     WHY: For sampler loop export, we need to know the BPM to calculate
     exact bar lengths. Auto-detection provides a starting point that users
@@ -357,91 +505,63 @@ def detect_bpm(audio_data: np.ndarray, sample_rate: int) -> float:
     Args:
         audio_data: Audio array (samples,) for mono or (samples, channels) for stereo
         sample_rate: Sample rate in Hz
+        method: Detection method - 'auto' (default), 'deeprhythm', or 'librosa'
 
     Returns:
-        Detected BPM as a float
+        Tuple of (bpm, confidence) where:
+        - bpm: Detected BPM as float
+        - confidence: 0.0-1.0 for DeepRhythm, None for librosa
 
     Example:
         >>> audio, sr = load_audio("song.wav")
-        >>> bpm = detect_bpm(audio, sr)
-        >>> print(f"Detected tempo: {bpm:.1f} BPM")
-        Detected tempo: 120.0 BPM
+        >>> bpm, confidence = detect_bpm(audio, sr)
+        >>> if confidence:
+        >>>     print(f"Detected tempo: {bpm:.1f} BPM ({confidence:.0%} confident)")
+        >>> else:
+        >>>     print(f"Detected tempo: {bpm:.1f} BPM (librosa)")
 
     Notes:
         - For stereo audio, the function converts to mono for analysis
         - Detection works best on music with clear rhythmic elements
         - Electronic music and music with strong drums typically detect well
-        - Ambient or arrhythmic music may give unreliable results
+        - DeepRhythm provides confidence scores for better UX
         - The returned BPM should be treated as a suggestion for user review
     """
     if len(audio_data) == 0:
         logger.warning("detect_bpm: Empty audio data, returning default 120 BPM")
-        return 120.0
+        return 120.0, None
 
     # Convert stereo to mono if needed
-    # Librosa expects mono audio for tempo detection
     if audio_data.ndim > 1:
         # Stereo: (samples, channels) -> (samples,)
         audio_mono = np.mean(audio_data, axis=1)
     else:
         audio_mono = audio_data
 
-    try:
-        # Use librosa's tempo estimation with improved parameters
-        # onset_envelope: strength of note onsets over time
-        # aggregate=np.median: robust to tempo variations
-        # hop_length=512: Higher temporal resolution for better accuracy
-        # start_bpm=120: Expected starting tempo (most common range)
-        # std_bpm=1.0: Lower standard deviation = more precise estimation
-        # ac_size=8.0: Auto-correlation window size (default, works well)
-        # max_tempo=240: Prevents double-tempo detection errors
+    # Method selection
+    use_deeprhythm = (
+        method == 'deeprhythm' or
+        (method == 'auto' and DEEPRHYTHM_AVAILABLE)
+    )
 
-        # Use the newer API if available (librosa >= 0.10.0)
+    # Try DeepRhythm first if requested/available
+    if use_deeprhythm:
         try:
-            from librosa.feature.rhythm import tempo as tempo_func
-        except ImportError:
-            # Fallback to old API for older librosa versions
-            tempo_func = librosa.beat.tempo
+            bpm, confidence = _detect_bpm_deeprhythm(audio_mono, sample_rate)
+            logger.info(f"DeepRhythm detected: {bpm:.1f} BPM ({confidence:.0%} confident)")
+            return bpm, confidence
+        except Exception as e:
+            logger.warning(f"DeepRhythm failed: {e}, falling back to librosa")
+            # Fall through to librosa
 
-        tempo = tempo_func(
-            y=audio_mono,
-            sr=sample_rate,
-            aggregate=np.median,
-            hop_length=512,
-            start_bpm=120.0,
-            std_bpm=1.0,
-            ac_size=8.0,
-            max_tempo=240.0
-        )
-
-        # librosa.beat.tempo returns an array, extract the first value
-        detected_bpm = float(tempo[0])
-
-        # Additional validation: check for common tempo doubling/halving errors
-        # If BPM is very high, it might be double-tempo
-        if detected_bpm > 180:
-            logger.info(f"Detected high BPM ({detected_bpm:.1f}), checking if half-tempo is more likely")
-            half_tempo = detected_bpm / 2
-            # Accept half-tempo if it falls in typical range (60-180 BPM)
-            if 60 <= half_tempo <= 180:
-                logger.info(f"Using half-tempo: {half_tempo:.1f} BPM")
-                detected_bpm = half_tempo
-
-        # If BPM is very low, it might be half-tempo
-        elif detected_bpm < 60:
-            logger.info(f"Detected low BPM ({detected_bpm:.1f}), checking if double-tempo is more likely")
-            double_tempo = detected_bpm * 2
-            # Accept double-tempo if it falls in typical range (60-180 BPM)
-            if 60 <= double_tempo <= 180:
-                logger.info(f"Using double-tempo: {double_tempo:.1f} BPM")
-                detected_bpm = double_tempo
-
-        logger.info(f"Detected BPM: {detected_bpm:.1f}")
-        return detected_bpm
-
+    # Librosa fallback or direct use
+    try:
+        bpm = _detect_bpm_librosa(audio_mono, sample_rate)
+        logger.info(f"Librosa detected: {bpm:.1f} BPM")
+        return bpm, None
     except Exception as e:
         logger.warning(f"BPM detection failed: {e}, returning default 120 BPM")
-        return 120.0
+        return 120.0, None
 
 
 def normalize_peak_to_dbfs(
