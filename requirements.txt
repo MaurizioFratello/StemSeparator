@@ -18,6 +18,11 @@ pydub>=0.25.1
 resampy>=0.4.2
 scipy>=1.11.0  # For signal resampling in ensemble mode
 
+# Enhanced BPM Detection (Optional - provides 95%+ accuracy vs librosa's ~75-85%)
+# Automatically uses CUDA/MPS if available, falls back to CPU
+# If not installed, system falls back to librosa for BPM detection
+deeprhythm>=0.2.0  # Optional: Enhanced BPM detection with confidence scores
+
 # ML Models
 torch>=2.0.0
 torchaudio>=2.0.0

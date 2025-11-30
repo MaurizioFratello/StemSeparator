@@ -369,10 +369,16 @@ def _get_deeprhythm_predictor():
 
     if _deeprhythm_predictor is None:
         try:
-            # Try to use CUDA if available, otherwise fall back to CPU
+            # Try to use GPU acceleration if available
+            # Priority: CUDA (NVIDIA) > MPS (Apple Silicon) > CPU
             try:
                 import torch
-                device = 'cuda' if torch.cuda.is_available() else 'cpu'
+                if torch.cuda.is_available():
+                    device = 'cuda'
+                elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
+                    device = 'mps'  # Apple Silicon (M1/M2/M3)
+                else:
+                    device = 'cpu'
             except ImportError:
                 device = 'cpu'
 
