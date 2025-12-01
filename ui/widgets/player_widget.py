@@ -1767,11 +1767,33 @@ class PlayerWidget(QWidget):
             # Get common filename from first loaded stem
             common_filename = self._get_common_filename()
 
-            # Show loop export dialog (BPM detection moved inside dialog)
+            # Check if Loop Preview has detected beats - use those settings as presets
+            preset_bpm = None
+            preset_bars = None
+
+            if self.detected_downbeat_times is not None and len(self.detected_downbeat_times) >= 2:
+                # Calculate BPM from downbeat intervals (more accurate than beat intervals)
+                downbeat_intervals = np.diff(self.detected_downbeat_times)
+                median_bar_duration = float(np.median(downbeat_intervals))
+                if median_bar_duration > 0:
+                    # 4 beats per bar in 4/4 time
+                    preset_bpm = (60.0 * 4) / median_bar_duration
+                    self.ctx.logger().info(
+                        f"Using Loop Preview BPM: {preset_bpm:.1f} "
+                        f"(from {len(self.detected_downbeat_times)} downbeats)"
+                    )
+
+                # Use the bars per loop setting from Loop Preview
+                preset_bars = self._bars_per_loop
+                self.ctx.logger().info(f"Using Loop Preview bars: {preset_bars}")
+
+            # Show loop export dialog with presets from Loop Preview (if available)
             dialog = LoopExportDialog(
                 player_widget=self,
                 duration_seconds=duration_seconds,
                 num_stems=len(self.stem_files),
+                preset_bpm=preset_bpm,
+                preset_bars=preset_bars,
                 parent=self
             )
 

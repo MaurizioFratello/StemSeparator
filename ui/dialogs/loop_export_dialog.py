@@ -86,6 +86,8 @@ class LoopExportDialog(QDialog):
         player_widget=None,
         duration_seconds: float = 0.0,
         num_stems: int = 1,
+        preset_bpm: Optional[float] = None,
+        preset_bars: Optional[int] = None,
         parent=None
     ):
         """
@@ -95,13 +97,17 @@ class LoopExportDialog(QDialog):
             player_widget: Reference to PlayerWidget for BPM detection (optional)
             duration_seconds: Total duration of audio in seconds (for preview)
             num_stems: Number of loaded stems (for individual export preview)
+            preset_bpm: Pre-detected BPM from Loop Preview (skips BPM detection)
+            preset_bars: Pre-selected bars per loop from Loop Preview
             parent: Parent widget
         """
         super().__init__(parent)
         self.player_widget = player_widget
         self.duration_seconds = duration_seconds
         self.num_stems = num_stems
-        self.detected_bpm = 120  # Default until detection runs
+        self.preset_bpm = preset_bpm
+        self.preset_bars = preset_bars
+        self.detected_bpm = int(preset_bpm) if preset_bpm else 120  # Use preset or default
         self.temp_bpm_file = None  # Track temp file for cleanup
         self.thread_pool = QThreadPool()
 
@@ -157,6 +163,21 @@ class LoopExportDialog(QDialog):
         # === Row 1: BPM + Loop Length ===
         row1_card, row1_layout = self._create_card("Tempo & Loop Length")
 
+        # Show Loop Preview preset info if available
+        if self.preset_bpm is not None or self.preset_bars is not None:
+            preset_info = QLabel()
+            preset_parts = []
+            if self.preset_bpm:
+                preset_parts.append(f"{self.preset_bpm:.1f} BPM")
+            if self.preset_bars:
+                preset_parts.append(f"{self.preset_bars} bars")
+            preset_info.setText(f"✓ Using Loop Preview settings: {', '.join(preset_parts)}")
+            preset_info.setStyleSheet(
+                "color: #10b981; font-size: 11pt; padding: 8px; "
+                "background: rgba(16, 185, 129, 0.1); border-radius: 6px;"
+            )
+            row1_layout.addWidget(preset_info)
+
         row1_horizontal = QHBoxLayout()
         row1_horizontal.setSpacing(30)
 
@@ -179,19 +200,28 @@ class LoopExportDialog(QDialog):
         self.bpm_spin.setMinimumWidth(150)
         bpm_label_row.addWidget(self.bpm_spin)
 
-        # Detect BPM button
+        # Detect BPM button - hide if preset is available
         self.detect_bpm_btn = QPushButton("🎵 Detect BPM")
         self.detect_bpm_btn.setMinimumHeight(35)
         self.detect_bpm_btn.setMinimumWidth(130)
-        self.detect_bpm_btn.setEnabled(self.player_widget is not None)
+        # Disable if no player_widget OR if preset BPM is already set
+        self.detect_bpm_btn.setEnabled(
+            self.player_widget is not None and self.preset_bpm is None
+        )
+        if self.preset_bpm is not None:
+            self.detect_bpm_btn.setVisible(False)  # Hide button when preset is used
         bpm_label_row.addWidget(self.detect_bpm_btn)
 
         bpm_label_row.addStretch()
         bpm_container.addLayout(bpm_label_row)
 
-        # BPM info label
-        self.bpm_info_label = QLabel("💡 Click 'Detect BPM' for automatic detection")
-        self.bpm_info_label.setStyleSheet("color: rgba(255, 255, 255, 0.6); font-size: 11pt;")
+        # BPM info label - show different message based on preset
+        if self.preset_bpm is not None:
+            self.bpm_info_label = QLabel("✓ BPM from Loop Preview (editable)")
+            self.bpm_info_label.setStyleSheet("color: #10b981; font-size: 11pt;")
+        else:
+            self.bpm_info_label = QLabel("💡 Click 'Detect BPM' for automatic detection")
+            self.bpm_info_label.setStyleSheet("color: rgba(255, 255, 255, 0.6); font-size: 11pt;")
         bpm_container.addWidget(self.bpm_info_label)
 
         # Progress bar (hidden by default)
@@ -219,17 +249,27 @@ class LoopExportDialog(QDialog):
 
         self.bars_combo = QComboBox()
         self.bars_combo.addItems(["2 Bar", "4 Bar", "8 Bar"])
-        self.bars_combo.setCurrentIndex(1)  # Default: 4 Bar
+        # Set index based on preset_bars or default to 4
+        if self.preset_bars == 2:
+            self.bars_combo.setCurrentIndex(0)
+        elif self.preset_bars == 8:
+            self.bars_combo.setCurrentIndex(2)
+        else:
+            self.bars_combo.setCurrentIndex(1)  # Default: 4 Bar
         self.bars_combo.setMinimumHeight(35)
         self.bars_combo.setMinimumWidth(120)
         bars_label_row.addWidget(self.bars_combo)
         bars_label_row.addStretch()
         bars_container.addLayout(bars_label_row)
 
-        # Placeholder for spacing (matching BPM info label height)
-        bars_spacer = QLabel()
-        bars_spacer.setFixedHeight(self.bpm_info_label.sizeHint().height())
-        bars_container.addWidget(bars_spacer)
+        # Info label for bars - show different message based on preset
+        if self.preset_bars is not None:
+            bars_info = QLabel("✓ From Loop Preview")
+            bars_info.setStyleSheet("color: #10b981; font-size: 11pt;")
+        else:
+            bars_info = QLabel()  # Empty placeholder
+        bars_info.setFixedHeight(self.bpm_info_label.sizeHint().height())
+        bars_container.addWidget(bars_info)
 
         row1_horizontal.addLayout(bars_container)
         row1_layout.addLayout(row1_horizontal)

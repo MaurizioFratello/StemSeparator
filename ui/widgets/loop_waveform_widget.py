@@ -63,7 +63,7 @@ class LoopWaveformDisplay(QWidget):
         self.downbeat_times: Optional[np.ndarray] = None  # Array of downbeat positions
 
         # Display mode
-        self.display_mode: str = "combined"  # "combined" or "stacked"
+        self.display_mode: str = "stacked"  # "combined" or "stacked" (default: stacked)
 
         # Selected loop
         self.selected_loop_index: int = -1  # -1 = none selected
@@ -608,11 +608,11 @@ class LoopWaveformWidget(QWidget):
 
         self.btn_combined = QPushButton("Combined")
         self.btn_combined.setCheckable(True)
-        self.btn_combined.setChecked(True)
         self.btn_combined.setObjectName("toggle_button_wide")
 
         self.btn_stacked = QPushButton("Stacked")
         self.btn_stacked.setCheckable(True)
+        self.btn_stacked.setChecked(True)  # Default: Stacked view
         self.btn_stacked.setObjectName("toggle_button_wide")
 
         # Button group for exclusive selection
@@ -767,6 +767,9 @@ class LoopWaveformWidget(QWidget):
         # Zoom buttons
         self.zoom_button_group.idClicked.connect(self._on_zoom_changed)
 
+        # Install event filter on scroll area viewport to catch resize events
+        self.scroll_area.viewport().installEventFilter(self)
+
     def _on_mode_changed(self, mode: str):
         """Handle view mode change"""
         self.waveform_display.display_mode = mode
@@ -794,7 +797,29 @@ class LoopWaveformWidget(QWidget):
     def resizeEvent(self, event):
         """Update waveform display when widget resizes"""
         super().resizeEvent(event)
-        self._update_display_dimensions()
+        # Use singleShot to ensure layout is complete before updating dimensions
+        from PySide6.QtCore import QTimer
+        QTimer.singleShot(0, self._update_display_dimensions)
+
+    def showEvent(self, event):
+        """Update dimensions when widget becomes visible (e.g., tab switch, fullscreen)"""
+        super().showEvent(event)
+        from PySide6.QtCore import QTimer
+        QTimer.singleShot(0, self._update_display_dimensions)
+
+    def eventFilter(self, watched, event):
+        """
+        Catch resize events on scroll area viewport.
+        
+        WHY: When window goes fullscreen, the viewport resizes but resizeEvent
+        of the parent widget may not trigger dimension updates correctly.
+        """
+        from PySide6.QtCore import QEvent
+        if watched == self.scroll_area.viewport() and event.type() == QEvent.Resize:
+            # Defer update to ensure layout is complete
+            from PySide6.QtCore import QTimer
+            QTimer.singleShot(0, self._update_display_dimensions)
+        return super().eventFilter(watched, event)
 
     def _update_display_dimensions(self):
         """
