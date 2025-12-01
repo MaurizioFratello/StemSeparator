@@ -12,7 +12,7 @@ import soundfile as sf
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
     QSlider, QGroupBox, QFileDialog, QMessageBox, QListWidget,
-    QListWidgetItem, QScrollArea, QProgressBar, QFrame, QTabWidget
+    QListWidgetItem, QScrollArea, QProgressBar, QFrame, QStackedWidget
 )
 from PySide6.QtCore import Qt, Signal, Slot, QTimer, QRunnable, QThreadPool, QObject
 from PySide6.QtGui import QDragEnterEvent, QDropEvent
@@ -381,30 +381,35 @@ class PlayerWidget(QWidget):
         return card, layout
 
     def _setup_ui(self):
-        """Setup widget layout with tabbed interface"""
+        """
+        Setup widget layout with stacked pages (navigation via sidebar).
+        
+        PURPOSE: Provide 3 pages (Stems, Playback, Looping) controlled by MainWindow sidebar
+        CONTEXT: Replaced QTabWidget with QStackedWidget for sidebar-based navigation
+        """
         # Create main layout for the widget
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(20, 20, 20, 20)
         main_layout.setSpacing(15)
 
-        # === TAB WIDGET ===
-        self.tab_widget = QTabWidget()
-        self.tab_widget.setObjectName("playerTabs")
+        # === STACKED WIDGET (navigation via sidebar, not tabs) ===
+        self._page_stack = QStackedWidget()
+        self._page_stack.setObjectName("playerPages")
 
-        # Create tabs (3 tabs: Stems, Playback, Looping)
-        self.stems_tab = self._create_stems_tab()
-        self.playback_tab = self._create_playback_tab()
-        self.loop_preview_tab = self._create_loop_preview_tab()
+        # Create pages (3 pages: Stems, Playback, Looping)
+        self.stems_page = self._create_stems_tab()
+        self.playback_page = self._create_playback_tab()
+        self.looping_page = self._create_loop_preview_tab()
 
-        # Add tabs
-        self.tab_widget.addTab(self.stems_tab, "📂 Stems")
-        self.tab_widget.addTab(self.playback_tab, "▶ Playback")
-        self.tab_widget.addTab(self.loop_preview_tab, "🎧 Looping")
+        # Add pages to stack
+        self._page_stack.addWidget(self.stems_page)     # Index 0
+        self._page_stack.addWidget(self.playback_page)  # Index 1
+        self._page_stack.addWidget(self.looping_page)   # Index 2
 
-        main_layout.addWidget(self.tab_widget)
+        main_layout.addWidget(self._page_stack)
 
-        # Connect tab change signal
-        self.tab_widget.currentChanged.connect(self._on_tab_changed)
+        # Connect page change signal (for internal logic like loop preparation)
+        self._page_stack.currentChanged.connect(self._on_page_changed)
 
     def _create_stems_tab(self) -> QWidget:
         """
@@ -678,14 +683,38 @@ class PlayerWidget(QWidget):
 
         return tab
 
-    def _on_tab_changed(self, index: int):
-        """Handle tab change events"""
-        tab_names = ["Stems", "Playback", "Looping"]
-        self.ctx.logger().info(f"Switched to tab: {tab_names[index]}")
+    def _on_page_changed(self, index: int):
+        """
+        Handle page change events (internal callback).
+        
+        PURPOSE: React to page switches (e.g., prepare loop preview)
+        CONTEXT: Called when page changes via set_page() from MainWindow sidebar
+        """
+        page_names = ["Stems", "Playback", "Looping"]
+        self.ctx.logger().info(f"Switched to page: {page_names[index]}")
 
-        # Trigger loop analysis when switching to Looping tab
-        if index == 2:  # Looping tab (was index 1 before restructure)
+        # Trigger loop analysis when switching to Looping page
+        if index == 2:  # Looping page
             self._prepare_loop_preview()
+
+    # === PUBLIC PAGE NAVIGATION (called from MainWindow sidebar) ===
+
+    def set_page(self, index: int) -> None:
+        """
+        Set the currently visible page.
+        
+        PURPOSE: Allow MainWindow sidebar to control which page is shown
+        CONTEXT: Called when user clicks Stems/Playback/Looping in sidebar
+        
+        Args:
+            index: Page index (0=Stems, 1=Playback, 2=Looping)
+        """
+        if 0 <= index < self._page_stack.count():
+            self._page_stack.setCurrentIndex(index)
+
+    def get_current_page(self) -> int:
+        """Get the currently visible page index."""
+        return self._page_stack.currentIndex()
 
     def _prepare_loop_preview(self):
         """Prepare loop preview when tab is activated"""

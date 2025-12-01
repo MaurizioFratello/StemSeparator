@@ -19,10 +19,9 @@
   "tabs.upload": "Upload",
   "tabs.recording": "Recording",
   "tabs.queue": "Queue",
-  "tabs.player": "Player",
-  "tabs.stems": "Stems",
-  "tabs.playback": "Playback",
-  "tabs.looping": "Looping",
+  "tabs.stems": "📂 Stems",
+  "tabs.playback": "▶ Playback",
+  "tabs.looping": "🎧 Looping",
   
   "export.mixed_audio": "💾 Export Mixed",
   "export.loops": "🔁 Export Loops",

@@ -132,7 +132,11 @@ class MainWindow(QMainWindow):
         self._btn_upload = self._create_nav_button("upload", 0)
         self._btn_record = self._create_nav_button("mic", 1)
         self._btn_queue = self._create_nav_button("list", 2)
-        self._btn_player = self._create_nav_button("play", 3)
+        
+        # Monitoring section buttons (navigate to PlayerWidget + specific page)
+        self._btn_stems = self._create_player_page_button("stems", 0)
+        self._btn_playback = self._create_player_page_button("playback", 1)
+        self._btn_looping = self._create_player_page_button("looping", 2)
         
         # --- SIDEBAR STRUCTURE ---
         
@@ -163,11 +167,13 @@ class MainWindow(QMainWindow):
         sep2.setFrameShadow(QFrame.Plain)
         sidebar_layout.addWidget(sep2)
 
-        # SECTION: MONITORING
+        # SECTION: MONITORING (3 sub-navigation buttons for PlayerWidget pages)
         self._lbl_monitoring = QLabel("Monitoring")
         self._lbl_monitoring.setObjectName("sidebar_header")
         sidebar_layout.addWidget(self._lbl_monitoring)
-        sidebar_layout.addWidget(self._btn_player)
+        sidebar_layout.addWidget(self._btn_stems)
+        sidebar_layout.addWidget(self._btn_playback)
+        sidebar_layout.addWidget(self._btn_looping)
         
         # SEPARATOR 3
         sep3 = QFrame()
@@ -235,6 +241,26 @@ class MainWindow(QMainWindow):
         btn.clicked.connect(lambda: self._content_stack.setCurrentIndex(index))
         self._nav_group.addButton(btn)
         # TODO: Load icon here once we have them, or use unicode/text for now
+        return btn
+
+    def _create_player_page_button(self, page_name: str, page_index: int) -> QPushButton:
+        """
+        Helper to create sidebar buttons for PlayerWidget pages.
+        
+        PURPOSE: Navigate to PlayerWidget (index 3) AND set specific page
+        CONTEXT: Stems, Playback, Looping buttons under MONITORING section
+        """
+        btn = QPushButton()
+        btn.setCheckable(True)
+        btn.setObjectName("sidebar_button")
+        
+        # Connect click to: 1) switch to PlayerWidget, 2) set page within PlayerWidget
+        def on_click():
+            self._content_stack.setCurrentIndex(3)  # PlayerWidget is at index 3
+            self._player_widget.set_page(page_index)
+        
+        btn.clicked.connect(on_click)
+        self._nav_group.addButton(btn)
         return btn
 
     def _center_on_screen(self) -> None:
@@ -411,7 +437,11 @@ class MainWindow(QMainWindow):
         self._btn_upload.setText(translator("tabs.upload", fallback="Upload"))
         self._btn_record.setText(translator("tabs.recording", fallback="Recording"))
         self._btn_queue.setText(translator("tabs.queue", fallback="Queue"))
-        self._btn_player.setText(translator("tabs.player", fallback="Player"))
+        
+        # Monitoring section buttons
+        self._btn_stems.setText(translator("tabs.stems", fallback="📂 Stems"))
+        self._btn_playback.setText(translator("tabs.playback", fallback="▶ Playback"))
+        self._btn_looping.setText(translator("tabs.looping", fallback="🎧 Looping"))
 
         if self.statusBar():
             self.statusBar().showMessage(translator("status.ready", fallback="Ready"))
