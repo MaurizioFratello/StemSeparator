@@ -6,20 +6,28 @@ CONTEXT: Used in Loop Preview tab to visualize and select loops for playback/exp
 
 ARCHITECTURE:
 - LoopWaveformDisplay: Custom paint widget for rendering waveforms, loops, beats
-- LoopWaveformWidget: Container with mode selection and controls
+- LoopWaveformWidget: Container with scroll area, mode selection and controls
+
+SCROLLING: Shows 16 bars at a time with horizontal scrollbar for long songs
 """
 from pathlib import Path
 from typing import Optional, List, Tuple, Dict
 import numpy as np
 
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFrame, QButtonGroup, QPushButton
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFrame, QButtonGroup, QPushButton,
+    QScrollArea, QSizePolicy
 )
 from PySide6.QtCore import Qt, Signal, QRectF, QPointF, QPoint
 from PySide6.QtGui import QPainter, QPen, QColor, QPixmap, QLinearGradient, QFont
 
 from ui.app_context import AppContext
 from ui.theme import ColorPalette
+
+
+# Display constants
+DEFAULT_VISIBLE_BARS = 16    # Default number of bars visible without scrolling
+MIN_PIXELS_PER_BAR = 40      # Minimum width per bar for readability
 
 
 class LoopWaveformDisplay(QWidget):
@@ -32,6 +40,8 @@ class LoopWaveformDisplay(QWidget):
     Display Modes:
     - Combined: Single waveform showing mixed audio from all stems
     - Stacked: Multiple waveforms, one per stem (vertically stacked)
+
+    SCROLLING: Widget width is dynamic based on song length and bar duration
     """
 
     # Signal: loop_index selected
@@ -44,6 +54,7 @@ class LoopWaveformDisplay(QWidget):
         # Waveform data
         self.waveform_data: Optional[np.ndarray] = None  # Combined mode: (samples,)
         self.stem_waveforms: Dict[str, np.ndarray] = {}  # Stacked mode: {stem_name: (samples,)}
+        self.sample_rate: int = 44100
         self.duration: float = 0.0
 
         # Loop and beat data
@@ -57,9 +68,14 @@ class LoopWaveformDisplay(QWidget):
         # Selected loop
         self.selected_loop_index: int = -1  # -1 = none selected
 
-        # UI settings
-        self.setMinimumHeight(200)
-        self.setMaximumHeight(600)
+        # Scrolling: calculate bar duration from downbeats
+        self._bar_duration: float = 2.0  # Default 2 seconds per bar (120 BPM, 4/4)
+        self._content_width: int = 800  # Calculated based on song length
+        self._visible_bars: int = DEFAULT_VISIBLE_BARS  # Bars visible in viewport
+        self._viewport_width: int = 800  # Will be set by parent scroll area
+
+        # UI settings - height will be set dynamically by parent
+        self.setMinimumHeight(150)
 
         # Performance: Cache waveform rendering
         self._waveform_cache: Optional[QPixmap] = None
@@ -68,6 +84,79 @@ class LoopWaveformDisplay(QWidget):
         # Enable mouse tracking for hover effects
         self.setMouseTracking(True)
         self._hover_loop_index: int = -1
+
+    def _calculate_bar_duration(self):
+        """
+        Calculate average bar duration from downbeat times.
+        
+        WHY: Bar duration is needed to determine content width for scrolling.
+        """
+        if self.downbeat_times is not None and len(self.downbeat_times) >= 2:
+            # Average interval between downbeats
+            intervals = np.diff(self.downbeat_times)
+            self._bar_duration = float(np.median(intervals))
+        elif self.beat_times is not None and len(self.beat_times) >= 4:
+            # Fallback: assume 4 beats per bar
+            intervals = np.diff(self.beat_times)
+            self._bar_duration = float(np.median(intervals)) * 4
+        else:
+            # Default: 2 seconds (120 BPM, 4/4)
+            self._bar_duration = 2.0
+
+    def _calculate_content_width(self):
+        """
+        Calculate total content width based on song duration, bar duration, and visible bars setting.
+        
+        WHY: More visible bars = less detail but more overview
+             Fewer visible bars = more detail but more scrolling
+        """
+        if self.duration <= 0 or self._bar_duration <= 0:
+            self._content_width = self._viewport_width
+            return
+
+        # Calculate pixels per bar based on viewport width and visible bars setting
+        pixels_per_bar = max(MIN_PIXELS_PER_BAR, self._viewport_width / self._visible_bars)
+
+        # Calculate total bars in song
+        num_bars = self.duration / self._bar_duration
+
+        # Content width = total bars × pixels per bar
+        self._content_width = max(int(num_bars * pixels_per_bar), self._viewport_width)
+
+        # Update widget size
+        self.setMinimumWidth(self._content_width)
+        self.setFixedWidth(self._content_width)
+
+    def set_visible_bars(self, num_bars: int):
+        """
+        Set number of bars visible in viewport without scrolling.
+        
+        Args:
+            num_bars: Number of bars to show (typically 2, 4, 8, or 16)
+        """
+        self._visible_bars = max(1, num_bars)
+        self._calculate_content_width()
+        self._waveform_cache = None
+        self.update()
+
+    def set_viewport_width(self, width: int):
+        """Set viewport width (called by parent scroll area on resize)."""
+        self._viewport_width = max(100, width)
+        self._calculate_content_width()
+        self._waveform_cache = None
+        self.update()
+
+    def _time_to_x(self, time_sec: float) -> int:
+        """Convert time in seconds to x pixel position."""
+        if self.duration <= 0:
+            return 0
+        return int((time_sec / self.duration) * self._content_width)
+
+    def _x_to_time(self, x: int) -> float:
+        """Convert x pixel position to time in seconds."""
+        if self._content_width <= 0:
+            return 0.0
+        return (x / self._content_width) * self.duration
 
     def set_combined_waveform(self, audio_data: np.ndarray, sample_rate: int):
         """
@@ -82,8 +171,13 @@ class LoopWaveformDisplay(QWidget):
             audio_data = np.mean(audio_data, axis=1)
 
         self.waveform_data = audio_data
+        self.sample_rate = sample_rate
         self.duration = len(audio_data) / sample_rate
         self.display_mode = "combined"
+
+        # Recalculate dimensions
+        self._calculate_bar_duration()
+        self._calculate_content_width()
 
         # Invalidate cache
         self._waveform_cache = None
@@ -108,8 +202,13 @@ class LoopWaveformDisplay(QWidget):
             max_len = max(max_len, len(audio_data))
 
         self.stem_waveforms = processed
+        self.sample_rate = sample_rate
         self.duration = max_len / sample_rate
         self.display_mode = "stacked"
+
+        # Recalculate dimensions
+        self._calculate_bar_duration()
+        self._calculate_content_width()
 
         # Invalidate cache
         self._waveform_cache = None
@@ -136,6 +235,11 @@ class LoopWaveformDisplay(QWidget):
         """
         self.beat_times = beat_times
         self.downbeat_times = downbeat_times
+
+        # Recalculate bar duration from new downbeat data
+        self._calculate_bar_duration()
+        self._calculate_content_width()
+
         self._waveform_cache = None
         self.update()
 
@@ -156,6 +260,8 @@ class LoopWaveformDisplay(QWidget):
         self.selected_loop_index = -1
         self._hover_loop_index = -1
         self._waveform_cache = None
+        self._content_width = self._viewport_width
+        self.setMinimumWidth(self._viewport_width)
         self.update()
 
     def resizeEvent(self, event):
@@ -170,12 +276,10 @@ class LoopWaveformDisplay(QWidget):
 
         # Convert click position to time
         click_x = event.pos().x()
-        width = self.width()
+        click_time = self._x_to_time(click_x)
 
-        if self.duration == 0 or width == 0:
+        if self.duration == 0:
             return
-
-        click_time = (click_x / width) * self.duration
 
         # Find which loop was clicked
         for i, (start_time, end_time) in enumerate(self.loop_segments):
@@ -189,12 +293,10 @@ class LoopWaveformDisplay(QWidget):
     def mouseMoveEvent(self, event):
         """Handle mouse hover for loop highlighting"""
         mouse_x = event.pos().x()
-        width = self.width()
+        hover_time = self._x_to_time(mouse_x)
 
-        if self.duration == 0 or width == 0:
+        if self.duration == 0:
             return
-
-        hover_time = (mouse_x / width) * self.duration
 
         # Find which loop is being hovered
         new_hover_index = -1
@@ -273,7 +375,7 @@ class LoopWaveformDisplay(QWidget):
 
         center_y = height / 2
 
-        # Downsample waveform for display
+        # Calculate samples per pixel based on content width
         samples_per_pixel = max(1, len(self.waveform_data) // width)
 
         # Draw waveform
@@ -327,7 +429,7 @@ class LoopWaveformDisplay(QWidget):
             y_offset = i * stem_height
             center_y = y_offset + stem_height / 2
 
-            # Downsample waveform
+            # Calculate samples per pixel
             samples_per_pixel = max(1, len(waveform_data) // width)
 
             # Draw waveform with unique color
@@ -371,9 +473,9 @@ class LoopWaveformDisplay(QWidget):
         height = self.height()
 
         for i, (start_time, end_time) in enumerate(self.loop_segments):
-            # Calculate pixel positions
-            start_x = int((start_time / self.duration) * width)
-            end_x = int((end_time / self.duration) * width)
+            # Calculate pixel positions using time_to_x
+            start_x = self._time_to_x(start_time)
+            end_x = self._time_to_x(end_time)
             loop_width = end_x - start_x
 
             # Highlight selected loop
@@ -418,38 +520,54 @@ class LoopWaveformDisplay(QWidget):
             painter.drawText(label_x, label_y, loop_label)
 
     def _draw_beat_markers(self, painter: QPainter):
-        """Draw beat and downbeat markers"""
+        """Draw beat, half-beat and downbeat markers"""
         if self.beat_times is None or self.duration == 0:
             return
 
-        width = self.width()
         height = self.height()
 
-        # Draw regular beats (thin lines)
+        # --- Regular beats (thin dashed lines) ---
         if len(self.beat_times) > 0:
             beat_pen = QPen(QColor(ColorPalette.TEXT_SECONDARY), 1, Qt.DashLine)
             beat_pen.setDashPattern([2, 4])
             painter.setPen(beat_pen)
 
             for beat_time in self.beat_times:
-                x = int((beat_time / self.duration) * width)
+                x = self._time_to_x(beat_time)
                 painter.drawLine(x, 0, x, height)
 
-        # Draw downbeats (prominent lines)
+        # --- Half beats (between consecutive beats, lighter dotted lines) ---
+        if len(self.beat_times) > 1:
+            half_beat_pen = QPen(QColor(ColorPalette.TEXT_SECONDARY), 1, Qt.DotLine)
+            # Slightly lower alpha to avoid clutter
+            color = half_beat_pen.color()
+            color.setAlpha(120)
+            half_beat_pen.setColor(color)
+            painter.setPen(half_beat_pen)
+
+            for i in range(len(self.beat_times) - 1):
+                t1 = self.beat_times[i]
+                t2 = self.beat_times[i + 1]
+                mid_time = (t1 + t2) / 2.0
+                x = self._time_to_x(mid_time)
+                painter.drawLine(x, 0, x, height)
+
+        # --- Downbeats (prominent solid lines) ---
         if self.downbeat_times is not None and len(self.downbeat_times) > 0:
             downbeat_pen = QPen(QColor(ColorPalette.ACCENT_SECONDARY), 2)
             painter.setPen(downbeat_pen)
 
             for downbeat_time in self.downbeat_times:
-                x = int((downbeat_time / self.duration) * width)
+                x = self._time_to_x(downbeat_time)
                 painter.drawLine(x, 0, x, height)
 
 
 class LoopWaveformWidget(QWidget):
     """
-    Loop waveform visualization with mode selection and controls
+    Loop waveform visualization with scrollable view and mode selection
 
     Features:
+    - Horizontal scrolling for long songs (16 bars visible at a time)
     - Combined/Stacked view mode selection
     - Visual loop segments with beat markers
     - Clickable loop selection
@@ -459,6 +577,7 @@ class LoopWaveformWidget(QWidget):
     # Signals
     loop_selected = Signal(int)  # loop_index
     mode_changed = Signal(str)   # "combined" or "stacked"
+    bars_per_loop_changed = Signal(int)  # 2, 4, or 8 bars per loop
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -467,28 +586,34 @@ class LoopWaveformWidget(QWidget):
         self._setup_ui()
         self._connect_signals()
 
+        # Summary info for header label
+        self._summary_prefix: str = ""   # e.g. "104.0 BPM (85%)"
+        self._loops_count: int = 0
+        self._bars_total: int = 0
+
     def _setup_ui(self):
-        """Setup widget layout"""
+        """Setup widget layout with scroll area"""
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(10)
 
-        # Controls header
+        # Controls header - horizontal layout with vertical separators
         controls_layout = QHBoxLayout()
+        controls_layout.setSpacing(15)
 
-        # View mode selector
-        mode_label = QLabel("View Mode:")
+        # 1. View mode selector
+        mode_label = QLabel("View:")
         mode_label.setStyleSheet(f"color: {ColorPalette.TEXT_PRIMARY};")
         controls_layout.addWidget(mode_label)
 
         self.btn_combined = QPushButton("Combined")
         self.btn_combined.setCheckable(True)
         self.btn_combined.setChecked(True)
-        self.btn_combined.setObjectName("toggle_button")
+        self.btn_combined.setObjectName("toggle_button_wide")
 
         self.btn_stacked = QPushButton("Stacked")
         self.btn_stacked.setCheckable(True)
-        self.btn_stacked.setObjectName("toggle_button")
+        self.btn_stacked.setObjectName("toggle_button_wide")
 
         # Button group for exclusive selection
         self.mode_button_group = QButtonGroup(self)
@@ -497,6 +622,90 @@ class LoopWaveformWidget(QWidget):
 
         controls_layout.addWidget(self.btn_combined)
         controls_layout.addWidget(self.btn_stacked)
+
+        # Vertical separator 1
+        separator1 = QFrame()
+        separator1.setFrameShape(QFrame.VLine)
+        separator1.setFrameShadow(QFrame.Sunken)
+        separator1.setStyleSheet("color: #333; max-width: 1px;")
+        controls_layout.addWidget(separator1)
+
+        # 2. Bars per loop selector
+        bars_per_loop_label = QLabel("Bars per loop:")
+        bars_per_loop_label.setStyleSheet(f"color: {ColorPalette.TEXT_PRIMARY};")
+        controls_layout.addWidget(bars_per_loop_label)
+
+        self.btn_loop_2 = QPushButton("2")
+        self.btn_loop_2.setCheckable(True)
+        self.btn_loop_2.setObjectName("toggle_button")
+        self.btn_loop_2.setToolTip("2 bars per loop")
+
+        self.btn_loop_4 = QPushButton("4")
+        self.btn_loop_4.setCheckable(True)
+        self.btn_loop_4.setChecked(True)  # Default
+        self.btn_loop_4.setObjectName("toggle_button")
+        self.btn_loop_4.setToolTip("4 bars per loop")
+
+        self.btn_loop_8 = QPushButton("8")
+        self.btn_loop_8.setCheckable(True)
+        self.btn_loop_8.setObjectName("toggle_button")
+        self.btn_loop_8.setToolTip("8 bars per loop")
+
+        # Button group for bars per loop
+        self.bars_per_loop_group = QButtonGroup(self)
+        self.bars_per_loop_group.addButton(self.btn_loop_2, 2)
+        self.bars_per_loop_group.addButton(self.btn_loop_4, 4)
+        self.bars_per_loop_group.addButton(self.btn_loop_8, 8)
+
+        controls_layout.addWidget(self.btn_loop_2)
+        controls_layout.addWidget(self.btn_loop_4)
+        controls_layout.addWidget(self.btn_loop_8)
+
+        # Vertical separator 2
+        separator2 = QFrame()
+        separator2.setFrameShape(QFrame.VLine)
+        separator2.setFrameShadow(QFrame.Sunken)
+        separator2.setStyleSheet("color: #333; max-width: 1px;")
+        controls_layout.addWidget(separator2)
+
+        # 3. Bars visible (zoom) selector
+        zoom_label = QLabel("Bars visible:")
+        zoom_label.setStyleSheet(f"color: {ColorPalette.TEXT_PRIMARY};")
+        controls_layout.addWidget(zoom_label)
+
+        self.btn_2_bars = QPushButton("2")
+        self.btn_2_bars.setCheckable(True)
+        self.btn_2_bars.setObjectName("toggle_button")
+        self.btn_2_bars.setToolTip("Show 2 bars (most detail)")
+
+        self.btn_4_bars = QPushButton("4")
+        self.btn_4_bars.setCheckable(True)
+        self.btn_4_bars.setObjectName("toggle_button")
+        self.btn_4_bars.setToolTip("Show 4 bars")
+
+        self.btn_8_bars = QPushButton("8")
+        self.btn_8_bars.setCheckable(True)
+        self.btn_8_bars.setObjectName("toggle_button")
+        self.btn_8_bars.setToolTip("Show 8 bars")
+
+        self.btn_16_bars = QPushButton("16")
+        self.btn_16_bars.setCheckable(True)
+        self.btn_16_bars.setChecked(True)  # Default
+        self.btn_16_bars.setObjectName("toggle_button")
+        self.btn_16_bars.setToolTip("Show 16 bars (overview)")
+
+        # Button group for zoom selection
+        self.zoom_button_group = QButtonGroup(self)
+        self.zoom_button_group.addButton(self.btn_2_bars, 2)
+        self.zoom_button_group.addButton(self.btn_4_bars, 4)
+        self.zoom_button_group.addButton(self.btn_8_bars, 8)
+        self.zoom_button_group.addButton(self.btn_16_bars, 16)
+
+        controls_layout.addWidget(self.btn_2_bars)
+        controls_layout.addWidget(self.btn_4_bars)
+        controls_layout.addWidget(self.btn_8_bars)
+        controls_layout.addWidget(self.btn_16_bars)
+
         controls_layout.addStretch()
 
         # Info label
@@ -506,15 +715,57 @@ class LoopWaveformWidget(QWidget):
 
         layout.addLayout(controls_layout)
 
-        # Waveform display
+        # Scroll area for waveform display
+        self.scroll_area = QScrollArea()
+        self.scroll_area.setWidgetResizable(False)  # Don't resize widget to fit scroll area
+        self.scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.scroll_area.setStyleSheet("""
+            QScrollArea {
+                background: transparent;
+                border: none;
+            }
+            QScrollBar:horizontal {
+                background: #1a1a1a;
+                height: 12px;
+                border-radius: 6px;
+            }
+            QScrollBar::handle:horizontal {
+                background: #444;
+                border-radius: 5px;
+                min-width: 40px;
+            }
+            QScrollBar::handle:horizontal:hover {
+                background: #555;
+            }
+            QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
+                width: 0;
+            }
+        """)
+
+        # Waveform display (inside scroll area)
         self.waveform_display = LoopWaveformDisplay()
-        layout.addWidget(self.waveform_display, stretch=1)
+        # Width is managed dynamically (content width), height fills viewport
+        self.waveform_display.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Expanding)
+        self.scroll_area.setWidget(self.waveform_display)
+
+        layout.addWidget(self.scroll_area, stretch=1)
+
+        # Schedule initial dimension update after layout is complete
+        from PySide6.QtCore import QTimer
+        QTimer.singleShot(0, self._update_display_dimensions)
 
     def _connect_signals(self):
         """Connect signals"""
         self.btn_combined.clicked.connect(lambda: self._on_mode_changed("combined"))
         self.btn_stacked.clicked.connect(lambda: self._on_mode_changed("stacked"))
         self.waveform_display.loop_selected.connect(self._on_loop_selected)
+
+        # Bars per loop buttons
+        self.bars_per_loop_group.idClicked.connect(self._on_bars_per_loop_changed)
+
+        # Zoom buttons
+        self.zoom_button_group.idClicked.connect(self._on_zoom_changed)
 
     def _on_mode_changed(self, mode: str):
         """Handle view mode change"""
@@ -524,31 +775,115 @@ class LoopWaveformWidget(QWidget):
         self.mode_changed.emit(mode)
         self.ctx.logger().info(f"Waveform view mode: {mode}")
 
+    def _on_bars_per_loop_changed(self, num_bars: int):
+        """Handle bars per loop change"""
+        self.bars_per_loop_changed.emit(num_bars)
+        self.ctx.logger().info(f"Bars per loop changed: {num_bars}")
+
+    def set_bars_per_loop(self, num_bars: int):
+        """Set bars per loop selection (called from parent)"""
+        button = self.bars_per_loop_group.button(num_bars)
+        if button:
+            button.setChecked(True)
+
+    def _on_zoom_changed(self, num_bars: int):
+        """Handle visible bars (zoom) change"""
+        self.waveform_display.set_visible_bars(num_bars)
+        self.ctx.logger().info(f"Waveform zoom: {num_bars} bars visible")
+
+    def resizeEvent(self, event):
+        """Update waveform display when widget resizes"""
+        super().resizeEvent(event)
+        self._update_display_dimensions()
+
+    def _update_display_dimensions(self):
+        """
+        Update waveform display dimensions based on current scroll area size.
+        
+        WHY: Ensures waveform fills available space both horizontally and vertically.
+        Called on resize and before loading new waveform data.
+        """
+        # Update viewport width for proper horizontal scaling
+        viewport_width = self.scroll_area.viewport().width()
+        if viewport_width > 0:
+            self.waveform_display.set_viewport_width(viewport_width)
+
+        # Update height to fill available vertical space
+        viewport_height = self.scroll_area.viewport().height()
+        if viewport_height > 0:
+            # Set waveform display to fill the viewport height
+            self.waveform_display.setFixedHeight(viewport_height)
+            # Invalidate cache since dimensions changed
+            self.waveform_display._waveform_cache = None
+
     def _on_loop_selected(self, loop_index: int):
         """Handle loop selection from display"""
         self.loop_selected.emit(loop_index)
 
+        # Auto-scroll to selected loop
+        if 0 <= loop_index < len(self.waveform_display.loop_segments):
+            start_time, end_time = self.waveform_display.loop_segments[loop_index]
+            loop_center_x = self.waveform_display._time_to_x((start_time + end_time) / 2)
+
+            # Center the loop in the viewport
+            viewport_width = self.scroll_area.viewport().width()
+            scroll_to = max(0, loop_center_x - viewport_width // 2)
+            self.scroll_area.horizontalScrollBar().setValue(scroll_to)
+
     def set_combined_waveform(self, audio_data: np.ndarray, sample_rate: int):
         """Set waveform data for combined mode"""
+        # Ensure viewport dimensions are current before setting data
+        self._update_display_dimensions()
         self.waveform_display.set_combined_waveform(audio_data, sample_rate)
 
     def set_stem_waveforms(self, stem_waveforms: Dict[str, np.ndarray], sample_rate: int):
         """Set waveform data for stacked mode"""
+        # Ensure viewport dimensions are current before setting data
+        self._update_display_dimensions()
         self.waveform_display.set_stem_waveforms(stem_waveforms, sample_rate)
 
     def set_loop_segments(self, loop_segments: List[Tuple[float, float]]):
         """Set loop segment boundaries"""
         self.waveform_display.set_loop_segments(loop_segments)
 
-        # Update info label
-        if len(loop_segments) > 0:
-            self.info_label.setText(f"{len(loop_segments)} loops detected")
+        # Store counts for header info
+        self._loops_count = len(loop_segments)
+        if self._loops_count > 0 and self.waveform_display._bar_duration > 0:
+            self._bars_total = int(self.waveform_display.duration / self.waveform_display._bar_duration)
         else:
-            self.info_label.setText("No loops detected")
+            self._bars_total = 0
+
+        self._update_info_label()
 
     def set_beat_times(self, beat_times: np.ndarray, downbeat_times: np.ndarray):
         """Set beat marker positions"""
         self.waveform_display.set_beat_times(beat_times, downbeat_times)
+
+    def set_summary_prefix(self, prefix: str):
+        """
+        Set textual prefix for header info, e.g. "104.0 BPM (85%)".
+
+        WHY: Allows PlayerWidget to inject BPM + confidence before loops/bars info.
+        """
+        self._summary_prefix = prefix
+        self._update_info_label()
+
+    def _update_info_label(self):
+        """Update compact header info label above waveform."""
+        if self._loops_count <= 0:
+            self.info_label.setText("No loops detected")
+            return
+
+        parts = []
+        if self._summary_prefix:
+            parts.append(self._summary_prefix)
+
+        parts.append(f"{self._loops_count} loops detected")
+
+        if self._bars_total > 0:
+            parts.append(f"{self._bars_total} bars total")
+
+        self.info_label.setText(" • ".join(parts))
 
     def set_selected_loop(self, loop_index: int):
         """Select a loop segment by index"""

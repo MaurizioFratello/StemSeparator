@@ -241,6 +241,82 @@ QPushButton[buttonStyle="success"]:disabled {
     opacity: 0.5;
 }
 
+/* Toggle Button Style (small checkable buttons like 2, 4, 8, 16 for bars) */
+QPushButton#toggle_button {
+    min-width: 36px;
+    max-width: 44px;
+    min-height: 28px;
+    max-height: 32px;
+    padding: 4px 6px;
+    font-weight: 600;
+    font-size: 13px;
+    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.08);
+    color: #b0b0b0;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+/* Wide Toggle Button Style (for text labels like "Combined", "Stacked") */
+QPushButton#toggle_button_wide {
+    min-width: 80px;
+    max-width: 100px;
+    min-height: 28px;
+    max-height: 32px;
+    padding: 4px 12px;
+    font-weight: 600;
+    font-size: 13px;
+    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.08);
+    color: #b0b0b0;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+QPushButton#toggle_button_wide:hover {
+    background: rgba(255, 255, 255, 0.12);
+    color: #e0e0e0;
+    border-color: rgba(0, 122, 255, 0.3);
+}
+
+QPushButton#toggle_button_wide:checked {
+    background: qlineargradient(
+        x1:0, y1:0, x2:0, y2:1,
+        stop:0 #5E7CE2, stop:1 #6B5EA2
+    );
+    color: white;
+    border: none;
+    font-weight: 700;
+}
+
+QPushButton#toggle_button_wide:checked:hover {
+    background: qlineargradient(
+        x1:0, y1:0, x2:0, y2:1,
+        stop:0 #6E8CF2, stop:1 #7B6EB8
+    );
+}
+
+QPushButton#toggle_button:hover {
+    background: rgba(255, 255, 255, 0.12);
+    color: #e0e0e0;
+    border-color: rgba(0, 122, 255, 0.3);
+}
+
+QPushButton#toggle_button:checked {
+    background: qlineargradient(
+        x1:0, y1:0, x2:0, y2:1,
+        stop:0 #5E7CE2, stop:1 #6B5EA2
+    );
+    color: white;
+    border: none;
+    font-weight: 700;
+}
+
+QPushButton#toggle_button:checked:hover {
+    background: qlineargradient(
+        x1:0, y1:0, x2:0, y2:1,
+        stop:0 #6E8CF2, stop:1 #7B6EB8
+    );
+}
+
 /* Icon Button Style (small, square buttons like M, S in player) */
 QPushButton[buttonStyle="icon"] {
     min-width: 36px;

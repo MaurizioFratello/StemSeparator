@@ -295,6 +295,7 @@ class PlayerWidget(QWidget):
         self.detected_downbeat_times: Optional[np.ndarray] = None
         self.detected_loop_segments: List[Tuple[float, float]] = []
         self.selected_loop_index: int = -1
+        self._bars_per_loop: int = 4  # Default: 4 bars per loop
 
         # Beat analysis worker (for async detection)
         self._beat_analysis_worker: Optional[BeatAnalysisWorker] = None
@@ -323,6 +324,42 @@ class PlayerWidget(QWidget):
         self._update_button_states()
 
         self.ctx.logger().info("PlayerWidget initialized with real playback")
+
+    def _extract_bpm_summary(self, conf_msg: str) -> Optional[str]:
+        """
+        Extract a compact 'BPM (confidence)' summary from conf_msg.
+
+        Expected formats:
+            "DeepRhythm (85%): 104.0 BPM, 87 downbeats (grid: BeatNet)"
+            "librosa: 104.0 BPM, 87 downbeats (grid: BeatNet)"
+            "Fallback: 103.0 BPM (63%) - ..."
+        """
+        import re
+
+        if not conf_msg:
+            return None
+
+        # DeepRhythm with confidence: "DeepRhythm (85%): 104.0 BPM, ..."
+        m = re.search(r"DeepRhythm\s*\((\d+)%\):\s*([\d.]+)\s*BPM", conf_msg)
+        if m:
+            conf = m.group(1)
+            bpm = m.group(2)
+            return f"{bpm} BPM ({conf}%)"
+
+        # Fallback pattern: "Fallback: 103.0 BPM (63%) - ..."
+        m = re.search(r"Fallback:\s*([\d.]+)\s*BPM\s*\((\d+)%\)", conf_msg)
+        if m:
+            bpm = m.group(1)
+            conf = m.group(2)
+            return f"{bpm} BPM ({conf}%)"
+
+        # Generic BPM only: "... 104.0 BPM ..."
+        m = re.search(r"([\d.]+)\s*BPM", conf_msg)
+        if m:
+            bpm = m.group(1)
+            return f"{bpm} BPM"
+
+        return None
 
     def _create_card(self, title: str) -> tuple[QFrame, QVBoxLayout]:
         """Create a styled card frame with header"""
@@ -516,48 +553,65 @@ class PlayerWidget(QWidget):
         # Loop detection card
         detection_card, detection_layout = self._create_card("Loop Detection")
 
-        # Detection controls
-        controls_layout = QHBoxLayout()
+        # Split detection area horizontally:
+        # Left: Detect Loops button (vertically centered)
+        # Right: 3 status lines (vertically centered)
+        detection_split_layout = QHBoxLayout()
+        detection_split_layout.setSpacing(20)
 
-        self.loop_bars_label = QLabel("Bars per loop:")
-        controls_layout.addWidget(self.loop_bars_label)
-
-        self.btn_2_bars = QPushButton("2 Bars")
-        self.btn_2_bars.setCheckable(True)
-        self.btn_4_bars = QPushButton("4 Bars")
-        self.btn_4_bars.setCheckable(True)
-        self.btn_4_bars.setChecked(True)  # Default
-        self.btn_8_bars = QPushButton("8 Bars")
-        self.btn_8_bars.setCheckable(True)
-
-        # Button group for exclusive selection
-        from PySide6.QtWidgets import QButtonGroup
-        self.loop_bars_group = QButtonGroup(self)
-        self.loop_bars_group.addButton(self.btn_2_bars, 2)
-        self.loop_bars_group.addButton(self.btn_4_bars, 4)
-        self.loop_bars_group.addButton(self.btn_8_bars, 8)
-
-        controls_layout.addWidget(self.btn_2_bars)
-        controls_layout.addWidget(self.btn_4_bars)
-        controls_layout.addWidget(self.btn_8_bars)
-        controls_layout.addStretch()
+        # --- Left side: Detect Loops button, vertically centered ---
+        left_layout = QVBoxLayout()
+        left_layout.addStretch()
 
         self.btn_detect_loops = QPushButton("🔍 Detect Loops")
         ThemeManager.set_widget_property(self.btn_detect_loops, "buttonStyle", "primary")
-        controls_layout.addWidget(self.btn_detect_loops)
+        self.btn_detect_loops.setMinimumWidth(140)
+        self.btn_detect_loops.setMinimumHeight(36)
+        left_layout.addWidget(self.btn_detect_loops, alignment=Qt.AlignLeft)
 
-        detection_layout.addLayout(controls_layout)
+        left_layout.addStretch()
 
-        # Status label
-        self.loop_status_label = QLabel("Click 'Detect Loops' to analyze beat structure")
-        self.loop_status_label.setStyleSheet("color: #888; font-size: 10pt;")
-        self.loop_status_label.setWordWrap(True)
-        detection_layout.addWidget(self.loop_status_label)
+        detection_split_layout.addLayout(left_layout, stretch=0)
+
+        # --- Right side: 3 status lines, vertically centered ---
+        right_layout = QVBoxLayout()
+        right_layout.addStretch()
+
+        # Container for 3 status lines
+        status_container = QVBoxLayout()
+        status_container.setSpacing(4)
+
+        # Status line 1: Current phase/action
+        self.loop_status_line1 = QLabel("Click 'Detect Loops' to analyze beat structure")
+        self.loop_status_line1.setStyleSheet("color: #aaa; font-size: 10pt;")
+        self.loop_status_line1.setWordWrap(True)
+        status_container.addWidget(self.loop_status_line1)
+
+        # Status line 2: Progress/timing info
+        self.loop_status_line2 = QLabel("")
+        self.loop_status_line2.setStyleSheet("color: #888; font-size: 9pt;")
+        self.loop_status_line2.setWordWrap(True)
+        status_container.addWidget(self.loop_status_line2)
+
+        # Status line 3: Additional details
+        self.loop_status_line3 = QLabel("")
+        self.loop_status_line3.setStyleSheet("color: #666; font-size: 9pt;")
+        self.loop_status_line3.setWordWrap(True)
+        status_container.addWidget(self.loop_status_line3)
+
+        right_layout.addLayout(status_container)
+        right_layout.addStretch()
+
+        detection_split_layout.addLayout(right_layout, stretch=1)
+
+        detection_layout.addLayout(detection_split_layout)
 
         layout.addWidget(detection_card)
 
         # Waveform visualization
         self.loop_waveform_widget = LoopWaveformWidget()
+        # Sync default bars per loop (4 bars)
+        self.loop_waveform_widget.set_bars_per_loop(4)
         layout.addWidget(self.loop_waveform_widget, stretch=1)
 
         # Loop playback controls card
@@ -594,7 +648,7 @@ class PlayerWidget(QWidget):
 
         # Connect signals
         self.btn_detect_loops.clicked.connect(self._on_detect_loops_clicked)
-        self.loop_bars_group.buttonClicked.connect(self._on_loop_bars_changed)
+        self.loop_waveform_widget.bars_per_loop_changed.connect(self._on_bars_per_loop_changed)
         self.loop_waveform_widget.loop_selected.connect(self._on_loop_waveform_selected)
         self.btn_play_loop.clicked.connect(self._on_play_loop_clicked)
         self.btn_play_loop_repeat.clicked.connect(self._on_play_loop_repeat_clicked)
@@ -620,11 +674,32 @@ class PlayerWidget(QWidget):
 
         # Check if stems are loaded
         if not self.stem_files:
-            self.loop_status_label.setText("⚠ No stems loaded. Load stems in the Playback tab first.")
+            self._set_loop_status(
+                "⚠ No stems loaded",
+                "Load stems in the Playback tab first.",
+                ""
+            )
             return
 
         # Show hint to user
-        self.loop_status_label.setText("Click 'Detect Loops' to analyze beat structure and generate loops")
+        self._set_loop_status(
+            "Click 'Detect Loops' to analyze beat structure",
+            "",
+            ""
+        )
+
+    def _set_loop_status(self, line1: str, line2: str = "", line3: str = ""):
+        """
+        Update the 3 status lines in the Loop Detection card.
+        
+        Args:
+            line1: Primary status message (most prominent)
+            line2: Secondary info (progress/timing)
+            line3: Additional details (less prominent)
+        """
+        self.loop_status_line1.setText(line1)
+        self.loop_status_line2.setText(line2)
+        self.loop_status_line3.setText(line3)
 
     def _on_detect_loops_clicked(self):
         """Handle 'Detect Loops' button click - starts async beat analysis"""
@@ -642,7 +717,12 @@ class PlayerWidget(QWidget):
             self._beat_analysis_worker = None
 
         try:
-            self.loop_status_label.setText("🔍 Preparing audio for analysis...")
+            # New detection run: Initial Status
+            self._set_loop_status(
+                "🔍 Preparing audio for analysis...",
+                "Mixing stems...",
+                ""
+            )
             self.btn_detect_loops.setEnabled(False)
             self.ctx.logger().info("Starting loop detection...")
 
@@ -692,7 +772,11 @@ class PlayerWidget(QWidget):
 
         except Exception as e:
             error_msg = str(e)
-            self.loop_status_label.setText(f"❌ Loop detection failed: {error_msg}")
+            self._set_loop_status(
+                "❌ Loop detection failed",
+                error_msg,
+                ""
+            )
             self.ctx.logger().error(f"Loop detection failed: {e}", exc_info=True)
             self.btn_detect_loops.setEnabled(True)
 
@@ -735,9 +819,11 @@ class PlayerWidget(QWidget):
         else:
             elapsed_str = f"{elapsed_secs}s"
 
-        self.loop_status_label.setText(
-            f"{icon} [{self._beat_analysis_phase}] {self._beat_analysis_detail}\n"
-            f"⏱️ Elapsed: {elapsed_str} | Timeout in: {countdown_str}"
+        # Update 3 status lines with phase, detail, and timing
+        self._set_loop_status(
+            f"{icon} [{self._beat_analysis_phase}] {self._beat_analysis_detail}",
+            f"Elapsed: {elapsed_str}",
+            f"Timeout in: {countdown_str}"
         )
 
     def _on_beat_analysis_finished(self, beat_times, downbeat_times, first_downbeat, conf_msg):
@@ -764,7 +850,7 @@ class PlayerWidget(QWidget):
                 )
 
             # Get bars per loop setting
-            bars_per_loop = self.loop_bars_group.checkedId()
+            bars_per_loop = self._bars_per_loop
 
             # Calculate loop segments
             duration = self.player.get_duration()
@@ -773,7 +859,11 @@ class PlayerWidget(QWidget):
             )
 
             # Load waveforms into widget
-            self.loop_status_label.setText("🎨 Rendering waveforms...")
+            self._set_loop_status(
+                "🎨 Rendering waveforms...",
+                "Loading stem data...",
+                ""
+            )
 
             mixed_audio = self._beat_analysis_mixed_audio
             sample_rate = self._beat_analysis_sample_rate
@@ -793,13 +883,23 @@ class PlayerWidget(QWidget):
             self.loop_waveform_widget.set_beat_times(beat_times, downbeat_times)
             self.loop_waveform_widget.set_loop_segments(self.detected_loop_segments)
 
-            # Success message
+            # Success message (3 status lines)
             num_loops = len(self.detected_loop_segments)
             status_icon = "⚠" if is_fallback else "✓"
-            self.loop_status_label.setText(
-                f"{status_icon} Detected {num_loops} loops ({bars_per_loop} bars each). "
-                f"{len(downbeat_times)} downbeats, {len(beat_times)} total beats. {conf_msg}"
+            self._set_loop_status(
+                f"{status_icon} Detection complete",
+                f"{num_loops} loops ({bars_per_loop} bars each)",
+                f"{len(downbeat_times)} downbeats, {len(beat_times)} beats"
             )
+
+            # Extract BPM + confidence summary from conf_msg for header info
+            bpm_prefix = self._extract_bpm_summary(conf_msg)
+            if bpm_prefix is None:
+                bpm_prefix = ""
+
+            # Update header info above waveform: "BPM (conf) • X loops detected • Y bars total"
+            self.loop_waveform_widget.set_summary_prefix(bpm_prefix)
+
             self.ctx.logger().info(f"Loop detection complete: {num_loops} loops detected")
 
         except Exception as e:
@@ -818,7 +918,11 @@ class PlayerWidget(QWidget):
         if hasattr(self, '_beat_analysis_tmp_path') and self._beat_analysis_tmp_path.exists():
             self._beat_analysis_tmp_path.unlink(missing_ok=True)
 
-        self.loop_status_label.setText(f"❌ Loop detection failed: {error_msg}")
+        self._set_loop_status(
+            "❌ Loop detection failed",
+            error_msg,
+            "Check the log for details."
+        )
         self.ctx.logger().error(f"Loop detection failed: {error_msg}")
 
         QMessageBox.critical(
@@ -831,11 +935,12 @@ class PlayerWidget(QWidget):
         self.btn_detect_loops.setEnabled(True)
         self._beat_analysis_worker = None
 
-    def _on_loop_bars_changed(self):
+    def _on_bars_per_loop_changed(self, bars_per_loop: int):
         """Handle bars per loop setting change - re-calculate loops if already detected"""
+        self._bars_per_loop = bars_per_loop
+        
         if not self.detected_downbeat_times is None and len(self.detected_downbeat_times) > 0:
             # Re-calculate loops with new bar count
-            bars_per_loop = self.loop_bars_group.checkedId()
             duration = self.player.get_duration()
 
             self.detected_loop_segments = beat_detection.calculate_loops_from_downbeats(
@@ -846,8 +951,10 @@ class PlayerWidget(QWidget):
             self.loop_waveform_widget.set_loop_segments(self.detected_loop_segments)
 
             num_loops = len(self.detected_loop_segments)
-            self.loop_status_label.setText(
-                f"✓ Recalculated: {num_loops} loops ({bars_per_loop} bars each)"
+            self._set_loop_status(
+                f"✓ Recalculated",
+                f"{num_loops} loops ({bars_per_loop} bars each)",
+                ""
             )
             self.ctx.logger().info(f"Recalculated loops: {num_loops} loops, {bars_per_loop} bars each")
 
@@ -1149,6 +1256,14 @@ class PlayerWidget(QWidget):
         self.info_label.setText(
             "Load separated stems to use the mixer and playback."
         )
+
+        # Reset loop detection status labels
+        if hasattr(self, "loop_status_line1"):
+            self._set_loop_status(
+                "Click 'Detect Loops' to analyze beat structure",
+                "",
+                ""
+            )
 
         self.ctx.logger().info("Cleared all loaded stems")
         
