@@ -5,7 +5,10 @@ PURPOSE: Allow users to play back separated stems with individual volume/mute/so
 CONTEXT: Provides mixing interface for separated audio stems with real-time playback.
 """
 from pathlib import Path
-from typing import Optional, Dict, List
+from typing import Optional, Dict, List, Tuple
+import numpy as np
+import soundfile as sf
+
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
     QSlider, QGroupBox, QFileDialog, QMessageBox, QListWidget,
@@ -18,6 +21,8 @@ from ui.app_context import AppContext
 from core.player import get_player, PlaybackState
 from ui.theme import ThemeManager
 from ui.dialogs import ExportSettingsDialog, LoopExportDialog
+from ui.widgets.loop_waveform_widget import LoopWaveformWidget
+from utils import beat_detection
 
 
 class DragDropListWidget(QListWidget):
@@ -226,6 +231,12 @@ class PlayerWidget(QWidget):
         # Track if user is seeking
         self._user_seeking = False
 
+        # Loop preview state
+        self.detected_beat_times: Optional[np.ndarray] = None
+        self.detected_downbeat_times: Optional[np.ndarray] = None
+        self.detected_loop_segments: List[Tuple[float, float]] = []
+        self.selected_loop_index: int = -1
+
         # Setup player callbacks
         self.player.position_callback = self._on_position_update
         # Connect signal to slot for thread safety, then emit signal in callback
@@ -235,7 +246,7 @@ class PlayerWidget(QWidget):
         self._setup_ui()
         self._connect_signals()
         self.apply_translations()
-        
+
         # Set initial button states (stems list is empty initially)
         self._update_button_states()
 
@@ -424,17 +435,63 @@ class PlayerWidget(QWidget):
         return tab
 
     def _create_loop_preview_tab(self) -> QWidget:
-        """Create loop preview tab (placeholder for Phase 3)"""
+        """Create loop preview tab with waveform visualization"""
         tab = QWidget()
         layout = QVBoxLayout(tab)
         layout.setContentsMargins(20, 20, 20, 20)
         layout.setSpacing(15)
 
-        # Placeholder content
-        placeholder = QLabel("🎧 Loop Preview\n\nComing in Phase 3")
-        placeholder.setAlignment(Qt.AlignCenter)
-        placeholder.setStyleSheet("color: #888; font-size: 14pt;")
-        layout.addWidget(placeholder, alignment=Qt.AlignCenter)
+        # Loop detection card
+        detection_card, detection_layout = self._create_card("Loop Detection")
+
+        # Detection controls
+        controls_layout = QHBoxLayout()
+
+        self.loop_bars_label = QLabel("Bars per loop:")
+        controls_layout.addWidget(self.loop_bars_label)
+
+        self.btn_2_bars = QPushButton("2 Bars")
+        self.btn_2_bars.setCheckable(True)
+        self.btn_4_bars = QPushButton("4 Bars")
+        self.btn_4_bars.setCheckable(True)
+        self.btn_4_bars.setChecked(True)  # Default
+        self.btn_8_bars = QPushButton("8 Bars")
+        self.btn_8_bars.setCheckable(True)
+
+        # Button group for exclusive selection
+        from PySide6.QtWidgets import QButtonGroup
+        self.loop_bars_group = QButtonGroup(self)
+        self.loop_bars_group.addButton(self.btn_2_bars, 2)
+        self.loop_bars_group.addButton(self.btn_4_bars, 4)
+        self.loop_bars_group.addButton(self.btn_8_bars, 8)
+
+        controls_layout.addWidget(self.btn_2_bars)
+        controls_layout.addWidget(self.btn_4_bars)
+        controls_layout.addWidget(self.btn_8_bars)
+        controls_layout.addStretch()
+
+        self.btn_detect_loops = QPushButton("🔍 Detect Loops")
+        ThemeManager.set_widget_property(self.btn_detect_loops, "buttonStyle", "primary")
+        controls_layout.addWidget(self.btn_detect_loops)
+
+        detection_layout.addLayout(controls_layout)
+
+        # Status label
+        self.loop_status_label = QLabel("Click 'Detect Loops' to analyze beat structure")
+        self.loop_status_label.setStyleSheet("color: #888; font-size: 10pt;")
+        self.loop_status_label.setWordWrap(True)
+        detection_layout.addWidget(self.loop_status_label)
+
+        layout.addWidget(detection_card)
+
+        # Waveform visualization
+        self.loop_waveform_widget = LoopWaveformWidget()
+        layout.addWidget(self.loop_waveform_widget, stretch=1)
+
+        # Connect signals
+        self.btn_detect_loops.clicked.connect(self._on_detect_loops_clicked)
+        self.loop_bars_group.buttonClicked.connect(self._on_loop_bars_changed)
+        self.loop_waveform_widget.loop_selected.connect(self._on_loop_waveform_selected)
 
         return tab
 
@@ -448,9 +505,178 @@ class PlayerWidget(QWidget):
             self._prepare_loop_preview()
 
     def _prepare_loop_preview(self):
-        """Prepare loop preview (placeholder for Phase 4)"""
-        # Will be implemented in Phase 4
-        pass
+        """Prepare loop preview when tab is activated"""
+        # Check if we have loops already detected
+        if self.detected_loop_segments:
+            self.ctx.logger().info("Loop preview already prepared")
+            return
+
+        # Check if stems are loaded
+        if not self.stem_files:
+            self.loop_status_label.setText("⚠ No stems loaded. Load stems in the Playback tab first.")
+            return
+
+        # Show hint to user
+        self.loop_status_label.setText("Click 'Detect Loops' to analyze beat structure and generate loops")
+
+    def _on_detect_loops_clicked(self):
+        """Handle 'Detect Loops' button click"""
+        if not self.stem_files:
+            QMessageBox.warning(
+                self,
+                "No Stems Loaded",
+                "Please load stems in the Playback tab before detecting loops."
+            )
+            return
+
+        # Check if BeatNet is available
+        if not beat_detection.is_beatnet_available():
+            QMessageBox.critical(
+                self,
+                "BeatNet Not Available",
+                "BeatNet is required for beat detection but is not installed.\n\n"
+                "Please install it with: pip install BeatNet>=1.1.3"
+            )
+            return
+
+        try:
+            self.loop_status_label.setText("🔍 Analyzing beat structure...")
+            self.btn_detect_loops.setEnabled(False)
+            self.ctx.logger().info("Starting loop detection...")
+
+            # Get bars per loop setting
+            bars_per_loop = self.loop_bars_group.checkedId()  # 2, 4, or 8
+
+            # Step 1: Mix all stems to create master track for beat detection
+            self.ctx.logger().info("Mixing stems for beat detection...")
+            mixed_audio, sample_rate = self._mix_stems_to_array()
+
+            # Step 2: Save to temporary file for BeatNet
+            import tempfile
+            with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as tmp_file:
+                tmp_path = Path(tmp_file.name)
+
+            try:
+                sf.write(str(tmp_path), mixed_audio, sample_rate)
+
+                # Step 3: Run beat detection
+                self.loop_status_label.setText("🔍 Detecting beats and downbeats...")
+                beat_times, downbeat_times, first_downbeat, conf_msg = \
+                    beat_detection.detect_beats_and_downbeats(tmp_path)
+
+                self.detected_beat_times = beat_times
+                self.detected_downbeat_times = downbeat_times
+
+                # Step 4: Calculate loop segments
+                duration = self.player.get_duration()
+                self.detected_loop_segments = beat_detection.calculate_loops_from_downbeats(
+                    downbeat_times, bars_per_loop, duration
+                )
+
+                # Step 5: Load waveforms into widget
+                self.loop_status_label.setText("🎨 Rendering waveforms...")
+
+                # Combined mode: use mixed audio
+                self.loop_waveform_widget.set_combined_waveform(mixed_audio, sample_rate)
+
+                # Stacked mode: load individual stems
+                stem_waveforms = {}
+                for stem_name, stem_path in self.stem_files.items():
+                    audio_data, sr = sf.read(stem_path, dtype='float32')
+                    stem_waveforms[stem_name] = audio_data
+
+                self.loop_waveform_widget.set_stem_waveforms(stem_waveforms, sample_rate)
+
+                # Step 6: Set beat times and loop segments
+                self.loop_waveform_widget.set_beat_times(beat_times, downbeat_times)
+                self.loop_waveform_widget.set_loop_segments(self.detected_loop_segments)
+
+                # Success!
+                num_loops = len(self.detected_loop_segments)
+                self.loop_status_label.setText(
+                    f"✓ Detected {num_loops} loops ({bars_per_loop} bars each). "
+                    f"{len(downbeat_times)} downbeats, {len(beat_times)} total beats. {conf_msg}"
+                )
+                self.ctx.logger().info(f"Loop detection complete: {num_loops} loops detected")
+
+            finally:
+                # Clean up temporary file
+                tmp_path.unlink(missing_ok=True)
+
+        except Exception as e:
+            error_msg = str(e)
+            self.loop_status_label.setText(f"❌ Loop detection failed: {error_msg}")
+            self.ctx.logger().error(f"Loop detection failed: {e}", exc_info=True)
+
+            QMessageBox.critical(
+                self,
+                "Loop Detection Failed",
+                f"Failed to detect loops:\n\n{error_msg}\n\n"
+                "Check the log for details."
+            )
+
+        finally:
+            self.btn_detect_loops.setEnabled(True)
+
+    def _on_loop_bars_changed(self):
+        """Handle bars per loop setting change - re-calculate loops if already detected"""
+        if not self.detected_downbeat_times is None and len(self.detected_downbeat_times) > 0:
+            # Re-calculate loops with new bar count
+            bars_per_loop = self.loop_bars_group.checkedId()
+            duration = self.player.get_duration()
+
+            self.detected_loop_segments = beat_detection.calculate_loops_from_downbeats(
+                self.detected_downbeat_times, bars_per_loop, duration
+            )
+
+            # Update widget
+            self.loop_waveform_widget.set_loop_segments(self.detected_loop_segments)
+
+            num_loops = len(self.detected_loop_segments)
+            self.loop_status_label.setText(
+                f"✓ Recalculated: {num_loops} loops ({bars_per_loop} bars each)"
+            )
+            self.ctx.logger().info(f"Recalculated loops: {num_loops} loops, {bars_per_loop} bars each")
+
+    def _on_loop_waveform_selected(self, loop_index: int):
+        """Handle loop selection from waveform widget"""
+        self.selected_loop_index = loop_index
+        self.ctx.logger().info(f"Loop {loop_index + 1} selected")
+
+    def _mix_stems_to_array(self) -> Tuple[np.ndarray, int]:
+        """
+        Mix all loaded stems into a single audio array
+
+        Returns:
+            Tuple of (mixed_audio, sample_rate)
+        """
+        if not self.stem_files:
+            raise ValueError("No stems loaded")
+
+        mixed_audio = None
+        sample_rate = None
+
+        for stem_name, stem_path in self.stem_files.items():
+            audio_data, sr = sf.read(stem_path, dtype='float32')
+
+            # Ensure mono
+            if audio_data.ndim == 2:
+                audio_data = np.mean(audio_data, axis=1)
+
+            if mixed_audio is None:
+                mixed_audio = audio_data
+                sample_rate = sr
+            else:
+                # Mix with existing (handle different lengths)
+                min_len = min(len(mixed_audio), len(audio_data))
+                mixed_audio[:min_len] += audio_data[:min_len]
+
+        # Normalize to prevent clipping
+        max_val = np.max(np.abs(mixed_audio))
+        if max_val > 0:
+            mixed_audio = mixed_audio / max_val
+
+        return mixed_audio, sample_rate
 
     def _connect_signals(self):
         """Connect signals"""
