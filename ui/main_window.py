@@ -35,6 +35,8 @@ from ui.widgets.recording_widget import RecordingWidget
 from ui.widgets.queue_widget import QueueWidget
 from ui.widgets.player_widget import PlayerWidget
 from ui.widgets.settings_dialog import SettingsDialog
+from ui.widgets.export_mixed_widget import ExportMixedWidget
+from ui.widgets.export_loops_widget import ExportLoopsWidget
 from ui.theme.macos_effects import MacOSEffects
 from ui.theme.macos_dialogs import MacOSDialogs
 
@@ -120,12 +122,16 @@ class MainWindow(QMainWindow):
         self._recording_widget = RecordingWidget(self)
         self._queue_widget = QueueWidget(self)
         self._player_widget = PlayerWidget(self)
+        self._export_mixed_widget = ExportMixedWidget(player_widget=self._player_widget, parent=self)
+        self._export_loops_widget = ExportLoopsWidget(player_widget=self._player_widget, parent=self)
 
         # Add to Stack
         self._content_stack.addWidget(self._upload_widget)    # Index 0
         self._content_stack.addWidget(self._recording_widget) # Index 1
         self._content_stack.addWidget(self._queue_widget)     # Index 2
         self._content_stack.addWidget(self._player_widget)    # Index 3
+        self._content_stack.addWidget(self._export_mixed_widget)  # Index 4
+        self._content_stack.addWidget(self._export_loops_widget)  # Index 5
 
         # Create Nav Buttons
         # We will set text in _apply_translations
@@ -182,21 +188,19 @@ class MainWindow(QMainWindow):
         sep3.setFrameShadow(QFrame.Plain)
         sidebar_layout.addWidget(sep3)
 
-        # SECTION: EXPORT
+        # SECTION: EXPORT (Navigation buttons to Export widgets)
         self._lbl_export = QLabel("Export")
         self._lbl_export.setObjectName("sidebar_header")
         sidebar_layout.addWidget(self._lbl_export)
         
-        self._btn_export_mixed = QPushButton("💾 Export Mixed")
-        self._btn_export_mixed.setObjectName("sidebar_export_button")
-        self._btn_export_mixed.setEnabled(False)
-        self._btn_export_mixed.setToolTip("Export mixed audio from loaded stems")
+        # Export Mixed button - navigates to ExportMixedWidget (index 4)
+        self._btn_export_mixed = self._create_export_page_button("export_mixed", 4)
+        self._btn_export_mixed.setToolTip("Configure and export mixed audio")
         sidebar_layout.addWidget(self._btn_export_mixed)
         
-        self._btn_export_loops = QPushButton("🔁 Export Loops")
-        self._btn_export_loops.setObjectName("sidebar_export_button")
-        self._btn_export_loops.setEnabled(False)
-        self._btn_export_loops.setToolTip("Export as musical loops for samplers")
+        # Export Loops button - navigates to ExportLoopsWidget (index 5)
+        self._btn_export_loops = self._create_export_page_button("export_loops", 5)
+        self._btn_export_loops.setToolTip("Configure and export sampler loops")
         sidebar_layout.addWidget(self._btn_export_loops)
         
         sidebar_layout.addStretch() # Push buttons to top
@@ -216,12 +220,8 @@ class MainWindow(QMainWindow):
         self._upload_widget.start_queue_requested.connect(self._on_start_queue_requested)
         self._recording_widget.recording_saved.connect(self._on_recording_saved)
         
-        # Connect PlayerWidget stem status to export button states
+        # Connect PlayerWidget stem status to refresh Export widgets
         self._player_widget.stems_loaded_changed.connect(self._on_stems_loaded_changed)
-        
-        # Connect export buttons to PlayerWidget methods
-        self._btn_export_mixed.clicked.connect(self._player_widget.export_mixed_audio)
-        self._btn_export_loops.clicked.connect(self._player_widget.export_loops)
 
         status_bar = QStatusBar(self)
         status_bar.showMessage(self._context.translate("status.ready", fallback="Ready"))
@@ -258,6 +258,29 @@ class MainWindow(QMainWindow):
         def on_click():
             self._content_stack.setCurrentIndex(3)  # PlayerWidget is at index 3
             self._player_widget.set_page(page_index)
+        
+        btn.clicked.connect(on_click)
+        self._nav_group.addButton(btn)
+        return btn
+
+    def _create_export_page_button(self, page_name: str, stack_index: int) -> QPushButton:
+        """
+        Helper to create sidebar buttons for Export widgets.
+        
+        PURPOSE: Navigate to Export widgets and refresh their state
+        CONTEXT: Export Mixed (index 4) and Export Loops (index 5)
+        """
+        btn = QPushButton()
+        btn.setCheckable(True)
+        btn.setObjectName("sidebar_button")
+        
+        # Connect click to switch to export widget and refresh it
+        def on_click():
+            self._content_stack.setCurrentIndex(stack_index)
+            # Refresh the export widget to update stem availability
+            widget = self._content_stack.widget(stack_index)
+            if hasattr(widget, 'refresh'):
+                widget.refresh()
         
         btn.clicked.connect(on_click)
         self._nav_group.addButton(btn)
@@ -429,9 +452,9 @@ class MainWindow(QMainWindow):
         self._lbl_monitoring.setText(translator("sidebar.monitoring", fallback="MONITORING"))
         self._lbl_export.setText(translator("sidebar.export", fallback="EXPORT"))
         
-        # Update Export Buttons
-        self._btn_export_mixed.setText(translator("export.mixed_audio", fallback="💾 Export Mixed"))
-        self._btn_export_loops.setText(translator("export.loops", fallback="🔁 Export Loops"))
+        # Update Export Navigation Buttons
+        self._btn_export_mixed.setText(translator("tabs.export_mixed", fallback="💾 Export Mixed"))
+        self._btn_export_loops.setText(translator("tabs.export_loops", fallback="🔁 Export Loops"))
 
         # Update Sidebar Buttons
         self._btn_upload.setText(translator("tabs.upload", fallback="Upload"))
@@ -537,12 +560,13 @@ class MainWindow(QMainWindow):
         """
         Handle stem loading status change from PlayerWidget.
         
-        PURPOSE: Enable/disable export buttons in sidebar based on stem availability
+        PURPOSE: Refresh export widgets when stems are loaded/cleared
         CONTEXT: Called when stems are loaded or cleared in PlayerWidget
         """
-        self._btn_export_mixed.setEnabled(stems_loaded)
-        self._btn_export_loops.setEnabled(stems_loaded)
-        self._logger.debug(f"Export buttons {'enabled' if stems_loaded else 'disabled'}")
+        # Refresh export widgets to update their UI state
+        self._export_mixed_widget.refresh()
+        self._export_loops_widget.refresh()
+        self._logger.debug(f"Export widgets refreshed (stems_loaded={stems_loaded})")
 
     def closeEvent(self, event: QCloseEvent) -> None:  # noqa: N802
         """Intercept close event for graceful shutdown."""

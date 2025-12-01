@@ -22,9 +22,8 @@
   "tabs.stems": "📂 Stems",
   "tabs.playback": "▶ Playback",
   "tabs.looping": "🎧 Looping",
-
-  "export.mixed_audio": "💾 Export Mixed",
-  "export.loops": "🔁 Export Loops",
+  "tabs.export_mixed": "💾 Export Mixed",
+  "tabs.export_loops": "🔁 Export Loops",
 
   "upload.title": "Upload File",
   "upload.drag_drop": "Drag files here or click to browse",
