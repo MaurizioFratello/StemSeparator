@@ -473,3 +473,136 @@ def detect_audio_bpm(audio_path: Path) -> Tuple[float, str, Optional[float]]:
     except Exception as e:
         logger.error(f"BPM detection error for {audio_path}: {e}")
         return 120.0, f"Error: {e}, using default 120 BPM", None
+
+
+def export_padded_intro(
+    input_path: Path,
+    output_path: Path,
+    intro_start: float,
+    intro_end: float,
+    sample_rate: int = 44100,
+    bit_depth: int = 24,
+    channels: int = 2,
+    file_format: str = 'WAV'
+) -> bool:
+    """
+    Export intro loop with silence padding at the beginning.
+
+    WHY: Intros shorter than bars_per_loop need padding to create consistent loop lengths.
+         Padding at the start creates an "Auftakt" (upbeat) for the intro.
+
+    Args:
+        input_path: Path to input audio file
+        output_path: Path for output file (including filename)
+        intro_start: Start time in seconds (negative = padding duration)
+        intro_end: End time in seconds (actual intro audio end)
+        sample_rate: Target sample rate
+        bit_depth: Target bit depth (16, 24, or 32)
+        channels: Target channels (1=mono, 2=stereo)
+        file_format: Export format ('WAV', 'AIFF', or 'FLAC')
+
+    Returns:
+        True if export successful, False otherwise
+
+    Example:
+        >>> # Intro is 1.5 bars (3s), needs padding to 4 bars (8s)
+        >>> export_padded_intro(
+        ...     Path("song.wav"),
+        ...     Path("output/intro.wav"),
+        ...     intro_start=-5.0,  # 5s silence padding
+        ...     intro_end=3.0,     # 3s actual intro
+        ...     sample_rate=44100,
+        ...     bit_depth=24,
+        ...     channels=2
+        ... )
+        >>> # Creates: 5s silence + 3s intro = 8s total (4 bars)
+    """
+    try:
+        # Load original audio
+        audio_data, original_sr = sf.read(str(input_path), always_2d=False)
+
+        logger.info(
+            f"Loading audio for padded intro: {input_path.name}, "
+            f"{original_sr} Hz, {audio_data.shape}"
+        )
+
+        # Resample if needed
+        if original_sr != sample_rate:
+            from utils.audio_processing import resample_audio
+            audio_data = resample_audio(audio_data, original_sr, sample_rate)
+
+        # Handle channel conversion
+        if channels == 1 and audio_data.ndim > 1:
+            from utils.audio_processing import stereo_to_mono
+            audio_data = stereo_to_mono(audio_data)
+        elif channels == 2 and audio_data.ndim == 1:
+            # Convert mono to stereo
+            audio_data = np.stack([audio_data, audio_data], axis=1)
+
+        # Normalize
+        from utils.audio_processing import normalize_peak_to_dbfs
+        audio_data = normalize_peak_to_dbfs(audio_data, target_dbfs=-1.0)
+
+        # Calculate sample positions
+        intro_end_sample = int(intro_end * sample_rate)
+
+        # Extract actual intro audio (from sample 0 to intro_end)
+        if audio_data.ndim == 1:
+            intro_audio = audio_data[:intro_end_sample]
+        else:
+            intro_audio = audio_data[:intro_end_sample, :]
+
+        # Check if padding is needed (negative start time)
+        if intro_start < 0:
+            padding_duration = abs(intro_start)
+            padding_samples = int(padding_duration * sample_rate)
+
+            # Create silence padding
+            if channels == 1:
+                silence = np.zeros(padding_samples, dtype=audio_data.dtype)
+            else:
+                silence = np.zeros((padding_samples, channels), dtype=audio_data.dtype)
+
+            # Concatenate silence + intro
+            padded_intro = np.concatenate([silence, intro_audio])
+
+            logger.info(
+                f"Created padded intro: {padding_duration:.2f}s silence + "
+                f"{intro_end:.2f}s audio = {(padding_duration + intro_end):.2f}s total"
+            )
+        else:
+            # No padding needed
+            padded_intro = intro_audio
+            logger.info(f"No padding needed for intro: {intro_end:.2f}s")
+
+        # Apply dither for 16-bit
+        if bit_depth == 16:
+            from utils.audio_processing import apply_tpdf_dither
+            padded_intro = apply_tpdf_dither(padded_intro, bit_depth)
+
+        # Determine soundfile subtype
+        subtype_map = {
+            16: 'PCM_16',
+            24: 'PCM_24',
+            32: 'PCM_32'
+        }
+        subtype = subtype_map.get(bit_depth, 'PCM_24')
+
+        # Ensure output directory exists
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+
+        # Export padded intro
+        sf.write(
+            str(output_path),
+            padded_intro,
+            sample_rate,
+            subtype=subtype,
+            format=file_format
+        )
+
+        logger.info(f"Exported padded intro: {output_path.name}")
+        return True
+
+    except Exception as e:
+        logger.error(f"Failed to export padded intro: {e}", exc_info=True)
+        return False

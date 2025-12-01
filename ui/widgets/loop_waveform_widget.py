@@ -604,23 +604,24 @@ class LoopWaveformDisplay(QWidget):
         painter.setPen(marker_pen)
         painter.drawLine(marker_x, 0, marker_x, height)
 
-        # Draw label at top
+        # Draw label at bottom (near yellow bar)
         label = f"Song Start (Bar {self.song_start_marker_index})"
         font = QFont()
         font.setPixelSize(12)
         font.setBold(True)
         painter.setFont(font)
 
-        # Background for label
+        # Background for label - positioned at bottom
         label_width = 150
         label_height = 20
         label_x = max(5, min(marker_x - label_width // 2, self.width() - label_width - 5))
+        label_y = height - label_height - 5  # 5px from bottom
 
-        painter.fillRect(label_x, 5, label_width, label_height, QColor(255, 165, 0, 200))
+        painter.fillRect(label_x, label_y, label_width, label_height, QColor(255, 165, 0, 200))
 
         # Label text
         painter.setPen(QPen(QColor(0, 0, 0), 1))
-        painter.drawText(label_x, 5, label_width, label_height,
+        painter.drawText(label_x, label_y, label_width, label_height,
                         Qt.AlignCenter, label)
 
     def set_song_start_marker(self, downbeat_index: int):

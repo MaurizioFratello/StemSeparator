@@ -1145,7 +1145,20 @@ class PlayerWidget(QWidget):
 
         # Update status
         if self.song_start_downbeat_index is not None:
-            intro_info = f"intro: {intro_loop[1]:.1f}s, " if intro_loop else "intro skipped, "
+            if intro_loop:
+                # Check if intro has padding (negative start time)
+                if intro_loop[0] < 0:
+                    padding_duration = abs(intro_loop[0])
+                    actual_intro_duration = intro_loop[1]
+                    total_duration = padding_duration + actual_intro_duration
+                    intro_info = (
+                        f"intro: {total_duration:.1f}s "
+                        f"({padding_duration:.1f}s silence + {actual_intro_duration:.1f}s audio), "
+                    )
+                else:
+                    intro_info = f"intro: {intro_loop[1]:.1f}s, "
+            else:
+                intro_info = "intro skipped, "
             status_msg = f"✓ Loops from marker (bar {self.song_start_downbeat_index})"
         else:
             intro_info = ""

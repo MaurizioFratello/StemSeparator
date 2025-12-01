@@ -275,6 +275,8 @@ def calculate_loops_from_downbeats(
         Tuple of (loops, intro_loop):
         - loops: List of (start_time, end_time) tuples for main loop segments
         - intro_loop: Optional (start_time, end_time) for intro segment if song_start_downbeat_index is set
+                     NOTE: If start_time < 0, intro needs |start_time| seconds of silence padding
+                     before the actual audio (creating an "Auftakt"/upbeat)
 
     Raises:
         ValueError: If no downbeats provided or invalid bars_per_loop
@@ -290,7 +292,8 @@ def calculate_loops_from_downbeats(
         ...     downbeats, bars_per_loop=4, audio_duration=12.0,
         ...     song_start_downbeat_index=2, intro_handling="pad"
         ... )
-        >>> # intro = (0.0, 4.0), loops = [(4.0, 12.0)]
+        >>> # intro = (-4.0, 4.0) - means 4s silence + 4s actual intro = 8s total (4 bars)
+        >>> # loops = [(4.0, 12.0)]
     """
     if len(downbeat_times) == 0:
         raise ValueError("No downbeats provided")
@@ -314,19 +317,39 @@ def calculate_loops_from_downbeats(
 
     # If song start marker is set, handle intro
     if song_start_downbeat_index is not None and song_start_downbeat_index > 0:
-        intro_start = 0.0
-        intro_end = downbeat_times[song_start_downbeat_index]
+        intro_actual_start = 0.0
+        intro_actual_end = downbeat_times[song_start_downbeat_index]
+        intro_bars = song_start_downbeat_index
 
         if intro_handling == "pad":
-            # Create intro loop - will be padded to bars_per_loop if needed
-            intro_loop = (intro_start, intro_end)
-            logger.info(
-                f"Created intro loop: {intro_loop[0]:.2f}s - {intro_loop[1]:.2f}s "
-                f"({song_start_downbeat_index} bars)"
-            )
+            # Calculate padding needed to match bars_per_loop
+            # WHY: Intros should be same length as main loops for consistent sampler workflow
+            if intro_bars < bars_per_loop:
+                # Intro is shorter - calculate padding needed
+                # Use average bar duration from all downbeats
+                avg_bar_duration = np.mean(np.diff(downbeat_times))
+                bars_needed = bars_per_loop - intro_bars
+                padding_duration = bars_needed * avg_bar_duration
+
+                # Return intro with negative start time to indicate padding
+                # Example: intro_loop = (-5.0, 3.0) means 5s silence + 3s actual intro
+                intro_loop = (-padding_duration, intro_actual_end)
+
+                logger.info(
+                    f"Created padded intro loop: {padding_duration:.2f}s silence + "
+                    f"{intro_actual_end:.2f}s intro = {bars_per_loop} bars total "
+                    f"(Auftakt for {intro_bars} bar intro)"
+                )
+            else:
+                # Intro is equal or longer than bars_per_loop - use as-is
+                intro_loop = (intro_actual_start, intro_actual_end)
+                logger.info(
+                    f"Created intro loop: {intro_loop[0]:.2f}s - {intro_loop[1]:.2f}s "
+                    f"({intro_bars} bars, no padding needed)"
+                )
         elif intro_handling == "skip":
             # Skip intro - no intro_loop created
-            logger.info(f"Skipping intro ({intro_start:.2f}s - {intro_end:.2f}s)")
+            logger.info(f"Skipping intro ({intro_actual_start:.2f}s - {intro_actual_end:.2f}s)")
 
         # Start loop calculation from song start marker
         start_idx = song_start_downbeat_index
