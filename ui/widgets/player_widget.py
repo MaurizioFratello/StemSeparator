@@ -9,7 +9,7 @@ from typing import Optional, Dict, List
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
     QSlider, QGroupBox, QFileDialog, QMessageBox, QListWidget,
-    QListWidgetItem, QScrollArea, QProgressBar, QFrame
+    QListWidgetItem, QScrollArea, QProgressBar, QFrame, QTabWidget
 )
 from PySide6.QtCore import Qt, Signal, Slot, QTimer
 from PySide6.QtGui import QDragEnterEvent, QDropEvent
@@ -257,11 +257,35 @@ class PlayerWidget(QWidget):
         return card, layout
 
     def _setup_ui(self):
-        """Setup widget layout"""
+        """Setup widget layout with tabbed interface"""
         # Create main layout for the widget
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(20, 20, 20, 20)
         main_layout.setSpacing(15)
+
+        # === TAB WIDGET ===
+        self.tab_widget = QTabWidget()
+        self.tab_widget.setObjectName("playerTabs")
+
+        # Create tabs
+        self.playback_tab = self._create_playback_tab()
+        self.loop_preview_tab = self._create_loop_preview_tab()
+
+        # Add tabs
+        self.tab_widget.addTab(self.playback_tab, "Playback")
+        self.tab_widget.addTab(self.loop_preview_tab, "🎧 Loop Preview")
+
+        main_layout.addWidget(self.tab_widget)
+
+        # Connect tab change signal
+        self.tab_widget.currentChanged.connect(self._on_tab_changed)
+
+    def _create_playback_tab(self) -> QWidget:
+        """Create playback tab (existing player interface)"""
+        tab = QWidget()
+        tab_layout = QVBoxLayout(tab)
+        tab_layout.setContentsMargins(0, 0, 0, 0)
+        tab_layout.setSpacing(15)
 
         # File Loading Card
         load_card, load_layout = self._create_card("Load Stems")
@@ -295,7 +319,7 @@ class PlayerWidget(QWidget):
         load_buttons.addStretch()
         load_layout.addLayout(load_buttons)
 
-        main_layout.addWidget(load_card)
+        tab_layout.addWidget(load_card)
 
         # Mixer Card
         mixer_card, mixer_layout = self._create_card("Mixer")
@@ -329,7 +353,7 @@ class PlayerWidget(QWidget):
         master_layout.addWidget(self.master_label)
         mixer_layout.addLayout(master_layout)
 
-        main_layout.addWidget(mixer_card, stretch=1) # Allow mixer to expand
+        tab_layout.addWidget(mixer_card, stretch=1) # Allow mixer to expand
 
         # Playback Controls Card
         controls_card, controls_layout = self._create_card("Playback")
@@ -387,7 +411,7 @@ class PlayerWidget(QWidget):
         buttons_layout.addWidget(self.btn_export_loops)
         controls_layout.addLayout(buttons_layout)
 
-        main_layout.addWidget(controls_card)
+        tab_layout.addWidget(controls_card)
 
         # Info label
         self.info_label = QLabel(
@@ -395,9 +419,38 @@ class PlayerWidget(QWidget):
         )
         self.info_label.setAlignment(Qt.AlignCenter)
         self.info_label.setWordWrap(True)
-        main_layout.addWidget(self.info_label)
+        tab_layout.addWidget(self.info_label)
 
-        # Removed global scroll area logic
+        return tab
+
+    def _create_loop_preview_tab(self) -> QWidget:
+        """Create loop preview tab (placeholder for Phase 3)"""
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(15)
+
+        # Placeholder content
+        placeholder = QLabel("🎧 Loop Preview\n\nComing in Phase 3")
+        placeholder.setAlignment(Qt.AlignCenter)
+        placeholder.setStyleSheet("color: #888; font-size: 14pt;")
+        layout.addWidget(placeholder, alignment=Qt.AlignCenter)
+
+        return tab
+
+    def _on_tab_changed(self, index: int):
+        """Handle tab change events"""
+        tab_names = ["Playback", "Loop Preview"]
+        self.ctx.logger().info(f"Switched to tab: {tab_names[index]}")
+
+        # Phase 4: Trigger loop analysis when switching to Loop Preview tab
+        if index == 1:  # Loop Preview tab
+            self._prepare_loop_preview()
+
+    def _prepare_loop_preview(self):
+        """Prepare loop preview (placeholder for Phase 4)"""
+        # Will be implemented in Phase 4
+        pass
 
     def _connect_signals(self):
         """Connect signals"""
