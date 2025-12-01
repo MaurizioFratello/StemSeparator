@@ -23,6 +23,11 @@ scipy>=1.11.0  # For signal resampling in ensemble mode
 # If not installed, system falls back to librosa for BPM detection
 deeprhythm>=0.0.13  # Optional: Enhanced BPM detection with confidence scores
 
+# Beat Detection for Loop Preview (State-of-the-art beat/downbeat tracking)
+# Automatically uses CUDA/MPS if available, falls back to CPU
+BeatNet>=1.1.3  # Beat and downbeat detection for loop segmentation
+madmom>=0.16.1  # BeatNet dependency for DBN inference
+
 # ML Models
 torch>=2.0.0
 torchaudio>=2.0.0
