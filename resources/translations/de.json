@@ -13,12 +13,19 @@
 
   "sidebar.input": "Input",
   "sidebar.processing": "Processing",
-  "sidebar.monitoring": "Monitoring & Export",
+  "sidebar.monitoring": "Monitoring",
+  "sidebar.export": "Export",
 
   "tabs.upload": "Upload",
   "tabs.recording": "Recording",
   "tabs.queue": "Queue",
   "tabs.player": "Player",
+  "tabs.stems": "Stems",
+  "tabs.playback": "Playback",
+  "tabs.looping": "Looping",
+  
+  "export.mixed_audio": "💾 Export Mixed",
+  "export.loops": "🔁 Export Loops",
 
   "upload.title": "Datei hochladen",
   "upload.drag_drop": "Dateien hierher ziehen oder klicken zum Durchsuchen",

@@ -11,6 +11,22 @@
   "menu.help": "Help",
   "menu.help.about": "About",
 
+  "sidebar.input": "INPUT",
+  "sidebar.processing": "PROCESSING",
+  "sidebar.monitoring": "MONITORING",
+  "sidebar.export": "EXPORT",
+
+  "tabs.upload": "Upload",
+  "tabs.recording": "Recording",
+  "tabs.queue": "Queue",
+  "tabs.player": "Player",
+  "tabs.stems": "Stems",
+  "tabs.playback": "Playback",
+  "tabs.looping": "Looping",
+
+  "export.mixed_audio": "💾 Export Mixed",
+  "export.loops": "🔁 Export Loops",
+
   "upload.title": "Upload File",
   "upload.drag_drop": "Drag files here or click to browse",
   "upload.browse": "Browse...",

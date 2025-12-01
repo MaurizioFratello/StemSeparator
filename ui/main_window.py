@@ -163,11 +163,35 @@ class MainWindow(QMainWindow):
         sep2.setFrameShadow(QFrame.Plain)
         sidebar_layout.addWidget(sep2)
 
-        # SECTION: MONITORING & EXPORT
-        self._lbl_monitoring = QLabel("Monitoring & Export")
+        # SECTION: MONITORING
+        self._lbl_monitoring = QLabel("Monitoring")
         self._lbl_monitoring.setObjectName("sidebar_header")
         sidebar_layout.addWidget(self._lbl_monitoring)
         sidebar_layout.addWidget(self._btn_player)
+        
+        # SEPARATOR 3
+        sep3 = QFrame()
+        sep3.setObjectName("sidebar_separator")
+        sep3.setFrameShape(QFrame.HLine)
+        sep3.setFrameShadow(QFrame.Plain)
+        sidebar_layout.addWidget(sep3)
+
+        # SECTION: EXPORT
+        self._lbl_export = QLabel("Export")
+        self._lbl_export.setObjectName("sidebar_header")
+        sidebar_layout.addWidget(self._lbl_export)
+        
+        self._btn_export_mixed = QPushButton("💾 Export Mixed")
+        self._btn_export_mixed.setObjectName("sidebar_export_button")
+        self._btn_export_mixed.setEnabled(False)
+        self._btn_export_mixed.setToolTip("Export mixed audio from loaded stems")
+        sidebar_layout.addWidget(self._btn_export_mixed)
+        
+        self._btn_export_loops = QPushButton("🔁 Export Loops")
+        self._btn_export_loops.setObjectName("sidebar_export_button")
+        self._btn_export_loops.setEnabled(False)
+        self._btn_export_loops.setToolTip("Export as musical loops for samplers")
+        sidebar_layout.addWidget(self._btn_export_loops)
         
         sidebar_layout.addStretch() # Push buttons to top
 
@@ -185,6 +209,13 @@ class MainWindow(QMainWindow):
         self._upload_widget.file_queued.connect(self._queue_widget.add_task)
         self._upload_widget.start_queue_requested.connect(self._on_start_queue_requested)
         self._recording_widget.recording_saved.connect(self._on_recording_saved)
+        
+        # Connect PlayerWidget stem status to export button states
+        self._player_widget.stems_loaded_changed.connect(self._on_stems_loaded_changed)
+        
+        # Connect export buttons to PlayerWidget methods
+        self._btn_export_mixed.clicked.connect(self._player_widget.export_mixed_audio)
+        self._btn_export_loops.clicked.connect(self._player_widget.export_loops)
 
         status_bar = QStatusBar(self)
         status_bar.showMessage(self._context.translate("status.ready", fallback="Ready"))
@@ -369,7 +400,12 @@ class MainWindow(QMainWindow):
         # Update Sidebar Headers
         self._lbl_input.setText(translator("sidebar.input", fallback="INPUT"))
         self._lbl_process.setText(translator("sidebar.processing", fallback="PROCESSING"))
-        self._lbl_monitoring.setText(translator("sidebar.monitoring", fallback="MONITORING & EXPORT"))
+        self._lbl_monitoring.setText(translator("sidebar.monitoring", fallback="MONITORING"))
+        self._lbl_export.setText(translator("sidebar.export", fallback="EXPORT"))
+        
+        # Update Export Buttons
+        self._btn_export_mixed.setText(translator("export.mixed_audio", fallback="💾 Export Mixed"))
+        self._btn_export_loops.setText(translator("export.loops", fallback="🔁 Export Loops"))
 
         # Update Sidebar Buttons
         self._btn_upload.setText(translator("tabs.upload", fallback="Upload"))
@@ -465,6 +501,18 @@ class MainWindow(QMainWindow):
         self._content_stack.setCurrentIndex(0)
         self._btn_upload.setChecked(True)
         self._upload_widget.add_file(file_path)
+
+    @Slot(bool)
+    def _on_stems_loaded_changed(self, stems_loaded: bool) -> None:
+        """
+        Handle stem loading status change from PlayerWidget.
+        
+        PURPOSE: Enable/disable export buttons in sidebar based on stem availability
+        CONTEXT: Called when stems are loaded or cleared in PlayerWidget
+        """
+        self._btn_export_mixed.setEnabled(stems_loaded)
+        self._btn_export_loops.setEnabled(stems_loaded)
+        self._logger.debug(f"Export buttons {'enabled' if stems_loaded else 'disabled'}")
 
     def closeEvent(self, event: QCloseEvent) -> None:  # noqa: N802
         """Intercept close event for graceful shutdown."""

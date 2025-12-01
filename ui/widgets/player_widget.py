@@ -269,11 +269,15 @@ class PlayerWidget(QWidget):
     - Master volume
     - Playback controls (play/pause/stop)
     - Position slider with seek
-    - Export mixed audio
+    - Export mixed audio (triggered from sidebar)
     """
     
     # Signal to handle state changes from worker thread safely
     sig_state_changed = Signal(object)  # PlaybackState
+    
+    # Signal emitted when stems are loaded or cleared
+    # WHY: Allows MainWindow to enable/disable Export buttons in sidebar
+    stems_loaded_changed = Signal(bool)  # True if stems loaded, False if cleared
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -387,21 +391,28 @@ class PlayerWidget(QWidget):
         self.tab_widget = QTabWidget()
         self.tab_widget.setObjectName("playerTabs")
 
-        # Create tabs
+        # Create tabs (3 tabs: Stems, Playback, Looping)
+        self.stems_tab = self._create_stems_tab()
         self.playback_tab = self._create_playback_tab()
         self.loop_preview_tab = self._create_loop_preview_tab()
 
         # Add tabs
-        self.tab_widget.addTab(self.playback_tab, "Playback")
-        self.tab_widget.addTab(self.loop_preview_tab, "🎧 Loop Preview")
+        self.tab_widget.addTab(self.stems_tab, "📂 Stems")
+        self.tab_widget.addTab(self.playback_tab, "▶ Playback")
+        self.tab_widget.addTab(self.loop_preview_tab, "🎧 Looping")
 
         main_layout.addWidget(self.tab_widget)
 
         # Connect tab change signal
         self.tab_widget.currentChanged.connect(self._on_tab_changed)
 
-    def _create_playback_tab(self) -> QWidget:
-        """Create playback tab (existing player interface)"""
+    def _create_stems_tab(self) -> QWidget:
+        """
+        Create stems tab for loading stem files.
+        
+        PURPOSE: Separate tab for stem file management (Load, Remove, Clear)
+        CONTEXT: Part of UI restructuring - moved from Playback tab
+        """
         tab = QWidget()
         tab_layout = QVBoxLayout(tab)
         tab_layout.setContentsMargins(0, 0, 0, 0)
@@ -412,7 +423,7 @@ class PlayerWidget(QWidget):
 
         # Recent files list with drag-and-drop support
         self.stems_list = DragDropListWidget()
-        self.stems_list.setMaximumHeight(100)
+        self.stems_list.setMinimumHeight(200)
         load_layout.addWidget(self.stems_list)
 
         # Load buttons
@@ -440,6 +451,27 @@ class PlayerWidget(QWidget):
         load_layout.addLayout(load_buttons)
 
         tab_layout.addWidget(load_card)
+
+        # Info label for stems tab
+        self.stems_info_label = QLabel(
+            "Drag & drop stem files here, or use the buttons above to load stems.\n"
+            "Supported formats: WAV, MP3, FLAC, M4A, OGG, AAC"
+        )
+        self.stems_info_label.setAlignment(Qt.AlignCenter)
+        self.stems_info_label.setWordWrap(True)
+        self.stems_info_label.setStyleSheet("color: #888; font-size: 10pt; padding: 20px;")
+        tab_layout.addWidget(self.stems_info_label)
+
+        tab_layout.addStretch()
+
+        return tab
+
+    def _create_playback_tab(self) -> QWidget:
+        """Create playback tab with mixer and transport controls (no export buttons)"""
+        tab = QWidget()
+        tab_layout = QVBoxLayout(tab)
+        tab_layout.setContentsMargins(0, 0, 0, 0)
+        tab_layout.setSpacing(15)
 
         # Mixer Card
         mixer_card, mixer_layout = self._create_card("Mixer")
@@ -498,7 +530,7 @@ class PlayerWidget(QWidget):
         time_layout.addWidget(self.duration_label)
         controls_layout.addLayout(time_layout)
 
-        # Control buttons
+        # Control buttons (transport only - export moved to sidebar)
         buttons_layout = QHBoxLayout()
         self.btn_play = QPushButton("▶ Play")
         self.btn_play.setEnabled(False)
@@ -515,20 +547,10 @@ class PlayerWidget(QWidget):
         ThemeManager.set_widget_property(self.btn_stop, "buttonStyle", "danger")
         self.btn_stop.setToolTip("Stop playback (available during playback)")
 
-        self.btn_export = QPushButton("💾 Export Mixed Audio")
-        self.btn_export.setEnabled(False)
-        # Export uses primary style (default)
-
-        self.btn_export_loops = QPushButton("🔁 Export Loops")
-        self.btn_export_loops.setEnabled(False)
-        self.btn_export_loops.setToolTip("Export as musical loops for samplers (2/4/8 bars)")
-
         buttons_layout.addWidget(self.btn_play)
         buttons_layout.addWidget(self.btn_pause)
         buttons_layout.addWidget(self.btn_stop)
         buttons_layout.addStretch()
-        buttons_layout.addWidget(self.btn_export)
-        buttons_layout.addWidget(self.btn_export_loops)
         controls_layout.addLayout(buttons_layout)
 
         tab_layout.addWidget(controls_card)
@@ -658,11 +680,11 @@ class PlayerWidget(QWidget):
 
     def _on_tab_changed(self, index: int):
         """Handle tab change events"""
-        tab_names = ["Playback", "Loop Preview"]
+        tab_names = ["Stems", "Playback", "Looping"]
         self.ctx.logger().info(f"Switched to tab: {tab_names[index]}")
 
-        # Phase 4: Trigger loop analysis when switching to Loop Preview tab
-        if index == 1:  # Loop Preview tab
+        # Trigger loop analysis when switching to Looping tab
+        if index == 2:  # Looping tab (was index 1 before restructure)
             self._prepare_loop_preview()
 
     def _prepare_loop_preview(self):
@@ -1103,8 +1125,7 @@ class PlayerWidget(QWidget):
         self.btn_play.clicked.connect(self._on_play)
         self.btn_pause.clicked.connect(self._on_pause)
         self.btn_stop.clicked.connect(self._on_stop)
-        self.btn_export.clicked.connect(self._on_export)
-        self.btn_export_loops.clicked.connect(self._on_export_loops)
+        # Export buttons moved to sidebar - connected via MainWindow
 
     @Slot()
     def _on_load_dir(self):
@@ -1245,12 +1266,13 @@ class PlayerWidget(QWidget):
         self.current_time_label.setText("00:00")
         self.duration_label.setText("00:00")
 
-        # Disable playback and export buttons
+        # Disable playback buttons
         self.btn_play.setEnabled(False)
         self.btn_pause.setEnabled(False)
         self.btn_stop.setEnabled(False)
-        self.btn_export.setEnabled(False)
-        self.btn_export_loops.setEnabled(False)
+        
+        # Notify sidebar that stems are cleared
+        self.stems_loaded_changed.emit(False)
 
         # Reset info label
         self.info_label.setText(
@@ -1348,9 +1370,10 @@ class PlayerWidget(QWidget):
             if success:
                 # Enable controls (but Play button will check sounddevice availability)
                 self.btn_play.setEnabled(True)
-                self.btn_export.setEnabled(True)  # Export works without sounddevice
-                self.btn_export_loops.setEnabled(True)  # Loop export also works without sounddevice
                 self.position_slider.setEnabled(True)
+                
+                # Notify sidebar that stems are loaded (enables export buttons)
+                self.stems_loaded_changed.emit(True)
 
                 # Update duration
                 duration = self.player.get_duration()
@@ -2136,6 +2159,36 @@ class PlayerWidget(QWidget):
         """Load stems from separation result"""
         if stems:
             self._load_stems(list(stems.values()))
+
+    # === PUBLIC EXPORT METHODS (called from MainWindow sidebar) ===
+
+    def has_stems_loaded(self) -> bool:
+        """
+        Check if stems are currently loaded.
+        
+        WHY: Used by MainWindow to determine export button states
+        """
+        return len(self.stem_files) > 0
+
+    @Slot()
+    def export_mixed_audio(self):
+        """
+        Public method to trigger mixed audio export.
+        
+        PURPOSE: Called from MainWindow sidebar export button
+        CONTEXT: Wrapper around internal _on_export method
+        """
+        self._on_export()
+
+    @Slot()
+    def export_loops(self):
+        """
+        Public method to trigger loop export.
+        
+        PURPOSE: Called from MainWindow sidebar export button
+        CONTEXT: Wrapper around internal _on_export_loops method
+        """
+        self._on_export_loops()
 
     def apply_translations(self):
         """Apply current language translations"""
