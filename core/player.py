@@ -76,6 +76,11 @@ class AudioPlayer:
         self.stem_settings: Dict[str, StemSettings] = {}
         self.master_volume: float = 1.0
 
+        # Loop mode state
+        self.loop_mode_enabled: bool = False
+        self.loop_start_samples: int = 0
+        self.loop_end_samples: int = 0
+
         # Threading for position updates
         self._position_lock = threading.Lock()
         self._update_thread: Optional[threading.Thread] = None
@@ -441,8 +446,14 @@ class AudioPlayer:
         with self._position_lock:
             start_sample = self.position_samples
 
-        # Mix all stems from current position to end
-        mixed_audio = self._mix_stems(start_sample, self.duration_samples)
+        # Determine end point based on loop mode
+        if self.loop_mode_enabled:
+            end_sample = self.loop_end_samples
+        else:
+            end_sample = self.duration_samples
+
+        # Mix stems from current position to end (or loop end)
+        mixed_audio = self._mix_stems(start_sample, end_sample)
 
         if mixed_audio.shape[1] == 0:
             self.logger.warning("No audio to play (empty buffer)")
@@ -499,26 +510,51 @@ class AudioPlayer:
                         self.logger.debug(f"Position update loop detected seek to {self.position_samples} samples, resetting timing")
                     else:
                         # Update position normally
-                        self.position_samples = min(
-                            expected_position,
-                            self.duration_samples
-                        )
+                        if self.loop_mode_enabled:
+                            # In loop mode, clamp to loop boundaries
+                            self.position_samples = min(
+                                expected_position,
+                                self.loop_end_samples
+                            )
+                        else:
+                            # Normal mode, clamp to track duration
+                            self.position_samples = min(
+                                expected_position,
+                                self.duration_samples
+                            )
 
                     current_pos = self.position_samples
 
                     # Check if reached end
-                    if current_pos >= self.duration_samples:
-                        self.logger.info("Reached end of audio")
-                        self.state = PlaybackState.STOPPED
-                        self.position_samples = 0
-                        # Call state_callback to notify UI (same as position_callback, which works from worker thread)
-                        # The callback should be thread-safe and handle GUI updates appropriately
-                        if self.state_callback:
-                            try:
-                                self.state_callback(self.state)
-                            except Exception as e:
-                                self.logger.error(f"Error in state_callback: {e}", exc_info=True)
-                        break
+                    if self.loop_mode_enabled:
+                        # Loop mode: check if reached loop end
+                        if current_pos >= self.loop_end_samples:
+                            # Restart from loop start for continuous playback
+                            self.logger.debug(f"Loop end reached, restarting from {self.loop_start_samples}")
+
+                            # Stop current playback
+                            self._cancel_all_actions()
+
+                            # Reset position to loop start
+                            self.position_samples = self.loop_start_samples
+                            start_position = self.loop_start_samples
+                            start_time = time.time()
+
+                            # Restart playback from loop start
+                            self._start_playback_from_position()
+                    else:
+                        # Normal mode: check if reached track end
+                        if current_pos >= self.duration_samples:
+                            self.logger.info("Reached end of audio")
+                            self.state = PlaybackState.STOPPED
+                            self.position_samples = 0
+                            # Call state_callback to notify UI
+                            if self.state_callback:
+                                try:
+                                    self.state_callback(self.state)
+                                except Exception as e:
+                                    self.logger.error(f"Error in state_callback: {e}", exc_info=True)
+                            break
 
                 # Call position callback
                 if self.position_callback:
@@ -572,6 +608,116 @@ class AudioPlayer:
                 self.state_callback(self.state)
 
             self.logger.info("Stopped playback")
+
+    def play_loop_segment(self, start_sec: float, end_sec: float, repeat: bool = False) -> bool:
+        """
+        Play a specific loop segment
+
+        Args:
+            start_sec: Start time in seconds
+            end_sec: End time in seconds
+            repeat: If True, loop repeats continuously when reaching end
+
+        Returns:
+            True if playback started successfully, False otherwise
+        """
+        if not self.stems:
+            self.logger.warning("No stems loaded, cannot play loop")
+            return False
+
+        if not self._sounddevice_module:
+            self.logger.error("sounddevice not available")
+            return False
+
+        # Convert to samples
+        start_sample = int(start_sec * self.sample_rate)
+        end_sample = int(end_sec * self.sample_rate)
+
+        # Clamp to valid range
+        start_sample = max(0, min(start_sample, self.duration_samples))
+        end_sample = max(start_sample, min(end_sample, self.duration_samples))
+
+        if start_sample >= end_sample:
+            self.logger.warning(f"Invalid loop segment: {start_sec}s - {end_sec}s")
+            return False
+
+        # Stop current playback if playing
+        if self.state == PlaybackState.PLAYING:
+            self.stop()
+
+        # Set loop mode
+        self.loop_mode_enabled = repeat
+        self.loop_start_samples = start_sample
+        self.loop_end_samples = end_sample
+        self.position_samples = start_sample
+
+        self.logger.info(
+            f"Playing loop segment: {start_sec:.2f}s - {end_sec:.2f}s "
+            f"({'repeat' if repeat else 'once'})"
+        )
+
+        # Start playback from loop start
+        try:
+            self._start_playback_from_position()
+
+            # Update state
+            self.state = PlaybackState.PLAYING
+            if self.state_callback:
+                self.state_callback(self.state)
+
+            # Start position update thread
+            self._stop_update.clear()
+            self._update_thread = threading.Thread(target=self._position_update_loop, daemon=True)
+            self._update_thread.start()
+
+            return True
+
+        except Exception as e:
+            self.logger.error(f"Failed to start loop playback: {e}", exc_info=True)
+            return False
+
+    def set_loop_mode(self, enabled: bool, start_sec: float = 0.0, end_sec: Optional[float] = None):
+        """
+        Enable or disable loop mode
+
+        Args:
+            enabled: Whether to enable loop mode
+            start_sec: Loop start time in seconds
+            end_sec: Loop end time in seconds (None = end of track)
+        """
+        self.loop_mode_enabled = enabled
+
+        if enabled:
+            self.loop_start_samples = int(start_sec * self.sample_rate)
+            if end_sec is None:
+                self.loop_end_samples = self.duration_samples
+            else:
+                self.loop_end_samples = int(end_sec * self.sample_rate)
+
+            # Clamp to valid range
+            self.loop_start_samples = max(0, min(self.loop_start_samples, self.duration_samples))
+            self.loop_end_samples = max(self.loop_start_samples, min(self.loop_end_samples, self.duration_samples))
+
+            self.logger.info(
+                f"Loop mode enabled: {start_sec:.2f}s - "
+                f"{(end_sec if end_sec else self.get_duration()):.2f}s"
+            )
+        else:
+            self.logger.info("Loop mode disabled")
+
+    def get_loop_position(self) -> tuple[float, float, float]:
+        """
+        Get current loop playback position
+
+        Returns:
+            Tuple of (position_sec, loop_start_sec, loop_end_sec)
+        """
+        with self._position_lock:
+            position_sec = self.position_samples / self.sample_rate
+            loop_start_sec = self.loop_start_samples / self.sample_rate
+            loop_end_sec = self.loop_end_samples / self.sample_rate
+
+        return position_sec, loop_start_sec, loop_end_sec
 
     def _mix_stems(self, start_sample: int, end_sample: int) -> np.ndarray:
         """

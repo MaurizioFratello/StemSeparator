@@ -488,10 +488,45 @@ class PlayerWidget(QWidget):
         self.loop_waveform_widget = LoopWaveformWidget()
         layout.addWidget(self.loop_waveform_widget, stretch=1)
 
+        # Loop playback controls card
+        playback_card, playback_layout = self._create_card("Loop Playback")
+
+        # Playback controls
+        playback_controls_layout = QHBoxLayout()
+
+        self.btn_play_loop = QPushButton("▶ Play Loop")
+        ThemeManager.set_widget_property(self.btn_play_loop, "buttonStyle", "primary")
+        self.btn_play_loop.setEnabled(False)  # Disabled until loop selected
+
+        self.btn_play_loop_repeat = QPushButton("🔁 Play Loop (Repeat)")
+        ThemeManager.set_widget_property(self.btn_play_loop_repeat, "buttonStyle", "secondary")
+        self.btn_play_loop_repeat.setEnabled(False)
+
+        self.btn_stop_loop = QPushButton("⏹ Stop")
+        ThemeManager.set_widget_property(self.btn_stop_loop, "buttonStyle", "secondary")
+        self.btn_stop_loop.setEnabled(False)
+
+        playback_controls_layout.addWidget(self.btn_play_loop)
+        playback_controls_layout.addWidget(self.btn_play_loop_repeat)
+        playback_controls_layout.addWidget(self.btn_stop_loop)
+        playback_controls_layout.addStretch()
+
+        playback_layout.addLayout(playback_controls_layout)
+
+        # Loop info label
+        self.loop_playback_info_label = QLabel("Select a loop to play")
+        self.loop_playback_info_label.setStyleSheet("color: #888; font-size: 10pt;")
+        playback_layout.addWidget(self.loop_playback_info_label)
+
+        layout.addWidget(playback_card)
+
         # Connect signals
         self.btn_detect_loops.clicked.connect(self._on_detect_loops_clicked)
         self.loop_bars_group.buttonClicked.connect(self._on_loop_bars_changed)
         self.loop_waveform_widget.loop_selected.connect(self._on_loop_waveform_selected)
+        self.btn_play_loop.clicked.connect(self._on_play_loop_clicked)
+        self.btn_play_loop_repeat.clicked.connect(self._on_play_loop_repeat_clicked)
+        self.btn_stop_loop.clicked.connect(self._on_stop_loop_clicked)
 
         return tab
 
@@ -641,7 +676,85 @@ class PlayerWidget(QWidget):
     def _on_loop_waveform_selected(self, loop_index: int):
         """Handle loop selection from waveform widget"""
         self.selected_loop_index = loop_index
-        self.ctx.logger().info(f"Loop {loop_index + 1} selected")
+
+        if 0 <= loop_index < len(self.detected_loop_segments):
+            start_time, end_time = self.detected_loop_segments[loop_index]
+            duration = end_time - start_time
+
+            self.loop_playback_info_label.setText(
+                f"Loop {loop_index + 1} selected: {start_time:.2f}s - {end_time:.2f}s "
+                f"(duration: {duration:.2f}s)"
+            )
+
+            # Enable playback buttons
+            self.btn_play_loop.setEnabled(True)
+            self.btn_play_loop_repeat.setEnabled(True)
+
+            self.ctx.logger().info(f"Loop {loop_index + 1} selected: {start_time:.2f}s - {end_time:.2f}s")
+
+    def _on_play_loop_clicked(self):
+        """Handle 'Play Loop' button click (play once)"""
+        if self.selected_loop_index < 0 or self.selected_loop_index >= len(self.detected_loop_segments):
+            QMessageBox.warning(self, "No Loop Selected", "Please select a loop first.")
+            return
+
+        start_time, end_time = self.detected_loop_segments[self.selected_loop_index]
+
+        # Play loop segment once (no repeat)
+        success = self.player.play_loop_segment(start_time, end_time, repeat=False)
+
+        if success:
+            self.btn_stop_loop.setEnabled(True)
+            self.loop_playback_info_label.setText(
+                f"Playing Loop {self.selected_loop_index + 1} (once): "
+                f"{start_time:.2f}s - {end_time:.2f}s"
+            )
+            self.ctx.logger().info(f"Playing loop {self.selected_loop_index + 1} once")
+        else:
+            QMessageBox.warning(
+                self,
+                "Playback Failed",
+                "Failed to start loop playback. Check that sounddevice is installed."
+            )
+
+    def _on_play_loop_repeat_clicked(self):
+        """Handle 'Play Loop (Repeat)' button click"""
+        if self.selected_loop_index < 0 or self.selected_loop_index >= len(self.detected_loop_segments):
+            QMessageBox.warning(self, "No Loop Selected", "Please select a loop first.")
+            return
+
+        start_time, end_time = self.detected_loop_segments[self.selected_loop_index]
+
+        # Play loop segment with repeat
+        success = self.player.play_loop_segment(start_time, end_time, repeat=True)
+
+        if success:
+            self.btn_stop_loop.setEnabled(True)
+            self.loop_playback_info_label.setText(
+                f"Playing Loop {self.selected_loop_index + 1} (repeating): "
+                f"{start_time:.2f}s - {end_time:.2f}s"
+            )
+            self.ctx.logger().info(f"Playing loop {self.selected_loop_index + 1} with repeat")
+        else:
+            QMessageBox.warning(
+                self,
+                "Playback Failed",
+                "Failed to start loop playback. Check that sounddevice is installed."
+            )
+
+    def _on_stop_loop_clicked(self):
+        """Handle 'Stop' button click for loop playback"""
+        self.player.stop()
+        self.btn_stop_loop.setEnabled(False)
+
+        if self.selected_loop_index >= 0:
+            self.loop_playback_info_label.setText(
+                f"Loop {self.selected_loop_index + 1} playback stopped"
+            )
+        else:
+            self.loop_playback_info_label.setText("Playback stopped")
+
+        self.ctx.logger().info("Loop playback stopped")
 
     def _mix_stems_to_array(self) -> Tuple[np.ndarray, int]:
         """
