@@ -2,196 +2,253 @@
 Beat Detection - BeatNet integration for loop analysis
 
 PURPOSE: Detect beats and downbeats in audio for loop segmentation
-CONTEXT: Used by Loop Preview system to identify musical boundaries
+CONTEXT: Uses BeatNet beat-service (subprocess) with DeepRhythm/librosa fallback
+
+Strategy:
+1. Primary: BeatNet beat-service binary (full beat+downbeat grid)
+2. Fallback: DeepRhythm/librosa (BPM only, synthetic beat grid)
 """
 from pathlib import Path
-from typing import Tuple, Optional, List
+from typing import Tuple, Optional, List, Callable
 import numpy as np
 import soundfile as sf
 
 from utils.logger import get_logger
+from utils.beat_service_client import (
+    analyze_beats,
+    is_beat_service_available,
+    BeatServiceError,
+    BeatServiceTimeout,
+    BeatServiceNotFound,
+)
+from utils.audio_processing import detect_bpm
 
 logger = get_logger()
-
-# Global predictor instance (lazy loaded)
-_beatnet_predictor = None
-_beatnet_available = None
 
 
 def is_beatnet_available() -> bool:
     """
-    Check if BeatNet is available.
+    Check if BeatNet beat-service is available.
 
     Returns:
-        True if BeatNet can be imported, False otherwise
+        True if beat-service binary exists and is executable
     """
-    global _beatnet_available
-
-    if _beatnet_available is not None:
-        return _beatnet_available
-
-    try:
-        from BeatNet.BeatNet import BeatNet
-        _beatnet_available = True
-        logger.info("BeatNet is available")
-    except ImportError as e:
-        _beatnet_available = False
-        logger.warning(f"BeatNet not available: {e}")
-
-    return _beatnet_available
+    return is_beat_service_available()
 
 
-def _get_beatnet_predictor():
-    """
-    Get or create BeatNet predictor instance (singleton pattern).
-
-    WHY: BeatNet model loading is expensive (~2-5s), so we cache it
-
-    Returns:
-        BeatNet predictor instance or None if unavailable
-    """
-    global _beatnet_predictor
-
-    if not is_beatnet_available():
-        return None
-
-    if _beatnet_predictor is None:
-        try:
-            from BeatNet.BeatNet import BeatNet
-
-            # Determine device (CUDA > MPS > CPU)
-            device = _get_best_device()
-
-            logger.info(f"Loading BeatNet model on {device}...")
-
-            # Model 1, offline mode, DBN inference for best accuracy
-            _beatnet_predictor = BeatNet(
-                model=1,
-                mode='offline',
-                inference_model='DBN',
-                plot=[],  # No visualization
-                thread=False,
-                device=device
-            )
-
-            logger.info(f"BeatNet model loaded successfully on {device}")
-
-        except Exception as e:
-            logger.error(f"Failed to load BeatNet: {e}", exc_info=True)
-            _beatnet_predictor = None
-
-    return _beatnet_predictor
-
-
-def _get_best_device() -> str:
-    """
-    Determine best available device for PyTorch.
-
-    Returns:
-        'cuda', 'mps', or 'cpu'
-    """
-    try:
-        import torch
-
-        if torch.cuda.is_available():
-            return 'cuda'
-        elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
-            return 'mps'  # Apple Silicon
-        else:
-            return 'cpu'
-
-    except ImportError:
-        return 'cpu'
+# Type alias for progress callback: (phase: str, detail: str) -> None
+ProgressCallback = Callable[[str, str], None]
 
 
 def detect_beats_and_downbeats(
     audio_path: Path,
-    bpm_hint: Optional[float] = None
+    bpm_hint: Optional[float] = None,
+    bpm_audio_path: Optional[Path] = None,
+    progress_callback: Optional[ProgressCallback] = None
 ) -> Tuple[np.ndarray, np.ndarray, float, str]:
     """
     Detect beats and downbeats in audio file.
 
+    Strategy:
+    1. Try BeatNet beat-service (full beat+downbeat grid)
+    2. Use DeepRhythm for BPM (optionally from drums stem for better accuracy)
+    3. Fallback: DeepRhythm/librosa (BPM only, synthetic beat grid)
+
     Args:
-        audio_path: Path to audio file
-        bpm_hint: Optional BPM hint (not used by BeatNet, for logging only)
+        audio_path: Path to audio file for beat grid detection (typically mixed)
+        bpm_hint: Optional BPM hint (used for fallback logging)
+        bpm_audio_path: Optional separate audio path for BPM detection (e.g., drums stem).
+                        If None, uses audio_path. Drums stem gives more accurate BPM.
+        progress_callback: Optional callback for progress updates.
+                          Called with (phase, detail) strings.
 
     Returns:
         Tuple of:
         - beat_times: Array of beat positions in seconds
         - downbeat_times: Array of downbeat positions in seconds
         - first_downbeat: Time of first downbeat in seconds
-        - confidence_msg: Human-readable confidence message
+        - confidence_msg: Human-readable confidence/source message
 
     Raises:
-        RuntimeError: If BeatNet is not available
-        ValueError: If no beats detected
         FileNotFoundError: If audio file doesn't exist
+        ValueError: If no beats detected and fallback also fails
 
     Example:
-        >>> beats, downbeats, first_db, msg = detect_beats_and_downbeats(audio_path)
-        >>> print(f"Found {len(beats)} beats, {len(downbeats)} downbeats")
-        >>> print(f"First downbeat at {first_db:.2f}s")
+        >>> # Use drums for BPM, mixed for beat grid:
+        >>> beats, downbeats, first_db, msg = detect_beats_and_downbeats(
+        ...     audio_path=mixed_path, bpm_audio_path=drums_path
+        ... )
     """
+    def report_progress(phase: str, detail: str = ""):
+        """Helper to report progress if callback is provided."""
+        if progress_callback:
+            progress_callback(phase, detail)
+        logger.info(f"{phase}: {detail}" if detail else phase)
+
     if not audio_path.exists():
         raise FileNotFoundError(f"Audio file not found: {audio_path}")
 
-    predictor = _get_beatnet_predictor()
+    report_progress("Initializing", f"Analyzing {audio_path.name}")
 
-    if predictor is None:
-        raise RuntimeError("BeatNet not available")
-
-    logger.info(f"Detecting beats in: {audio_path.name}")
     if bpm_hint:
         logger.info(f"BPM hint: {bpm_hint:.1f}")
 
-    try:
-        # BeatNet expects 22050 Hz audio
-        audio_data, sr = sf.read(str(audio_path), always_2d=False)
+    # Strategy 1: Try BeatNet beat-service for beat grid + DeepRhythm for BPM
+    if is_beat_service_available():
+        try:
+            # Calculate dynamic timeout based on audio duration
+            # Base: 30s + ~0.5s per second of audio (BeatNet processes ~2x realtime on MPS)
+            try:
+                info = sf.info(str(audio_path))
+                audio_duration = info.duration
+                timeout = max(60.0, 30.0 + audio_duration * 0.5)
+                logger.debug(f"BeatNet timeout: {timeout:.0f}s for {audio_duration:.1f}s audio")
+            except Exception:
+                audio_duration = 0
+                timeout = 120.0  # Safe default for unknown duration
 
-        # Convert to mono if stereo
+            report_progress("BeatNet", f"Analyzing beat grid ({audio_duration:.0f}s audio, timeout: {timeout:.0f}s)...")
+
+            result = analyze_beats(
+                audio_path,
+                timeout_seconds=timeout,
+                device="auto"
+            )
+
+            report_progress("BeatNet", f"Found {len(result.beats)} beats, processing...")
+
+            beat_times = np.array([b.time for b in result.beats])
+            downbeat_times = np.array([d.time for d in result.downbeats])
+
+            if len(downbeat_times) == 0:
+                logger.warning("BeatNet returned no downbeats, using first beat")
+                first_downbeat = beat_times[0] if len(beat_times) > 0 else 0.0
+                downbeat_times = np.array([first_downbeat])
+            else:
+                first_downbeat = downbeat_times[0]
+
+            # Use DeepRhythm/librosa for more accurate BPM estimation
+            # BeatNet provides the beat grid, DeepRhythm provides better tempo
+            # Use bpm_audio_path (e.g., drums stem) if provided for better accuracy
+            beatnet_tempo = result.tempo
+            final_tempo = beatnet_tempo
+            tempo_source = "BeatNet"
+
+            bpm_source_path = bpm_audio_path if bpm_audio_path and bpm_audio_path.exists() else audio_path
+            bpm_source_name = "drums" if bpm_audio_path and bpm_audio_path.exists() else "mixed"
+
+            report_progress("DeepRhythm", f"Refining BPM from {bpm_source_name} stem...")
+
+            try:
+                audio_data, sample_rate = sf.read(str(bpm_source_path), always_2d=False)
+                if audio_data.ndim > 1:
+                    audio_data = np.mean(audio_data, axis=1)
+
+                deeprhythm_tempo, dr_confidence = detect_bpm(audio_data, sample_rate)
+
+                if deeprhythm_tempo > 0 and dr_confidence is not None:
+                    # Use DeepRhythm tempo if confidence is good
+                    final_tempo = deeprhythm_tempo
+                    tempo_source = f"DeepRhythm ({dr_confidence:.0%})"
+                    logger.info(
+                        f"BPM refinement: BeatNet={beatnet_tempo:.1f}, "
+                        f"DeepRhythm={deeprhythm_tempo:.1f} (using DeepRhythm)"
+                    )
+                elif deeprhythm_tempo > 0:
+                    # librosa fallback (no confidence score)
+                    final_tempo = deeprhythm_tempo
+                    tempo_source = "librosa"
+                    logger.info(
+                        f"BPM refinement: BeatNet={beatnet_tempo:.1f}, "
+                        f"librosa={deeprhythm_tempo:.1f} (using librosa)"
+                    )
+
+            except Exception as e:
+                logger.warning(f"DeepRhythm BPM detection failed, using BeatNet: {e}")
+
+            confidence_msg = (
+                f"{tempo_source}: {final_tempo:.1f} BPM, "
+                f"{len(downbeat_times)} downbeats (grid: BeatNet)"
+            )
+
+            logger.info(
+                f"BeatNet analysis: {len(beat_times)} beats, "
+                f"{len(downbeat_times)} downbeats, first at {first_downbeat:.2f}s"
+            )
+
+            return beat_times, downbeat_times, first_downbeat, confidence_msg
+
+        except BeatServiceTimeout as e:
+            logger.warning(f"BeatNet timeout: {e}, falling back to DeepRhythm")
+        except BeatServiceNotFound as e:
+            logger.info(f"BeatNet not available: {e}, using fallback")
+        except BeatServiceError as e:
+            logger.warning(f"BeatNet error: {e}, falling back to DeepRhythm")
+    else:
+        logger.info("BeatNet beat-service not available, using fallback")
+
+    # Strategy 2: Fallback to DeepRhythm/librosa (BPM only)
+    return _fallback_bpm_detection(audio_path)
+
+
+def _fallback_bpm_detection(audio_path: Path) -> Tuple[np.ndarray, np.ndarray, float, str]:
+    """
+    Fallback beat detection using DeepRhythm/librosa.
+
+    WHY: When BeatNet is unavailable, we can still detect BPM and generate
+    a synthetic beat grid. However, we cannot detect true downbeats.
+
+    Returns:
+        Same tuple format as detect_beats_and_downbeats()
+
+    Note:
+        - Downbeats are NOT accurate (just every 4th beat assumed)
+        - Loop-export functionality should be limited in this mode
+    """
+    logger.info("Using fallback BPM detection (no true downbeats)")
+
+    try:
+        # Load audio for duration calculation
+        audio_data, sample_rate = sf.read(str(audio_path), always_2d=False)
         if audio_data.ndim > 1:
             audio_data = np.mean(audio_data, axis=1)
 
-        # Resample to 22050 Hz if needed
-        if sr != 22050:
-            from utils.audio_processing import resample_audio
-            audio_data = resample_audio(audio_data, sr, 22050)
-            logger.info(f"Resampled from {sr} Hz to 22050 Hz")
+        duration = len(audio_data) / sample_rate
 
-        # Process with BeatNet
-        # Returns: numpy_array(num_beats, 2) where columns are [beat_time, is_downbeat]
-        result = predictor.process(str(audio_path))
+        # Detect BPM using DeepRhythm (preferred) or librosa
+        bpm, confidence = detect_bpm(audio_data, sample_rate)
 
-        if result is None or len(result) == 0:
-            raise ValueError("No beats detected")
+        if bpm <= 0:
+            bpm = 120.0
+            logger.warning("BPM detection failed, using default 120 BPM")
 
-        # Extract beat times and downbeat flags
-        beat_times = result[:, 0]  # First column: beat times
-        downbeat_flags = result[:, 1]  # Second column: 1 for downbeat, 0 for regular beat
+        # Generate synthetic beat grid from BPM
+        beat_interval = 60.0 / bpm
+        beat_times = np.arange(0, duration, beat_interval)
 
-        # Extract downbeat positions
-        downbeat_indices = np.where(downbeat_flags == 1)[0]
+        # Generate synthetic downbeats (every 4 beats, assuming 4/4)
+        # WARNING: These are NOT true musical downbeats!
+        downbeat_indices = np.arange(0, len(beat_times), 4)
         downbeat_times = beat_times[downbeat_indices]
 
-        if len(downbeat_times) == 0:
-            logger.warning("No downbeats detected, using first beat as downbeat")
-            first_downbeat = beat_times[0] if len(beat_times) > 0 else 0.0
-            downbeat_times = np.array([first_downbeat])
+        first_downbeat = 0.0  # Assume start
+
+        # Build confidence message
+        if confidence is not None:
+            confidence_msg = f"Fallback: {bpm:.1f} BPM ({confidence:.0%}) - keine echten Downbeats"
         else:
-            first_downbeat = downbeat_times[0]
+            confidence_msg = f"Fallback: {bpm:.1f} BPM (librosa) - keine echten Downbeats"
 
         logger.info(
-            f"Detected {len(beat_times)} beats, {len(downbeat_times)} downbeats. "
-            f"First downbeat at {first_downbeat:.2f}s"
+            f"Fallback detection: {bpm:.1f} BPM, {len(beat_times)} synthetic beats, "
+            f"{len(downbeat_times)} assumed downbeats"
         )
-
-        confidence_msg = f"BeatNet (offline): {len(downbeat_times)} downbeats detected"
 
         return beat_times, downbeat_times, first_downbeat, confidence_msg
 
     except Exception as e:
-        logger.error(f"Beat detection failed: {e}", exc_info=True)
-        raise
+        logger.error(f"Fallback BPM detection failed: {e}", exc_info=True)
+        raise ValueError(f"Could not detect beats: {e}")
 
 
 def calculate_loops_from_downbeats(
@@ -227,7 +284,6 @@ def calculate_loops_from_downbeats(
     loops = []
 
     # Each loop spans bars_per_loop downbeats
-    # Example: 4 bars = 4 downbeats = indices [0, 1, 2, 3] → start at 0, end at 4
     num_downbeats = len(downbeat_times)
 
     idx = 0
@@ -242,7 +298,6 @@ def calculate_loops_from_downbeats(
             end_time = downbeat_times[end_idx]
         else:
             # Last loop - might be partial
-            # Use audio duration or last downbeat + average bar duration
             if idx + 1 < num_downbeats:
                 # Calculate average bar duration
                 avg_bar_duration = np.mean(np.diff(downbeat_times))

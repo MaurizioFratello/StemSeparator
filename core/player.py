@@ -80,6 +80,8 @@ class AudioPlayer:
         self.loop_mode_enabled: bool = False
         self.loop_start_samples: int = 0
         self.loop_end_samples: int = 0
+        self._loop_cached_audio: Optional[np.ndarray] = None  # Cached loop audio buffer (multi-rep)
+        self._loop_single_length: int = 0  # Length of single loop iteration in samples
 
         # Threading for position updates
         self._position_lock = threading.Lock()
@@ -503,7 +505,30 @@ class AudioPlayer:
                     # Allow small tolerance for rounding errors
                     position_changed_externally = abs(self.position_samples - expected_position) > self.sample_rate * 0.1
 
-                    if position_changed_externally:
+                    # Handle loop mode with extended buffer separately
+                    if self.loop_mode_enabled and self._loop_cached_audio is not None and self._loop_single_length > 0:
+                        # Extended buffer mode: don't use normal position tracking
+                        # Calculate position within extended buffer
+                        extended_buffer_samples = len(self._loop_cached_audio)
+                        elapsed_in_extended = expected_position - start_position
+                        
+                        # Check if extended buffer is exhausted
+                        if elapsed_in_extended >= extended_buffer_samples:
+                            # Restart the extended buffer
+                            self.logger.debug(f"Extended loop buffer exhausted after {elapsed_in_extended} samples, restarting")
+                            
+                            # Reset timing
+                            start_position = self.loop_start_samples
+                            start_time = time.time()
+                            self.position_samples = self.loop_start_samples
+                            
+                            # Restart playback
+                            self._play_cached_loop()
+                        else:
+                            # Wrap position to show correct UI position within single loop
+                            pos_in_single = int(elapsed_in_extended) % self._loop_single_length
+                            self.position_samples = self.loop_start_samples + pos_in_single
+                    elif position_changed_externally:
                         # Position was changed by seek - reset our timing
                         start_position = self.position_samples
                         start_time = time.time()
@@ -511,11 +536,21 @@ class AudioPlayer:
                     else:
                         # Update position normally
                         if self.loop_mode_enabled:
-                            # In loop mode, clamp to loop boundaries
+                            # In loop mode (no cached audio), clamp to loop boundaries
                             self.position_samples = min(
                                 expected_position,
                                 self.loop_end_samples
                             )
+                            
+                            # Check if reached loop end
+                            if self.position_samples >= self.loop_end_samples:
+                                self.logger.debug(f"Loop end reached, restarting")
+                                
+                                self.position_samples = self.loop_start_samples
+                                start_position = self.loop_start_samples
+                                start_time = time.time()
+                                
+                                self._start_playback_from_position()
                         else:
                             # Normal mode, clamp to track duration
                             self.position_samples = min(
@@ -525,43 +560,25 @@ class AudioPlayer:
 
                     current_pos = self.position_samples
 
-                    # Check if reached end
-                    if self.loop_mode_enabled:
-                        # Loop mode: check if reached loop end
-                        if current_pos >= self.loop_end_samples:
-                            # Restart from loop start for continuous playback
-                            self.logger.debug(f"Loop end reached, restarting from {self.loop_start_samples}")
-
-                            # Stop current playback
-                            self._cancel_all_actions()
-
-                            # Reset position to loop start
-                            self.position_samples = self.loop_start_samples
-                            start_position = self.loop_start_samples
-                            start_time = time.time()
-
-                            # Restart playback from loop start
-                            self._start_playback_from_position()
-                    else:
-                        # Normal mode: check if reached track end
-                        if current_pos >= self.duration_samples:
-                            self.logger.info("Reached end of audio")
-                            self.state = PlaybackState.STOPPED
-                            self.position_samples = 0
-                            # Call state_callback to notify UI
-                            if self.state_callback:
-                                try:
-                                    self.state_callback(self.state)
-                                except Exception as e:
-                                    self.logger.error(f"Error in state_callback: {e}", exc_info=True)
-                            break
+                    # Check if reached track end (non-loop mode only)
+                    if not self.loop_mode_enabled and current_pos >= self.duration_samples:
+                        self.logger.info("Reached end of audio")
+                        self.state = PlaybackState.STOPPED
+                        self.position_samples = 0
+                        # Call state_callback to notify UI
+                        if self.state_callback:
+                            try:
+                                self.state_callback(self.state)
+                            except Exception as e:
+                                self.logger.error(f"Error in state_callback: {e}", exc_info=True)
+                        break
 
                 # Call position callback
                 if self.position_callback:
                     self.position_callback(self.get_position(), self.get_duration())
 
-                # Update every 50ms
-                time.sleep(0.05)
+                # Update every 10ms for faster loop detection (was 50ms)
+                time.sleep(0.01)
 
         except Exception as e:
             self.logger.error(f"Error in position update loop: {e}", exc_info=True)
@@ -602,6 +619,10 @@ class AudioPlayer:
 
             self.state = PlaybackState.STOPPED
             self.position_samples = 0
+
+            # Clear loop cache to free memory
+            self._loop_cached_audio = None
+            self._loop_single_length = 0
 
             # Call state callback after thread has finished to avoid deadlock
             if self.state_callback:
@@ -656,9 +677,35 @@ class AudioPlayer:
             f"({'repeat' if repeat else 'once'})"
         )
 
+        # Pre-mix and cache loop audio for fast repeat (avoids re-mixing on each loop)
+        # Create extended buffer with multiple repetitions for gapless-ish playback
+        if repeat:
+            self.logger.info("Pre-mixing loop audio for repeat mode...")
+            mixed_audio = self._mix_stems(start_sample, end_sample)
+            single_loop = mixed_audio.T.astype(np.float32)
+            
+            # Create buffer with multiple repetitions (reduces restart frequency)
+            # Each restart of sounddevice.play() has ~10-50ms latency
+            num_repetitions = 10  # Play 10 loops before needing to restart
+            self._loop_cached_audio = np.tile(single_loop, (num_repetitions, 1))
+            self._loop_single_length = len(single_loop)  # Track single loop length
+            
+            loop_duration = len(single_loop) / self.sample_rate
+            self.logger.info(
+                f"Cached loop audio: {len(single_loop)} samples ({loop_duration:.2f}s) "
+                f"x {num_repetitions} = {len(self._loop_cached_audio)} total samples"
+            )
+        else:
+            self._loop_cached_audio = None
+            self._loop_single_length = 0
+
         # Start playback from loop start
         try:
-            self._start_playback_from_position()
+            # Use cached loop audio if available (for repeat mode)
+            if self._loop_cached_audio is not None:
+                self._play_cached_loop()
+            else:
+                self._start_playback_from_position()
 
             # Update state
             self.state = PlaybackState.PLAYING
@@ -675,6 +722,27 @@ class AudioPlayer:
         except Exception as e:
             self.logger.error(f"Failed to start loop playback: {e}", exc_info=True)
             return False
+
+    def _play_cached_loop(self):
+        """Play cached loop audio without re-mixing (for fast loop repeat)"""
+        if self._loop_cached_audio is None or self._sounddevice_module is None:
+            return
+
+        try:
+            sd = self._sounddevice_module
+            default_device = sd.default.device[1]
+
+            sd.play(
+                self._loop_cached_audio,
+                samplerate=self.sample_rate,
+                device=default_device,
+                blocking=False
+            )
+
+            self.logger.debug("Restarted cached loop playback")
+
+        except Exception as e:
+            self.logger.error(f"Failed to play cached loop: {e}", exc_info=True)
 
     def set_loop_mode(self, enabled: bool, start_sec: float = 0.0, end_sec: Optional[float] = None):
         """

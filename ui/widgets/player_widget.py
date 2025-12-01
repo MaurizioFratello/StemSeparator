@@ -14,7 +14,7 @@ from PySide6.QtWidgets import (
     QSlider, QGroupBox, QFileDialog, QMessageBox, QListWidget,
     QListWidgetItem, QScrollArea, QProgressBar, QFrame, QTabWidget
 )
-from PySide6.QtCore import Qt, Signal, Slot, QTimer
+from PySide6.QtCore import Qt, Signal, Slot, QTimer, QRunnable, QThreadPool, QObject
 from PySide6.QtGui import QDragEnterEvent, QDropEvent
 
 from ui.app_context import AppContext
@@ -67,6 +67,65 @@ class DragDropListWidget(QListWidget):
                 event.ignore()
         else:
             event.ignore()
+
+
+class BeatAnalysisWorker(QRunnable):
+    """
+    Background worker for beat analysis.
+
+    PURPOSE: Run BeatNet beat detection without blocking GUI thread
+    CONTEXT: Uses beat_service_client subprocess for isolation
+    """
+
+    class Signals(QObject):
+        finished = Signal(object, object, float, str)  # beats, downbeats, first_db, msg
+        error = Signal(str)
+        progress = Signal(str, str)  # phase, detail
+
+    def __init__(self, audio_path: Path, logger, bpm_audio_path: Optional[Path] = None):
+        super().__init__()
+        self.audio_path = audio_path
+        self.bpm_audio_path = bpm_audio_path  # Separate path for BPM detection (e.g., drums)
+        self.logger = logger
+        self.signals = self.Signals()
+        self._cancelled = False
+
+    def cancel(self):
+        """Request cancellation of the analysis."""
+        self._cancelled = True
+
+    def _progress_callback(self, phase: str, detail: str):
+        """Callback for progress updates from beat_detection."""
+        if not self._cancelled:
+            self.signals.progress.emit(phase, detail)
+
+    def run(self):
+        """Execute beat analysis in background."""
+        try:
+            self.signals.progress.emit("Starting", "Preparing beat analysis...")
+
+            if self._cancelled:
+                return
+
+            beat_times, downbeat_times, first_downbeat, conf_msg = \
+                beat_detection.detect_beats_and_downbeats(
+                    self.audio_path,
+                    bpm_audio_path=self.bpm_audio_path,
+                    progress_callback=self._progress_callback
+                )
+
+            if self._cancelled:
+                return
+
+            self.signals.progress.emit("Complete", "Processing results...")
+            self.signals.finished.emit(
+                beat_times, downbeat_times, first_downbeat, conf_msg
+            )
+
+        except Exception as e:
+            if not self._cancelled:
+                self.logger.error(f"Beat analysis error: {e}", exc_info=True)
+                self.signals.error.emit(str(e))
 
 
 class StemControl(QWidget):
@@ -236,6 +295,19 @@ class PlayerWidget(QWidget):
         self.detected_downbeat_times: Optional[np.ndarray] = None
         self.detected_loop_segments: List[Tuple[float, float]] = []
         self.selected_loop_index: int = -1
+
+        # Beat analysis worker (for async detection)
+        self._beat_analysis_worker: Optional[BeatAnalysisWorker] = None
+        self._thread_pool = QThreadPool()
+
+        # Beat analysis countdown timer
+        self._beat_analysis_timer = QTimer(self)
+        self._beat_analysis_timer.timeout.connect(self._update_beat_analysis_countdown)
+        self._beat_analysis_timer.setInterval(1000)  # Update every second
+        self._beat_analysis_start_time: float = 0.0
+        self._beat_analysis_timeout: float = 120.0
+        self._beat_analysis_phase: str = ""
+        self._beat_analysis_detail: str = ""
 
         # Setup player callbacks
         self.player.position_callback = self._on_position_update
@@ -555,7 +627,7 @@ class PlayerWidget(QWidget):
         self.loop_status_label.setText("Click 'Detect Loops' to analyze beat structure and generate loops")
 
     def _on_detect_loops_clicked(self):
-        """Handle 'Detect Loops' button click"""
+        """Handle 'Detect Loops' button click - starts async beat analysis"""
         if not self.stem_files:
             QMessageBox.warning(
                 self,
@@ -564,94 +636,200 @@ class PlayerWidget(QWidget):
             )
             return
 
-        # Check if BeatNet is available
-        if not beat_detection.is_beatnet_available():
-            QMessageBox.critical(
-                self,
-                "BeatNet Not Available",
-                "BeatNet is required for beat detection but is not installed.\n\n"
-                "Please install it with: pip install BeatNet>=1.1.3"
-            )
-            return
+        # Cancel any existing analysis
+        if self._beat_analysis_worker:
+            self._beat_analysis_worker.cancel()
+            self._beat_analysis_worker = None
 
         try:
-            self.loop_status_label.setText("🔍 Analyzing beat structure...")
+            self.loop_status_label.setText("🔍 Preparing audio for analysis...")
             self.btn_detect_loops.setEnabled(False)
             self.ctx.logger().info("Starting loop detection...")
 
-            # Get bars per loop setting
-            bars_per_loop = self.loop_bars_group.checkedId()  # 2, 4, or 8
-
-            # Step 1: Mix all stems to create master track for beat detection
+            # Step 1: Mix all stems to create master track for beat detection (BeatNet needs full mix)
             self.ctx.logger().info("Mixing stems for beat detection...")
             mixed_audio, sample_rate = self._mix_stems_to_array()
 
-            # Step 2: Save to temporary file for BeatNet
+            # Step 2: Save to temporary file
             import tempfile
-            with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as tmp_file:
-                tmp_path = Path(tmp_file.name)
+            tmp_file = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
+            self._beat_analysis_tmp_path = Path(tmp_file.name)
+            tmp_file.close()
 
-            try:
-                sf.write(str(tmp_path), mixed_audio, sample_rate)
+            sf.write(str(self._beat_analysis_tmp_path), mixed_audio, sample_rate)
 
-                # Step 3: Run beat detection
-                self.loop_status_label.setText("🔍 Detecting beats and downbeats...")
-                beat_times, downbeat_times, first_downbeat, conf_msg = \
-                    beat_detection.detect_beats_and_downbeats(tmp_path)
+            # Store for later use in callback
+            self._beat_analysis_mixed_audio = mixed_audio
+            self._beat_analysis_sample_rate = sample_rate
 
-                self.detected_beat_times = beat_times
-                self.detected_downbeat_times = downbeat_times
+            # Step 3: Find drums stem for BPM detection (more accurate than mixed)
+            drums_path = self._find_drums_stem_path()
+            if drums_path:
+                self.ctx.logger().info(f"Using drums stem for BPM detection: {drums_path.name}")
+            else:
+                self.ctx.logger().info("No drums stem found, using mixed audio for BPM detection")
 
-                # Step 4: Calculate loop segments
-                duration = self.player.get_duration()
-                self.detected_loop_segments = beat_detection.calculate_loops_from_downbeats(
-                    downbeat_times, bars_per_loop, duration
-                )
+            # Step 4: Calculate timeout and start countdown timer
+            import time
+            audio_duration = len(mixed_audio) / sample_rate
+            self._beat_analysis_timeout = max(60.0, 30.0 + audio_duration * 0.5)
+            self._beat_analysis_start_time = time.time()
+            self._beat_analysis_phase = "Starting"
+            self._beat_analysis_detail = "Initializing..."
+            self._beat_analysis_timer.start()
 
-                # Step 5: Load waveforms into widget
-                self.loop_status_label.setText("🎨 Rendering waveforms...")
+            # Step 5: Start async beat analysis
+            self._beat_analysis_worker = BeatAnalysisWorker(
+                self._beat_analysis_tmp_path,
+                self.ctx.logger(),
+                bpm_audio_path=drums_path  # Pass drums for better BPM accuracy
+            )
+            self._beat_analysis_worker.signals.finished.connect(self._on_beat_analysis_finished)
+            self._beat_analysis_worker.signals.error.connect(self._on_beat_analysis_error)
+            self._beat_analysis_worker.signals.progress.connect(self._on_beat_analysis_progress)
 
-                # Combined mode: use mixed audio
-                self.loop_waveform_widget.set_combined_waveform(mixed_audio, sample_rate)
-
-                # Stacked mode: load individual stems
-                stem_waveforms = {}
-                for stem_name, stem_path in self.stem_files.items():
-                    audio_data, sr = sf.read(stem_path, dtype='float32')
-                    stem_waveforms[stem_name] = audio_data
-
-                self.loop_waveform_widget.set_stem_waveforms(stem_waveforms, sample_rate)
-
-                # Step 6: Set beat times and loop segments
-                self.loop_waveform_widget.set_beat_times(beat_times, downbeat_times)
-                self.loop_waveform_widget.set_loop_segments(self.detected_loop_segments)
-
-                # Success!
-                num_loops = len(self.detected_loop_segments)
-                self.loop_status_label.setText(
-                    f"✓ Detected {num_loops} loops ({bars_per_loop} bars each). "
-                    f"{len(downbeat_times)} downbeats, {len(beat_times)} total beats. {conf_msg}"
-                )
-                self.ctx.logger().info(f"Loop detection complete: {num_loops} loops detected")
-
-            finally:
-                # Clean up temporary file
-                tmp_path.unlink(missing_ok=True)
+            self._thread_pool.start(self._beat_analysis_worker)
 
         except Exception as e:
             error_msg = str(e)
             self.loop_status_label.setText(f"❌ Loop detection failed: {error_msg}")
             self.ctx.logger().error(f"Loop detection failed: {e}", exc_info=True)
+            self.btn_detect_loops.setEnabled(True)
 
-            QMessageBox.critical(
-                self,
-                "Loop Detection Failed",
-                f"Failed to detect loops:\n\n{error_msg}\n\n"
-                "Check the log for details."
+    def _on_beat_analysis_progress(self, phase: str, detail: str):
+        """Update status label with progress message (stores for countdown display)."""
+        self._beat_analysis_phase = phase
+        self._beat_analysis_detail = detail
+        # Trigger immediate countdown update
+        self._update_beat_analysis_countdown()
+
+    def _update_beat_analysis_countdown(self):
+        """Update countdown timer display."""
+        import time
+
+        # Map phases to emoji icons
+        phase_icons = {
+            "Starting": "🔄",
+            "Initializing": "📊",
+            "BeatNet": "🥁",
+            "DeepRhythm": "🎵",
+            "Complete": "✅",
+        }
+
+        elapsed = time.time() - self._beat_analysis_start_time
+        remaining = max(0, self._beat_analysis_timeout - elapsed)
+
+        icon = phase_icons.get(self._beat_analysis_phase, "🔍")
+
+        # Format countdown
+        mins, secs = divmod(int(remaining), 60)
+        if mins > 0:
+            countdown_str = f"{mins}m {secs}s"
+        else:
+            countdown_str = f"{secs}s"
+
+        # Format elapsed
+        elapsed_mins, elapsed_secs = divmod(int(elapsed), 60)
+        if elapsed_mins > 0:
+            elapsed_str = f"{elapsed_mins}m {elapsed_secs}s"
+        else:
+            elapsed_str = f"{elapsed_secs}s"
+
+        self.loop_status_label.setText(
+            f"{icon} [{self._beat_analysis_phase}] {self._beat_analysis_detail}\n"
+            f"⏱️ Elapsed: {elapsed_str} | Timeout in: {countdown_str}"
+        )
+
+    def _on_beat_analysis_finished(self, beat_times, downbeat_times, first_downbeat, conf_msg):
+        """Handle successful beat analysis completion."""
+        # Stop countdown timer
+        self._beat_analysis_timer.stop()
+
+        try:
+            # Clean up temp file
+            if hasattr(self, '_beat_analysis_tmp_path') and self._beat_analysis_tmp_path.exists():
+                self._beat_analysis_tmp_path.unlink(missing_ok=True)
+
+            self.detected_beat_times = beat_times
+            self.detected_downbeat_times = downbeat_times
+
+            # Check for fallback mode (no true downbeats)
+            is_fallback = conf_msg.startswith("Fallback:")
+            if is_fallback:
+                QMessageBox.warning(
+                    self,
+                    "Eingeschränkte Beat-Erkennung",
+                    "BeatNet ist nicht verfügbar. Die Loop-Erkennung basiert nur auf BPM.\n\n"
+                    "Downbeat-genaue Loops sind möglicherweise nicht exakt."
+                )
+
+            # Get bars per loop setting
+            bars_per_loop = self.loop_bars_group.checkedId()
+
+            # Calculate loop segments
+            duration = self.player.get_duration()
+            self.detected_loop_segments = beat_detection.calculate_loops_from_downbeats(
+                downbeat_times, bars_per_loop, duration
             )
+
+            # Load waveforms into widget
+            self.loop_status_label.setText("🎨 Rendering waveforms...")
+
+            mixed_audio = self._beat_analysis_mixed_audio
+            sample_rate = self._beat_analysis_sample_rate
+
+            # Combined mode: use mixed audio
+            self.loop_waveform_widget.set_combined_waveform(mixed_audio, sample_rate)
+
+            # Stacked mode: load individual stems
+            stem_waveforms = {}
+            for stem_name, stem_path in self.stem_files.items():
+                audio_data, sr = sf.read(stem_path, dtype='float32')
+                stem_waveforms[stem_name] = audio_data
+
+            self.loop_waveform_widget.set_stem_waveforms(stem_waveforms, sample_rate)
+
+            # Set beat times and loop segments
+            self.loop_waveform_widget.set_beat_times(beat_times, downbeat_times)
+            self.loop_waveform_widget.set_loop_segments(self.detected_loop_segments)
+
+            # Success message
+            num_loops = len(self.detected_loop_segments)
+            status_icon = "⚠" if is_fallback else "✓"
+            self.loop_status_label.setText(
+                f"{status_icon} Detected {num_loops} loops ({bars_per_loop} bars each). "
+                f"{len(downbeat_times)} downbeats, {len(beat_times)} total beats. {conf_msg}"
+            )
+            self.ctx.logger().info(f"Loop detection complete: {num_loops} loops detected")
+
+        except Exception as e:
+            self._on_beat_analysis_error(str(e))
 
         finally:
             self.btn_detect_loops.setEnabled(True)
+            self._beat_analysis_worker = None
+
+    def _on_beat_analysis_error(self, error_msg: str):
+        """Handle beat analysis error."""
+        # Stop countdown timer
+        self._beat_analysis_timer.stop()
+
+        # Clean up temp file
+        if hasattr(self, '_beat_analysis_tmp_path') and self._beat_analysis_tmp_path.exists():
+            self._beat_analysis_tmp_path.unlink(missing_ok=True)
+
+        self.loop_status_label.setText(f"❌ Loop detection failed: {error_msg}")
+        self.ctx.logger().error(f"Loop detection failed: {error_msg}")
+
+        QMessageBox.critical(
+            self,
+            "Loop Detection Failed",
+            f"Failed to detect loops:\n\n{error_msg}\n\n"
+            "Check the log for details."
+        )
+
+        self.btn_detect_loops.setEnabled(True)
+        self._beat_analysis_worker = None
 
     def _on_loop_bars_changed(self):
         """Handle bars per loop setting change - re-calculate loops if already detected"""
@@ -755,6 +933,22 @@ class PlayerWidget(QWidget):
             self.loop_playback_info_label.setText("Playback stopped")
 
         self.ctx.logger().info("Loop playback stopped")
+
+    def _find_drums_stem_path(self) -> Optional[Path]:
+        """
+        Find drums stem path if available.
+
+        WHY: Drums stem gives more accurate BPM detection with DeepRhythm.
+             Same logic as _get_audio_for_bpm_detection() but returns Path only.
+
+        Returns:
+            Path to drums stem or None if not found
+        """
+        drums_stem_names = ['drums', 'Drums', 'DRUMS', 'drum', 'Drum', 'DRUM']
+        for stem_name in drums_stem_names:
+            if stem_name in self.stem_files:
+                return Path(self.stem_files[stem_name])
+        return None
 
     def _mix_stems_to_array(self) -> Tuple[np.ndarray, int]:
         """

@@ -15,7 +15,7 @@ import numpy as np
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFrame, QButtonGroup, QPushButton
 )
-from PySide6.QtCore import Qt, Signal, QRectF, QPointF
+from PySide6.QtCore import Qt, Signal, QRectF, QPointF, QPoint
 from PySide6.QtGui import QPainter, QPen, QColor, QPixmap, QLinearGradient, QFont
 
 from ui.app_context import AppContext
@@ -407,7 +407,7 @@ class LoopWaveformDisplay(QWidget):
 
             # Draw label background
             label_rect = painter.fontMetrics().boundingRect(loop_label)
-            label_rect.moveTopLeft(QPointF(label_x, label_y - label_rect.height()))
+            label_rect.moveTopLeft(QPoint(int(label_x), int(label_y - label_rect.height())))
             label_rect.adjust(-3, -2, 3, 2)
 
             bg_color = QColor(ColorPalette.BACKGROUND_PRIMARY)
