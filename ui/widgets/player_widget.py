@@ -298,8 +298,13 @@ class PlayerWidget(QWidget):
         self.detected_beat_times: Optional[np.ndarray] = None
         self.detected_downbeat_times: Optional[np.ndarray] = None
         self.detected_loop_segments: List[Tuple[float, float]] = []
+        self.detected_intro_loop: Optional[Tuple[float, float]] = None  # Intro segment if song start marker is set
         self.selected_loop_index: int = -1
         self._bars_per_loop: int = 4  # Default: 4 bars per loop
+
+        # Song start marker state
+        self.song_start_downbeat_index: Optional[int] = None  # Index in detected_downbeat_times
+        self.intro_handling: str = "pad"  # "pad" or "skip"
 
         # Beat analysis worker (for async detection)
         self._beat_analysis_worker: Optional[BeatAnalysisWorker] = None
@@ -677,6 +682,9 @@ class PlayerWidget(QWidget):
         self.btn_detect_loops.clicked.connect(self._on_detect_loops_clicked)
         self.loop_waveform_widget.bars_per_loop_changed.connect(self._on_bars_per_loop_changed)
         self.loop_waveform_widget.loop_selected.connect(self._on_loop_waveform_selected)
+        self.loop_waveform_widget.waveform_display.song_start_marker_requested.connect(
+            self._on_song_start_marker_requested
+        )
         self.btn_play_loop.clicked.connect(self._on_play_loop_clicked)
         self.btn_play_loop_repeat.clicked.connect(self._on_play_loop_repeat_clicked)
         self.btn_stop_loop.clicked.connect(self._on_stop_loop_clicked)
@@ -905,9 +913,13 @@ class PlayerWidget(QWidget):
 
             # Calculate loop segments
             duration = self.player.get_duration()
-            self.detected_loop_segments = beat_detection.calculate_loops_from_downbeats(
-                downbeat_times, bars_per_loop, duration
+            loops, intro_loop = beat_detection.calculate_loops_from_downbeats(
+                downbeat_times, bars_per_loop, duration,
+                song_start_downbeat_index=getattr(self, 'song_start_downbeat_index', None),
+                intro_handling=getattr(self, 'intro_handling', 'pad')
             )
+            self.detected_loop_segments = loops
+            self.detected_intro_loop = intro_loop
 
             # Load waveforms into widget
             self._set_loop_status(
@@ -943,10 +955,32 @@ class PlayerWidget(QWidget):
                 f"{len(downbeat_times)} downbeats, {len(beat_times)} beats"
             )
 
-            # Extract BPM + confidence summary from conf_msg for header info
-            bpm_prefix = self._extract_bpm_summary(conf_msg)
-            if bpm_prefix is None:
-                bpm_prefix = ""
+            # Calculate BPM from downbeat intervals for consistent display
+            # WHY: Use same BPM calculation as export to avoid confusion
+            calculated_bpm = None
+            if len(downbeat_times) >= 2:
+                downbeat_intervals = np.diff(downbeat_times)
+                median_bar_duration = float(np.median(downbeat_intervals))
+                if median_bar_duration > 0:
+                    # 4 beats per bar in 4/4 time
+                    calculated_bpm = (60.0 * 4) / median_bar_duration
+
+            # Extract confidence from conf_msg
+            confidence_str = ""
+            if "DeepRhythm" in conf_msg:
+                import re
+                match = re.search(r"DeepRhythm\s*\((\d+)%\)", conf_msg)
+                if match:
+                    confidence_str = f" ({match.group(1)}%)"
+
+            # Format BPM for display (rounded to integer for consistency with export)
+            if calculated_bpm:
+                bpm_prefix = f"{int(calculated_bpm)} BPM{confidence_str}"
+            else:
+                # Fallback: extract from conf_msg
+                bpm_prefix = self._extract_bpm_summary(conf_msg)
+                if bpm_prefix is None:
+                    bpm_prefix = ""
 
             # Update header info above waveform: "BPM (conf) • X loops detected • Y bars total"
             self.loop_waveform_widget.set_summary_prefix(bpm_prefix)
@@ -994,12 +1028,20 @@ class PlayerWidget(QWidget):
             # Re-calculate loops with new bar count
             duration = self.player.get_duration()
 
-            self.detected_loop_segments = beat_detection.calculate_loops_from_downbeats(
-                self.detected_downbeat_times, bars_per_loop, duration
+            loops, intro_loop = beat_detection.calculate_loops_from_downbeats(
+                self.detected_downbeat_times, bars_per_loop, duration,
+                song_start_downbeat_index=getattr(self, 'song_start_downbeat_index', None),
+                intro_handling=getattr(self, 'intro_handling', 'pad')
             )
+            self.detected_loop_segments = loops
+            self.detected_intro_loop = intro_loop
 
             # Update widget
             self.loop_waveform_widget.set_loop_segments(self.detected_loop_segments)
+            if intro_loop:
+                # Add intro loop to display if present
+                all_segments = [intro_loop] + self.detected_loop_segments
+                self.loop_waveform_widget.set_loop_segments(all_segments)
 
             num_loops = len(self.detected_loop_segments)
             self._set_loop_status(
@@ -1008,6 +1050,122 @@ class PlayerWidget(QWidget):
                 ""
             )
             self.ctx.logger().info(f"Recalculated loops: {num_loops} loops, {bars_per_loop} bars each")
+
+    def set_song_start_marker(self, downbeat_index: int):
+        """
+        Set song start marker at specified downbeat index.
+
+        WHY: Allows marking a specific downbeat as the "true" song start for loop calculation.
+        EXAMPLE: Song has 2-bar intro, set marker at downbeat index 2 to start 4-bar loops from there.
+
+        Args:
+            downbeat_index: Index in self.detected_downbeat_times array
+        """
+        if self.detected_downbeat_times is None or len(self.detected_downbeat_times) == 0:
+            self.ctx.logger().warning("Cannot set song start marker: No downbeats detected")
+            return
+
+        if downbeat_index < 0 or downbeat_index >= len(self.detected_downbeat_times):
+            self.ctx.logger().warning(
+                f"Invalid downbeat_index {downbeat_index}, "
+                f"must be 0-{len(self.detected_downbeat_times)-1}"
+            )
+            return
+
+        self.song_start_downbeat_index = downbeat_index
+        self.ctx.logger().info(
+            f"Song start marker set at downbeat {downbeat_index} "
+            f"({self.detected_downbeat_times[downbeat_index]:.2f}s)"
+        )
+
+        # Re-calculate loops with new song start marker
+        self._recalculate_loops_with_current_settings()
+
+        # Update waveform widget to show marker
+        if hasattr(self.loop_waveform_widget, 'set_song_start_marker'):
+            self.loop_waveform_widget.set_song_start_marker(downbeat_index)
+
+    def clear_song_start_marker(self):
+        """Clear song start marker and recalculate loops from beginning."""
+        if self.song_start_downbeat_index is None:
+            return
+
+        self.ctx.logger().info("Clearing song start marker")
+        self.song_start_downbeat_index = None
+        self.detected_intro_loop = None
+
+        # Re-calculate loops from beginning
+        self._recalculate_loops_with_current_settings()
+
+        # Update waveform widget
+        if hasattr(self.loop_waveform_widget, 'clear_song_start_marker'):
+            self.loop_waveform_widget.clear_song_start_marker()
+
+    def set_intro_handling(self, handling: str):
+        """
+        Set how to handle intro before song start marker.
+
+        Args:
+            handling: "pad" (create padded intro loop) or "skip" (skip intro)
+        """
+        if handling not in ("pad", "skip"):
+            self.ctx.logger().warning(f"Invalid intro_handling: {handling}, must be 'pad' or 'skip'")
+            return
+
+        self.intro_handling = handling
+        self.ctx.logger().info(f"Intro handling set to: {handling}")
+
+        # Re-calculate loops if song start marker is set
+        if self.song_start_downbeat_index is not None:
+            self._recalculate_loops_with_current_settings()
+
+    def _recalculate_loops_with_current_settings(self):
+        """Recalculate loops with current bars_per_loop and song_start_marker settings."""
+        if self.detected_downbeat_times is None or len(self.detected_downbeat_times) == 0:
+            return
+
+        duration = self.player.get_duration()
+        loops, intro_loop = beat_detection.calculate_loops_from_downbeats(
+            self.detected_downbeat_times,
+            self._bars_per_loop,
+            duration,
+            song_start_downbeat_index=self.song_start_downbeat_index,
+            intro_handling=self.intro_handling
+        )
+        self.detected_loop_segments = loops
+        self.detected_intro_loop = intro_loop
+
+        # Update widget
+        if intro_loop:
+            # Show intro loop + main loops
+            all_segments = [intro_loop] + self.detected_loop_segments
+            self.loop_waveform_widget.set_loop_segments(all_segments)
+        else:
+            self.loop_waveform_widget.set_loop_segments(self.detected_loop_segments)
+
+        # Update status
+        if self.song_start_downbeat_index is not None:
+            intro_info = f"intro: {intro_loop[1]:.1f}s, " if intro_loop else "intro skipped, "
+            status_msg = f"✓ Loops from marker (bar {self.song_start_downbeat_index})"
+        else:
+            intro_info = ""
+            status_msg = "✓ Loops calculated"
+
+        num_loops = len(self.detected_loop_segments)
+        self._set_loop_status(
+            status_msg,
+            f"{intro_info}{num_loops} loops ({self._bars_per_loop} bars each)",
+            ""
+        )
+
+    def _on_song_start_marker_requested(self, downbeat_index: int):
+        """Handle song start marker request from waveform widget."""
+        if downbeat_index < 0:
+            # Clear marker
+            self.clear_song_start_marker()
+        else:
+            # Set marker
+            self.set_song_start_marker(downbeat_index)
 
     def _on_loop_waveform_selected(self, loop_index: int):
         """Handle loop selection from waveform widget"""

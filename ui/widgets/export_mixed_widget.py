@@ -92,16 +92,6 @@ class ExportMixedWidget(QWidget):
         main_layout.setSpacing(15)
         main_layout.setContentsMargins(20, 20, 20, 20)
 
-        # === Status Card ===
-        status_card, status_layout = self._create_card("Export Status")
-        
-        self.status_label = QLabel("Load stems in the Stems tab to enable export.")
-        self.status_label.setWordWrap(True)
-        self.status_label.setStyleSheet("color: #888; font-size: 11pt;")
-        status_layout.addWidget(self.status_label)
-        
-        main_layout.addWidget(status_card)
-
         # === File Format Card ===
         format_card, format_layout = self._create_card("File Format")
 
@@ -242,27 +232,16 @@ class ExportMixedWidget(QWidget):
     def _update_export_button_state(self):
         """Update export button enabled state based on stems availability"""
         has_stems = (
-            self.player_widget is not None and 
+            self.player_widget is not None and
             self.player_widget.has_stems_loaded()
         )
         self.btn_export.setEnabled(has_stems)
-        
+
         if has_stems:
             num_stems = len(self.player_widget.stem_files)
-            duration = self.player_widget.player.get_duration()
-            self.status_label.setText(
-                f"✓ Ready to export: {num_stems} stems loaded, "
-                f"duration: {duration:.1f}s"
-            )
-            self.status_label.setStyleSheet("color: #10b981; font-size: 11pt;")
-            
             # Update individual mode label with stem count
             self.mode_individual.setText(f"Individual Stems ({num_stems} separate files)")
         else:
-            self.status_label.setText(
-                "⚠ Load stems in the Stems tab to enable export."
-            )
-            self.status_label.setStyleSheet("color: #888; font-size: 11pt;")
             self.mode_individual.setText("Individual Stems")
 
     def _update_preview(self):

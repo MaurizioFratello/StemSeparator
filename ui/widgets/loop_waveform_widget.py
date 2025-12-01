@@ -44,8 +44,9 @@ class LoopWaveformDisplay(QWidget):
     SCROLLING: Widget width is dynamic based on song length and bar duration
     """
 
-    # Signal: loop_index selected
+    # Signals
     loop_selected = Signal(int)
+    song_start_marker_requested = Signal(int)  # downbeat_index
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -67,6 +68,9 @@ class LoopWaveformDisplay(QWidget):
 
         # Selected loop
         self.selected_loop_index: int = -1  # -1 = none selected
+
+        # Song start marker
+        self.song_start_marker_index: Optional[int] = None  # Index in downbeat_times
 
         # Scrolling: calculate bar duration from downbeats
         self._bar_duration: float = 2.0  # Default 2 seconds per bar (120 BPM, 4/4)
@@ -270,12 +274,22 @@ class LoopWaveformDisplay(QWidget):
         super().resizeEvent(event)
 
     def mousePressEvent(self, event):
-        """Handle mouse clicks on loop segments"""
+        """Handle mouse clicks on loop segments and song start marker"""
+        click_x = event.pos().x()
+
+        # Right-click: Show song start marker context menu
+        if event.button() == Qt.RightButton:
+            # Find nearest downbeat
+            downbeat_idx = self._find_nearest_downbeat(click_x, max_distance_px=30)
+            if downbeat_idx is not None:
+                self._show_song_start_context_menu(event.globalPos(), downbeat_idx)
+            return
+
+        # Left-click: Select loop
         if event.button() != Qt.LeftButton:
             return
 
         # Convert click position to time
-        click_x = event.pos().x()
         click_time = self._x_to_time(click_x)
 
         if self.duration == 0:
@@ -345,6 +359,7 @@ class LoopWaveformDisplay(QWidget):
         # Draw dynamic overlays (not cached for smooth interaction)
         self._draw_loop_overlays(painter)
         self._draw_beat_markers(painter)
+        self._draw_song_start_marker(painter)
 
     def _render_waveform_to_cache(self):
         """Render waveform(s) to cached pixmap"""
@@ -560,6 +575,132 @@ class LoopWaveformDisplay(QWidget):
             for downbeat_time in self.downbeat_times:
                 x = self._time_to_x(downbeat_time)
                 painter.drawLine(x, 0, x, height)
+
+    def _draw_song_start_marker(self, painter: QPainter):
+        """Draw song start marker as prominent vertical line."""
+        if self.song_start_marker_index is None:
+            return
+
+        if self.downbeat_times is None or len(self.downbeat_times) == 0:
+            return
+
+        if self.song_start_marker_index >= len(self.downbeat_times):
+            return
+
+        # Get marker position
+        marker_time = self.downbeat_times[self.song_start_marker_index]
+        marker_x = self._time_to_x(marker_time)
+
+        height = self.height()
+
+        # Draw prominent orange line with glow effect
+        # Background glow
+        glow_pen = QPen(QColor(255, 165, 0, 100), 8)
+        painter.setPen(glow_pen)
+        painter.drawLine(marker_x, 0, marker_x, height)
+
+        # Main marker line
+        marker_pen = QPen(QColor(255, 165, 0), 3)
+        painter.setPen(marker_pen)
+        painter.drawLine(marker_x, 0, marker_x, height)
+
+        # Draw label at top
+        label = f"Song Start (Bar {self.song_start_marker_index})"
+        font = QFont()
+        font.setPixelSize(12)
+        font.setBold(True)
+        painter.setFont(font)
+
+        # Background for label
+        label_width = 150
+        label_height = 20
+        label_x = max(5, min(marker_x - label_width // 2, self.width() - label_width - 5))
+
+        painter.fillRect(label_x, 5, label_width, label_height, QColor(255, 165, 0, 200))
+
+        # Label text
+        painter.setPen(QPen(QColor(0, 0, 0), 1))
+        painter.drawText(label_x, 5, label_width, label_height,
+                        Qt.AlignCenter, label)
+
+    def set_song_start_marker(self, downbeat_index: int):
+        """
+        Set song start marker at specified downbeat index.
+
+        Args:
+            downbeat_index: Index in self.downbeat_times array
+        """
+        if self.downbeat_times is None or downbeat_index >= len(self.downbeat_times):
+            return
+
+        self.song_start_marker_index = downbeat_index
+        self.update()  # Trigger repaint
+
+    def clear_song_start_marker(self):
+        """Clear song start marker."""
+        self.song_start_marker_index = None
+        self.update()  # Trigger repaint
+
+    def _find_nearest_downbeat(self, x: int, max_distance_px: int = 20) -> Optional[int]:
+        """
+        Find nearest downbeat to given x position.
+
+        Args:
+            x: X pixel position
+            max_distance_px: Maximum distance in pixels to consider (default: 20px)
+
+        Returns:
+            Downbeat index if found within max_distance, None otherwise
+        """
+        if self.downbeat_times is None or len(self.downbeat_times) == 0:
+            return None
+
+        click_time = self._x_to_time(x)
+
+        # Find nearest downbeat
+        nearest_idx = None
+        min_distance = float('inf')
+
+        for idx, downbeat_time in enumerate(self.downbeat_times):
+            downbeat_x = self._time_to_x(downbeat_time)
+            distance = abs(downbeat_x - x)
+
+            if distance < min_distance and distance <= max_distance_px:
+                min_distance = distance
+                nearest_idx = idx
+
+        return nearest_idx
+
+    def _show_song_start_context_menu(self, global_pos: QPoint, downbeat_idx: int):
+        """
+        Show context menu for setting/clearing song start marker.
+
+        Args:
+            global_pos: Global position for menu
+            downbeat_idx: Index of downbeat near click position
+        """
+        from PySide6.QtWidgets import QMenu
+
+        menu = QMenu(self)
+
+        # Check if this downbeat already has the marker
+        if self.song_start_marker_index == downbeat_idx:
+            # Option to clear marker
+            action = menu.addAction("✕ Clear Song Start Marker")
+            if menu.exec_(global_pos) == action:
+                self.clear_song_start_marker()
+                self.ctx.logger().info("Song start marker cleared")
+                # Emit signal to notify PlayerWidget
+                self.song_start_marker_requested.emit(-1)  # -1 = clear marker
+        else:
+            # Option to set marker at this downbeat
+            downbeat_time = self.downbeat_times[downbeat_idx]
+            action = menu.addAction(f"⚑ Set Song Start at Bar {downbeat_idx} ({downbeat_time:.2f}s)")
+            if menu.exec_(global_pos) == action:
+                self.set_song_start_marker(downbeat_idx)
+                self.ctx.logger().info(f"Song start marker set at bar {downbeat_idx}")
+                # Emit signal to notify PlayerWidget
+                self.song_start_marker_requested.emit(downbeat_idx)
 
 
 class LoopWaveformWidget(QWidget):

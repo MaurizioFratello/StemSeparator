@@ -136,16 +136,6 @@ class ExportLoopsWidget(QWidget):
         main_layout.setSpacing(15)
         main_layout.setContentsMargins(20, 20, 20, 20)
 
-        # === Status Card ===
-        status_card, status_layout = self._create_card("Export Status")
-        
-        self.status_label = QLabel("Load stems in the Stems tab to enable export.")
-        self.status_label.setWordWrap(True)
-        self.status_label.setStyleSheet("color: #888; font-size: 11pt;")
-        status_layout.addWidget(self.status_label)
-        
-        main_layout.addWidget(status_card)
-
         # === Tempo & Loop Length Card ===
         tempo_card, tempo_layout = self._create_card("Tempo & Loop Length")
 
@@ -381,37 +371,27 @@ class ExportLoopsWidget(QWidget):
     def _update_export_button_state(self):
         """Update export button and detect button enabled state"""
         has_stems = (
-            self.player_widget is not None and 
+            self.player_widget is not None and
             self.player_widget.has_stems_loaded()
         )
-        
+
         # Check validation
         is_valid, _ = is_valid_for_sampler(
-            self.bpm_spin.value(), 
-            self._get_selected_bars(), 
+            self.bpm_spin.value(),
+            self._get_selected_bars(),
             max_seconds=20.0
         )
-        
+
         self.btn_export.setEnabled(has_stems and is_valid)
         self.detect_bpm_btn.setEnabled(has_stems)
-        
+
         if has_stems:
             num_stems = len(self.player_widget.stem_files)
-            duration = self.player_widget.player.get_duration()
-            self.status_label.setText(
-                f"✓ Ready to export: {num_stems} stems loaded, "
-                f"duration: {duration:.1f}s"
-            )
-            self.status_label.setStyleSheet("color: #10b981; font-size: 11pt;")
             self.mode_individual.setText(f"Individual Stems ({num_stems} separate sets)")
-            
+
             # Check for Loop Preview presets
             self._check_loop_preview_presets()
         else:
-            self.status_label.setText(
-                "⚠ Load stems in the Stems tab to enable export."
-            )
-            self.status_label.setStyleSheet("color: #888; font-size: 11pt;")
             self.mode_individual.setText("Individual Stems")
             self.preset_info_label.setVisible(False)
 
@@ -419,21 +399,22 @@ class ExportLoopsWidget(QWidget):
         """Check if Loop Preview has detected beats and use those settings"""
         if not self.player_widget:
             return
-            
+
         # Check for detected downbeats from Loop Preview
-        if (self.player_widget.detected_downbeat_times is not None and 
+        if (self.player_widget.detected_downbeat_times is not None and
             len(self.player_widget.detected_downbeat_times) >= 2):
-            
+
             # Calculate BPM from downbeat intervals
             downbeat_intervals = np.diff(self.player_widget.detected_downbeat_times)
             median_bar_duration = float(np.median(downbeat_intervals))
             if median_bar_duration > 0:
                 preset_bpm = (60.0 * 4) / median_bar_duration
                 preset_bars = self.player_widget._bars_per_loop
-                
+
                 # Update UI with presets
-                self.bpm_spin.setValue(int(preset_bpm))
-                
+                preset_bpm_int = int(preset_bpm)
+                self.bpm_spin.setValue(preset_bpm_int)
+
                 # Set bars combo
                 if preset_bars == 2:
                     self.bars_combo.setCurrentIndex(0)
@@ -441,19 +422,48 @@ class ExportLoopsWidget(QWidget):
                     self.bars_combo.setCurrentIndex(2)
                 else:
                     self.bars_combo.setCurrentIndex(1)
-                
-                # Show preset info
+
+                # Show preset info (integer BPM for consistency)
                 self.preset_info_label.setText(
-                    f"✓ Using Loop Preview settings: {preset_bpm:.1f} BPM, {preset_bars} bars"
+                    f"✓ Using Loop Preview settings: {preset_bpm_int} BPM, {preset_bars} bars"
                 )
                 self.preset_info_label.setVisible(True)
-                
+
                 self.bpm_info_label.setText("✓ BPM from Loop Preview (editable)")
                 self.bpm_info_label.setStyleSheet("color: #10b981; font-size: 11pt;")
-                
-                self.ctx.logger().info(
-                    f"Using Loop Preview presets: {preset_bpm:.1f} BPM, {preset_bars} bars"
+
+                # Disable controls when using Loop Preview presets
+                # WHY: Loop Preview settings should be the source of truth
+                # Bars combo is locked to Loop Preview bar count
+                self.bars_combo.setEnabled(False)
+                # Detect BPM button is redundant (BPM already detected in Loop Preview)
+                self.detect_bpm_btn.setEnabled(False)
+                # Update tooltips to explain why controls are disabled
+                self.bars_combo.setToolTip(
+                    f"Loop length locked to Loop Preview setting ({preset_bars} bars). "
+                    "Use the Looping tab to change bar length."
                 )
+                self.detect_bpm_btn.setToolTip(
+                    "BPM already detected in Loop Preview. "
+                    "You can manually edit the BPM value above if needed."
+                )
+
+                self.ctx.logger().info(
+                    f"Using Loop Preview presets: {preset_bpm_int} BPM, {preset_bars} bars"
+                )
+        else:
+            # No Loop Preview presets available - enable manual controls
+            self.bars_combo.setEnabled(True)
+            # Only enable detect button if stems are loaded
+            # (button state is set in _update_export_button_state based on has_stems)
+            has_stems = (
+                self.player_widget is not None and
+                self.player_widget.has_stems_loaded()
+            )
+            self.detect_bpm_btn.setEnabled(has_stems)
+            # Restore default tooltips
+            self.bars_combo.setToolTip("")
+            self.detect_bpm_btn.setToolTip("")
 
     def _update_validation(self):
         """Update BPM+bars validation display"""

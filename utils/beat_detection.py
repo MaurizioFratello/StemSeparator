@@ -254,8 +254,10 @@ def _fallback_bpm_detection(audio_path: Path) -> Tuple[np.ndarray, np.ndarray, f
 def calculate_loops_from_downbeats(
     downbeat_times: np.ndarray,
     bars_per_loop: int,
-    audio_duration: float
-) -> List[Tuple[float, float]]:
+    audio_duration: float,
+    song_start_downbeat_index: Optional[int] = None,
+    intro_handling: str = "pad"
+) -> Tuple[List[Tuple[float, float]], Optional[Tuple[float, float]]]:
     """
     Calculate loop segments based on downbeat positions.
 
@@ -263,17 +265,32 @@ def calculate_loops_from_downbeats(
         downbeat_times: Array of downbeat positions in seconds
         bars_per_loop: Number of bars per loop (typically 2, 4, or 8)
         audio_duration: Total audio duration in seconds
+        song_start_downbeat_index: Optional index of downbeat marking song start.
+                                   If provided, loops are calculated from this point.
+        intro_handling: How to handle intro before song start marker:
+                       "pad" - Create intro loop padded to bars_per_loop
+                       "skip" - Skip intro in loop calculation
 
     Returns:
-        List of (start_time, end_time) tuples for each loop segment
+        Tuple of (loops, intro_loop):
+        - loops: List of (start_time, end_time) tuples for main loop segments
+        - intro_loop: Optional (start_time, end_time) for intro segment if song_start_downbeat_index is set
 
     Raises:
         ValueError: If no downbeats provided or invalid bars_per_loop
 
     Example:
-        >>> downbeats = np.array([0.0, 2.0, 4.0, 6.0, 8.0])  # Every 2 seconds
-        >>> loops = calculate_loops_from_downbeats(downbeats, bars_per_loop=4, audio_duration=10.0)
-        >>> # Returns [(0.0, 8.0)] - one 4-bar loop
+        >>> downbeats = np.array([0.0, 2.0, 4.0, 6.0, 8.0, 10.0])
+        >>> # Without song start marker (backward compatible):
+        >>> loops, intro = calculate_loops_from_downbeats(downbeats, bars_per_loop=4, audio_duration=12.0)
+        >>> # loops = [(0.0, 8.0), (8.0, 12.0)], intro = None
+        >>>
+        >>> # With song start marker at index 2 (intro: 2 bars, main: 4-bar loops):
+        >>> loops, intro = calculate_loops_from_downbeats(
+        ...     downbeats, bars_per_loop=4, audio_duration=12.0,
+        ...     song_start_downbeat_index=2, intro_handling="pad"
+        ... )
+        >>> # intro = (0.0, 4.0), loops = [(4.0, 12.0)]
     """
     if len(downbeat_times) == 0:
         raise ValueError("No downbeats provided")
@@ -281,12 +298,44 @@ def calculate_loops_from_downbeats(
     if bars_per_loop <= 0:
         raise ValueError(f"Invalid bars_per_loop: {bars_per_loop}")
 
-    loops = []
-
-    # Each loop spans bars_per_loop downbeats
     num_downbeats = len(downbeat_times)
 
-    idx = 0
+    # Validate song_start_downbeat_index
+    if song_start_downbeat_index is not None:
+        if song_start_downbeat_index < 0 or song_start_downbeat_index >= num_downbeats:
+            logger.warning(
+                f"Invalid song_start_downbeat_index {song_start_downbeat_index}, "
+                f"must be 0-{num_downbeats-1}. Ignoring marker."
+            )
+            song_start_downbeat_index = None
+
+    intro_loop: Optional[Tuple[float, float]] = None
+    loops = []
+
+    # If song start marker is set, handle intro
+    if song_start_downbeat_index is not None and song_start_downbeat_index > 0:
+        intro_start = 0.0
+        intro_end = downbeat_times[song_start_downbeat_index]
+
+        if intro_handling == "pad":
+            # Create intro loop - will be padded to bars_per_loop if needed
+            intro_loop = (intro_start, intro_end)
+            logger.info(
+                f"Created intro loop: {intro_loop[0]:.2f}s - {intro_loop[1]:.2f}s "
+                f"({song_start_downbeat_index} bars)"
+            )
+        elif intro_handling == "skip":
+            # Skip intro - no intro_loop created
+            logger.info(f"Skipping intro ({intro_start:.2f}s - {intro_end:.2f}s)")
+
+        # Start loop calculation from song start marker
+        start_idx = song_start_downbeat_index
+    else:
+        # No song start marker - start from beginning (backward compatible)
+        start_idx = 0
+
+    # Calculate main loops
+    idx = start_idx
     while idx < num_downbeats:
         start_time = downbeat_times[idx]
 
@@ -308,6 +357,12 @@ def calculate_loops_from_downbeats(
         loops.append((start_time, end_time))
         idx += bars_per_loop
 
-    logger.info(f"Calculated {len(loops)} loops ({bars_per_loop} bars each)")
+    if song_start_downbeat_index is not None:
+        logger.info(
+            f"Calculated {len(loops)} loops ({bars_per_loop} bars each) "
+            f"from song start marker (downbeat {song_start_downbeat_index})"
+        )
+    else:
+        logger.info(f"Calculated {len(loops)} loops ({bars_per_loop} bars each)")
 
-    return loops
+    return loops, intro_loop
