@@ -257,7 +257,7 @@ def calculate_loops_from_downbeats(
     audio_duration: float,
     song_start_downbeat_index: Optional[int] = None,
     intro_handling: str = "pad"
-) -> Tuple[List[Tuple[float, float]], Optional[Tuple[float, float]]]:
+) -> Tuple[List[Tuple[float, float]], List[Tuple[float, float]]]:
     """
     Calculate loop segments based on downbeat positions.
 
@@ -268,15 +268,15 @@ def calculate_loops_from_downbeats(
         song_start_downbeat_index: Optional index of downbeat marking song start.
                                    If provided, loops are calculated from this point.
         intro_handling: How to handle intro before song start marker:
-                       "pad" - Create intro loop padded to bars_per_loop
+                       "pad" - Create intro loops (subdivided, padded to bars_per_loop)
                        "skip" - Skip intro in loop calculation
 
     Returns:
-        Tuple of (loops, intro_loop):
+        Tuple of (loops, intro_loops):
         - loops: List of (start_time, end_time) tuples for main loop segments
-        - intro_loop: Optional (start_time, end_time) for intro segment if song_start_downbeat_index is set
-                     NOTE: If start_time < 0, intro needs |start_time| seconds of silence padding
-                     before the actual audio (creating an "Auftakt"/upbeat)
+        - intro_loops: List of (start_time, end_time) for intro loops if song_start_downbeat_index is set
+                      NOTE: First intro loop may have negative start_time (silence padding for "Auftakt")
+                      Each intro loop is exactly bars_per_loop length
 
     Raises:
         ValueError: If no downbeats provided or invalid bars_per_loop
@@ -284,16 +284,17 @@ def calculate_loops_from_downbeats(
     Example:
         >>> downbeats = np.array([0.0, 2.0, 4.0, 6.0, 8.0, 10.0])
         >>> # Without song start marker (backward compatible):
-        >>> loops, intro = calculate_loops_from_downbeats(downbeats, bars_per_loop=4, audio_duration=12.0)
-        >>> # loops = [(0.0, 8.0), (8.0, 12.0)], intro = None
+        >>> loops, intro_loops = calculate_loops_from_downbeats(downbeats, bars_per_loop=4, audio_duration=12.0)
+        >>> # loops = [(0.0, 8.0), (8.0, 12.0)], intro_loops = []
         >>>
-        >>> # With song start marker at index 2 (intro: 2 bars, main: 4-bar loops):
-        >>> loops, intro = calculate_loops_from_downbeats(
-        ...     downbeats, bars_per_loop=4, audio_duration=12.0,
-        ...     song_start_downbeat_index=2, intro_handling="pad"
+        >>> # With song start at bar 3, 2 bars/loop (3-bar intro → 2 leading loops):
+        >>> loops, intro_loops = calculate_loops_from_downbeats(
+        ...     downbeats, bars_per_loop=2, audio_duration=12.0,
+        ...     song_start_downbeat_index=3, intro_handling="pad"
         ... )
-        >>> # intro = (-4.0, 4.0) - means 4s silence + 4s actual intro = 8s total (4 bars)
-        >>> # loops = [(4.0, 12.0)]
+        >>> # intro_loops = [(-2.0, 2.0), (2.0, 6.0)]  # 2 leading loops of 2 bars each
+        >>> # First loop: 1 bar silence + 1 bar audio, Second loop: 2 bars audio
+        >>> # loops = [(6.0, 8.0), (8.0, 10.0), ...]  # main loops from song start
     """
     if len(downbeat_times) == 0:
         raise ValueError("No downbeats provided")
@@ -312,7 +313,7 @@ def calculate_loops_from_downbeats(
             )
             song_start_downbeat_index = None
 
-    intro_loop: Optional[Tuple[float, float]] = None
+    intro_loops: List[Tuple[float, float]] = []
     loops = []
 
     # If song start marker is set, handle intro
@@ -322,33 +323,47 @@ def calculate_loops_from_downbeats(
         intro_bars = song_start_downbeat_index
 
         if intro_handling == "pad":
-            # Calculate padding needed to match bars_per_loop
-            # WHY: Intros should be same length as main loops for consistent sampler workflow
-            if intro_bars < bars_per_loop:
-                # Intro is shorter - calculate padding needed
-                # Use average bar duration from all downbeats
-                avg_bar_duration = np.mean(np.diff(downbeat_times))
-                bars_needed = bars_per_loop - intro_bars
-                padding_duration = bars_needed * avg_bar_duration
+            # Calculate padding and subdivide intro into multiple loops
+            # WHY: Universal leading loop system - split intro into bars_per_loop chunks
+            # Example: 3-bar intro with 2 bars/loop → 2 leading loops (pad to 4 bars)
+            import math
 
-                # Return intro with negative start time to indicate padding
-                # Example: intro_loop = (-5.0, 3.0) means 5s silence + 3s actual intro
-                intro_loop = (-padding_duration, intro_actual_end)
+            # Use average bar duration from all downbeats
+            avg_bar_duration = np.mean(np.diff(downbeat_times))
 
-                logger.info(
-                    f"Created padded intro loop: {padding_duration:.2f}s silence + "
-                    f"{intro_actual_end:.2f}s intro = {bars_per_loop} bars total "
-                    f"(Auftakt for {intro_bars} bar intro)"
-                )
-            else:
-                # Intro is equal or longer than bars_per_loop - use as-is
-                intro_loop = (intro_actual_start, intro_actual_end)
-                logger.info(
-                    f"Created intro loop: {intro_loop[0]:.2f}s - {intro_loop[1]:.2f}s "
-                    f"({intro_bars} bars, no padding needed)"
-                )
+            # Calculate how many loops we need to fit the intro
+            num_intro_loops = math.ceil(intro_bars / bars_per_loop)
+            target_bars = num_intro_loops * bars_per_loop
+
+            # Calculate padding needed
+            bars_needed = target_bars - intro_bars
+            padding_duration = bars_needed * avg_bar_duration
+
+            # Create leading loops, each exactly bars_per_loop length
+            # First loop starts with padding (negative time), subsequent loops are normal
+            loop_duration = bars_per_loop * avg_bar_duration
+
+            for i in range(num_intro_loops):
+                if i == 0:
+                    # First loop includes padding
+                    loop_start = -padding_duration
+                    loop_end = loop_start + loop_duration
+                else:
+                    # Subsequent loops - calculate from previous loop end
+                    loop_start = intro_loops[i-1][1]
+                    loop_end = loop_start + loop_duration
+                    # Don't exceed actual intro end
+                    loop_end = min(loop_end, intro_actual_end)
+
+                intro_loops.append((loop_start, loop_end))
+
+            logger.info(
+                f"Created {num_intro_loops} leading loops: {padding_duration:.2f}s silence + "
+                f"{intro_actual_end:.2f}s intro = {target_bars} bars total "
+                f"({num_intro_loops} loops × {bars_per_loop} bars, Auftakt for {intro_bars}-bar intro)"
+            )
         elif intro_handling == "skip":
-            # Skip intro - no intro_loop created
+            # Skip intro - no intro loops created
             logger.info(f"Skipping intro ({intro_actual_start:.2f}s - {intro_actual_end:.2f}s)")
 
         # Start loop calculation from song start marker
@@ -382,10 +397,10 @@ def calculate_loops_from_downbeats(
 
     if song_start_downbeat_index is not None:
         logger.info(
-            f"Calculated {len(loops)} loops ({bars_per_loop} bars each) "
-            f"from song start marker (downbeat {song_start_downbeat_index})"
+            f"Calculated {len(intro_loops)} leading loops + {len(loops)} main loops "
+            f"({bars_per_loop} bars each) from song start marker (downbeat {song_start_downbeat_index})"
         )
     else:
         logger.info(f"Calculated {len(loops)} loops ({bars_per_loop} bars each)")
 
-    return loops, intro_loop
+    return loops, intro_loops

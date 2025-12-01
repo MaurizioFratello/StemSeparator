@@ -5,7 +5,7 @@ PURPOSE: Allow users to configure BPM-based loop export for samplers
 CONTEXT: Displayed in main content area when Export Loops is selected in sidebar
 """
 from pathlib import Path
-from typing import Optional, NamedTuple
+from typing import Optional, NamedTuple, List
 import tempfile
 import numpy as np
 import soundfile as sf
@@ -693,13 +693,12 @@ class ExportLoopsWidget(QWidget):
             player = self.player_widget.player
             common_filename = self.player_widget._get_common_filename()
 
-            # Check if we have an intro loop with padding
-            intro_loop = getattr(self.player_widget, 'detected_intro_loop', None)
-            has_padded_intro = intro_loop is not None and intro_loop[0] < 0
+            # Check if we have leading loops
+            intro_loops = getattr(self.player_widget, 'detected_intro_loops', [])
 
             if settings.export_mode == 'individual':
                 self._export_individual_stems(
-                    output_path, settings, common_filename, intro_loop
+                    output_path, settings, common_filename, intro_loops
                 )
             else:
                 # Mix stems and export
@@ -741,29 +740,30 @@ class ExportLoopsWidget(QWidget):
 
                         total_exported = 0
 
-                        # Export intro with padding if needed
-                        if has_padded_intro:
-                            progress_dialog.setLabelText("Exporting padded intro...")
-                            progress_dialog.setValue(10)
-                            QApplication.processEvents()
+                        # Export leading loops if present
+                        if intro_loops:
+                            for i, intro_loop in enumerate(intro_loops, start=1):
+                                progress_dialog.setLabelText(f"Exporting leading loop {i}/{len(intro_loops)}...")
+                                progress_dialog.setValue(5 + (i * 5 / len(intro_loops)))
+                                QApplication.processEvents()
 
-                            intro_filename = f"{common_filename}_{settings.bpm}BPM_{settings.bars}T_intro.{settings.file_format.lower()}"
-                            intro_path = output_path / intro_filename
+                                intro_filename = f"{common_filename}_{settings.bpm}BPM_{settings.bars}T_intro{i:03d}.{settings.file_format.lower()}"
+                                intro_path = output_path / intro_filename
 
-                            intro_success = export_padded_intro(
-                                input_path=temp_path,
-                                output_path=intro_path,
-                                intro_start=intro_loop[0],
-                                intro_end=intro_loop[1],
-                                sample_rate=settings.sample_rate,
-                                bit_depth=settings.bit_depth,
-                                channels=settings.channels,
-                                file_format=settings.file_format
-                            )
+                                intro_success = export_padded_intro(
+                                    input_path=temp_path,
+                                    output_path=intro_path,
+                                    intro_start=intro_loop[0],
+                                    intro_end=intro_loop[1],
+                                    sample_rate=settings.sample_rate,
+                                    bit_depth=settings.bit_depth,
+                                    channels=settings.channels,
+                                    file_format=settings.file_format
+                                )
 
-                            if intro_success:
-                                total_exported += 1
-                                self.ctx.logger().info(f"Exported padded intro: {intro_filename}")
+                                if intro_success:
+                                    total_exported += 1
+                                    self.ctx.logger().info(f"Exported leading loop {i}: {intro_filename}")
 
                         # Export main loops
                         result = export_sampler_loops(
@@ -785,7 +785,7 @@ class ExportLoopsWidget(QWidget):
 
                         if result.success:
                             total_exported += result.chunk_count
-                            intro_msg = f" (including intro)" if has_padded_intro else ""
+                            intro_msg = f" (including {len(intro_loops)} leading loops)" if intro_loops else ""
                             QMessageBox.information(
                                 self, "Export Successful",
                                 f"Exported {total_exported} loop file(s){intro_msg} to:\n{output_path}"
@@ -810,13 +810,14 @@ class ExportLoopsWidget(QWidget):
                 f"An error occurred during loop export:\n{str(e)}"
             )
 
-    def _export_individual_stems(self, output_path: Path, settings: LoopExportSettings, common_filename: str, intro_loop: Optional[tuple[float, float]] = None):
+    def _export_individual_stems(self, output_path: Path, settings: LoopExportSettings, common_filename: str, intro_loops: List[tuple[float, float]] = None):
         """Export each stem individually as loops"""
         from core.sampler_export import export_sampler_loops, export_padded_intro
 
         try:
-            # Check if we have an intro loop with padding
-            has_padded_intro = intro_loop is not None and intro_loop[0] < 0
+            # Default to empty list if None
+            if intro_loops is None:
+                intro_loops = []
 
             overall_progress = QProgressDialog(
                 "Preparing stem export...", None, 0,
@@ -845,29 +846,30 @@ class ExportLoopsWidget(QWidget):
 
                 stem_chunk_count = 0
 
-                # Export intro with padding if needed
-                if has_padded_intro:
-                    overall_progress.setLabelText(f"Exporting {stem_name} intro...")
-                    overall_progress.setValue(base_progress + 5)
-                    QApplication.processEvents()
+                # Export leading loops if present
+                if intro_loops:
+                    for i, intro_loop in enumerate(intro_loops, start=1):
+                        overall_progress.setLabelText(f"Exporting {stem_name} leading loop {i}/{len(intro_loops)}...")
+                        overall_progress.setValue(base_progress + (i * 5 / len(intro_loops)))
+                        QApplication.processEvents()
 
-                    intro_filename = f"{common_filename}_{stem_name}_{settings.bpm}BPM_{settings.bars}T_intro.{settings.file_format.lower()}"
-                    intro_path = output_path / intro_filename
+                        intro_filename = f"{common_filename}_{stem_name}_{settings.bpm}BPM_{settings.bars}T_intro{i:03d}.{settings.file_format.lower()}"
+                        intro_path = output_path / intro_filename
 
-                    intro_success = export_padded_intro(
-                        input_path=stem_file,
-                        output_path=intro_path,
-                        intro_start=intro_loop[0],
-                        intro_end=intro_loop[1],
-                        sample_rate=settings.sample_rate,
-                        bit_depth=settings.bit_depth,
-                        channels=settings.channels,
-                        file_format=settings.file_format
-                    )
+                        intro_success = export_padded_intro(
+                            input_path=stem_file,
+                            output_path=intro_path,
+                            intro_start=intro_loop[0],
+                            intro_end=intro_loop[1],
+                            sample_rate=settings.sample_rate,
+                            bit_depth=settings.bit_depth,
+                            channels=settings.channels,
+                            file_format=settings.file_format
+                        )
 
-                    if intro_success:
-                        stem_chunk_count += 1
-                        self.ctx.logger().info(f"Exported padded intro for {stem_name}: {intro_filename}")
+                        if intro_success:
+                            stem_chunk_count += 1
+                            self.ctx.logger().info(f"Exported leading loop {i} for {stem_name}: {intro_filename}")
 
                 # Export main loops
                 result = export_sampler_loops(
@@ -896,7 +898,7 @@ class ExportLoopsWidget(QWidget):
                 summary_lines = [f"• {name}: {count} file(s)" for name, count in stem_results]
                 summary_text = "\n".join(summary_lines)
 
-                intro_msg = f" (including intros)" if has_padded_intro else ""
+                intro_msg = f" (including {len(intro_loops)} leading loops)" if intro_loops else ""
                 QMessageBox.information(
                     self, "Export Successful",
                     f"Exported {total_chunks} loop file(s) total{intro_msg} from {len(stem_results)} stem(s) to:\n"

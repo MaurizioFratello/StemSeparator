@@ -298,7 +298,7 @@ class PlayerWidget(QWidget):
         self.detected_beat_times: Optional[np.ndarray] = None
         self.detected_downbeat_times: Optional[np.ndarray] = None
         self.detected_loop_segments: List[Tuple[float, float]] = []
-        self.detected_intro_loop: Optional[Tuple[float, float]] = None  # Intro segment if song start marker is set
+        self.detected_intro_loops: List[Tuple[float, float]] = []  # Leading loops if song start marker is set
         self.selected_loop_index: int = -1
         self._bars_per_loop: int = 4  # Default: 4 bars per loop
 
@@ -913,13 +913,13 @@ class PlayerWidget(QWidget):
 
             # Calculate loop segments
             duration = self.player.get_duration()
-            loops, intro_loop = beat_detection.calculate_loops_from_downbeats(
+            loops, intro_loops = beat_detection.calculate_loops_from_downbeats(
                 downbeat_times, bars_per_loop, duration,
                 song_start_downbeat_index=getattr(self, 'song_start_downbeat_index', None),
                 intro_handling=getattr(self, 'intro_handling', 'pad')
             )
             self.detected_loop_segments = loops
-            self.detected_intro_loop = intro_loop
+            self.detected_intro_loops = intro_loops
 
             # Load waveforms into widget
             self._set_loop_status(
@@ -1028,20 +1028,21 @@ class PlayerWidget(QWidget):
             # Re-calculate loops with new bar count
             duration = self.player.get_duration()
 
-            loops, intro_loop = beat_detection.calculate_loops_from_downbeats(
+            loops, intro_loops = beat_detection.calculate_loops_from_downbeats(
                 self.detected_downbeat_times, bars_per_loop, duration,
                 song_start_downbeat_index=getattr(self, 'song_start_downbeat_index', None),
                 intro_handling=getattr(self, 'intro_handling', 'pad')
             )
             self.detected_loop_segments = loops
-            self.detected_intro_loop = intro_loop
+            self.detected_intro_loops = intro_loops
 
             # Update widget
-            self.loop_waveform_widget.set_loop_segments(self.detected_loop_segments)
-            if intro_loop:
-                # Add intro loop to display if present
-                all_segments = [intro_loop] + self.detected_loop_segments
+            if intro_loops:
+                # Add leading loops to display if present
+                all_segments = intro_loops + self.detected_loop_segments
                 self.loop_waveform_widget.set_loop_segments(all_segments)
+            else:
+                self.loop_waveform_widget.set_loop_segments(self.detected_loop_segments)
 
             num_loops = len(self.detected_loop_segments)
             self._set_loop_status(
@@ -1092,7 +1093,7 @@ class PlayerWidget(QWidget):
 
         self.ctx.logger().info("Clearing song start marker")
         self.song_start_downbeat_index = None
-        self.detected_intro_loop = None
+        self.detected_intro_loops = []
 
         # Re-calculate loops from beginning
         self._recalculate_loops_with_current_settings()
@@ -1125,7 +1126,7 @@ class PlayerWidget(QWidget):
             return
 
         duration = self.player.get_duration()
-        loops, intro_loop = beat_detection.calculate_loops_from_downbeats(
+        loops, intro_loops = beat_detection.calculate_loops_from_downbeats(
             self.detected_downbeat_times,
             self._bars_per_loop,
             duration,
@@ -1133,30 +1134,34 @@ class PlayerWidget(QWidget):
             intro_handling=self.intro_handling
         )
         self.detected_loop_segments = loops
-        self.detected_intro_loop = intro_loop
+        self.detected_intro_loops = intro_loops
 
         # Update widget
-        if intro_loop:
-            # Show intro loop + main loops
-            all_segments = [intro_loop] + self.detected_loop_segments
+        if intro_loops:
+            # Show leading loops + main loops
+            all_segments = intro_loops + self.detected_loop_segments
             self.loop_waveform_widget.set_loop_segments(all_segments)
         else:
             self.loop_waveform_widget.set_loop_segments(self.detected_loop_segments)
 
         # Update status
         if self.song_start_downbeat_index is not None:
-            if intro_loop:
-                # Check if intro has padding (negative start time)
-                if intro_loop[0] < 0:
-                    padding_duration = abs(intro_loop[0])
-                    actual_intro_duration = intro_loop[1]
+            if intro_loops:
+                # Calculate total intro duration and padding info
+                first_loop = intro_loops[0]
+                last_loop = intro_loops[-1]
+
+                # Check if first intro loop has padding (negative start time)
+                if first_loop[0] < 0:
+                    padding_duration = abs(first_loop[0])
+                    actual_intro_duration = last_loop[1]
                     total_duration = padding_duration + actual_intro_duration
                     intro_info = (
-                        f"intro: {total_duration:.1f}s "
+                        f"{len(intro_loops)} leading loops: {total_duration:.1f}s "
                         f"({padding_duration:.1f}s silence + {actual_intro_duration:.1f}s audio), "
                     )
                 else:
-                    intro_info = f"intro: {intro_loop[1]:.1f}s, "
+                    intro_info = f"{len(intro_loops)} leading loops: {last_loop[1]:.1f}s, "
             else:
                 intro_info = "intro skipped, "
             status_msg = f"✓ Loops from marker (bar {self.song_start_downbeat_index})"
@@ -1180,16 +1185,35 @@ class PlayerWidget(QWidget):
             # Set marker
             self.set_song_start_marker(downbeat_index)
 
+    def _get_all_loop_segments(self) -> List[Tuple[float, float]]:
+        """
+        Get combined list of all loop segments (intro + main).
+
+        WHY: Waveform displays all loops, so selection index must match combined list.
+
+        Returns:
+            Combined list: [intro_loop1, intro_loop2, ..., main_loop1, main_loop2, ...]
+        """
+        return self.detected_intro_loops + self.detected_loop_segments
+
     def _on_loop_waveform_selected(self, loop_index: int):
         """Handle loop selection from waveform widget"""
         self.selected_loop_index = loop_index
 
-        if 0 <= loop_index < len(self.detected_loop_segments):
-            start_time, end_time = self.detected_loop_segments[loop_index]
+        # Get combined list of all loops (intro + main)
+        all_loops = self._get_all_loop_segments()
+
+        if 0 <= loop_index < len(all_loops):
+            start_time, end_time = all_loops[loop_index]
             duration = end_time - start_time
 
+            # Determine if this is a leading loop or main loop
+            is_leading_loop = loop_index < len(self.detected_intro_loops)
+            loop_type = "Leading Loop" if is_leading_loop else "Main Loop"
+            relative_index = loop_index + 1 if is_leading_loop else (loop_index - len(self.detected_intro_loops) + 1)
+
             self.loop_playback_info_label.setText(
-                f"Loop {loop_index + 1} selected: {start_time:.2f}s - {end_time:.2f}s "
+                f"{loop_type} {relative_index} selected: {start_time:.2f}s - {end_time:.2f}s "
                 f"(duration: {duration:.2f}s)"
             )
 
@@ -1197,15 +1221,22 @@ class PlayerWidget(QWidget):
             self.btn_play_loop.setEnabled(True)
             self.btn_play_loop_repeat.setEnabled(True)
 
-            self.ctx.logger().info(f"Loop {loop_index + 1} selected: {start_time:.2f}s - {end_time:.2f}s")
+            self.ctx.logger().info(f"{loop_type} {relative_index} selected: {start_time:.2f}s - {end_time:.2f}s")
 
     def _on_play_loop_clicked(self):
         """Handle 'Play Loop' button click (play once)"""
-        if self.selected_loop_index < 0 or self.selected_loop_index >= len(self.detected_loop_segments):
+        all_loops = self._get_all_loop_segments()
+
+        if self.selected_loop_index < 0 or self.selected_loop_index >= len(all_loops):
             QMessageBox.warning(self, "No Loop Selected", "Please select a loop first.")
             return
 
-        start_time, end_time = self.detected_loop_segments[self.selected_loop_index]
+        start_time, end_time = all_loops[self.selected_loop_index]
+
+        # Determine loop type for display
+        is_leading_loop = self.selected_loop_index < len(self.detected_intro_loops)
+        loop_type = "Leading Loop" if is_leading_loop else "Main Loop"
+        relative_index = self.selected_loop_index + 1 if is_leading_loop else (self.selected_loop_index - len(self.detected_intro_loops) + 1)
 
         # Play loop segment once (no repeat)
         success = self.player.play_loop_segment(start_time, end_time, repeat=False)
@@ -1213,10 +1244,10 @@ class PlayerWidget(QWidget):
         if success:
             self.btn_stop_loop.setEnabled(True)
             self.loop_playback_info_label.setText(
-                f"Playing Loop {self.selected_loop_index + 1} (once): "
+                f"Playing {loop_type} {relative_index} (once): "
                 f"{start_time:.2f}s - {end_time:.2f}s"
             )
-            self.ctx.logger().info(f"Playing loop {self.selected_loop_index + 1} once")
+            self.ctx.logger().info(f"Playing {loop_type.lower()} {relative_index} once")
         else:
             QMessageBox.warning(
                 self,
@@ -1226,11 +1257,18 @@ class PlayerWidget(QWidget):
 
     def _on_play_loop_repeat_clicked(self):
         """Handle 'Play Loop (Repeat)' button click"""
-        if self.selected_loop_index < 0 or self.selected_loop_index >= len(self.detected_loop_segments):
+        all_loops = self._get_all_loop_segments()
+
+        if self.selected_loop_index < 0 or self.selected_loop_index >= len(all_loops):
             QMessageBox.warning(self, "No Loop Selected", "Please select a loop first.")
             return
 
-        start_time, end_time = self.detected_loop_segments[self.selected_loop_index]
+        start_time, end_time = all_loops[self.selected_loop_index]
+
+        # Determine loop type for display
+        is_leading_loop = self.selected_loop_index < len(self.detected_intro_loops)
+        loop_type = "Leading Loop" if is_leading_loop else "Main Loop"
+        relative_index = self.selected_loop_index + 1 if is_leading_loop else (self.selected_loop_index - len(self.detected_intro_loops) + 1)
 
         # Play loop segment with repeat
         success = self.player.play_loop_segment(start_time, end_time, repeat=True)
@@ -1238,10 +1276,10 @@ class PlayerWidget(QWidget):
         if success:
             self.btn_stop_loop.setEnabled(True)
             self.loop_playback_info_label.setText(
-                f"Playing Loop {self.selected_loop_index + 1} (repeating): "
+                f"Playing {loop_type} {relative_index} (repeating): "
                 f"{start_time:.2f}s - {end_time:.2f}s"
             )
-            self.ctx.logger().info(f"Playing loop {self.selected_loop_index + 1} with repeat")
+            self.ctx.logger().info(f"Playing {loop_type.lower()} {relative_index} with repeat")
         else:
             QMessageBox.warning(
                 self,
