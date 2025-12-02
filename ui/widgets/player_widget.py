@@ -750,7 +750,7 @@ class PlayerWidget(QWidget):
     def _set_loop_status(self, line1: str, line2: str = "", line3: str = ""):
         """
         Update the 3 status lines in the Loop Detection card.
-        
+
         Args:
             line1: Primary status message (most prominent)
             line2: Secondary info (progress/timing)
@@ -759,6 +759,72 @@ class PlayerWidget(QWidget):
         self.loop_status_line1.setText(line1)
         self.loop_status_line2.setText(line2)
         self.loop_status_line3.setText(line3)
+
+    def _reset_loop_detection_state(self):
+        """
+        Reset all loop detection state variables and UI elements.
+        Called when loading new stems or clearing all stems to ensure clean slate.
+        """
+        # Cancel any running beat analysis worker
+        if self._beat_analysis_worker:
+            self._beat_analysis_worker.cancel()
+            self._beat_analysis_worker = None
+
+        # Stop analysis timer
+        if hasattr(self, '_beat_analysis_timer'):
+            self._beat_analysis_timer.stop()
+
+        # Delete temporary analysis file
+        if hasattr(self, '_beat_analysis_tmp_path') and self._beat_analysis_tmp_path:
+            if self._beat_analysis_tmp_path.exists():
+                try:
+                    self._beat_analysis_tmp_path.unlink(missing_ok=True)
+                except Exception as e:
+                    self.ctx.logger().warning(f"Could not delete temp file: {e}")
+            self._beat_analysis_tmp_path = None
+
+        # Clear cached audio data
+        self._beat_analysis_mixed_audio = None
+        self._beat_analysis_sample_rate = 0
+        self._beat_analysis_start_time = 0.0
+        self._beat_analysis_phase = ""
+        self._beat_analysis_detail = ""
+
+        # Reset loop detection results
+        self.detected_beat_times = None
+        self.detected_downbeat_times = None
+        self.detected_loop_segments = []
+        self.detected_intro_loops = []
+        self.selected_loop_index = -1
+
+        # Reset song start marker
+        self.song_start_downbeat_index = None
+
+        # Clear waveform widget visualization
+        if hasattr(self, 'loop_waveform_widget'):
+            self.loop_waveform_widget.clear()
+
+        # Reset loop playback buttons
+        if hasattr(self, 'btn_play_loop'):
+            self.btn_play_loop.setEnabled(False)
+        if hasattr(self, 'btn_play_loop_repeat'):
+            self.btn_play_loop_repeat.setEnabled(False)
+        if hasattr(self, 'btn_stop_loop'):
+            self.btn_stop_loop.setEnabled(False)
+
+        # Re-enable detect loops button
+        if hasattr(self, 'btn_detect_loops'):
+            self.btn_detect_loops.setEnabled(True)
+
+        # Reset status labels
+        if hasattr(self, 'loop_status_line1'):
+            self._set_loop_status(
+                "Click 'Detect Loops' to analyze beat structure",
+                "",
+                ""
+            )
+
+        self.ctx.logger().debug("Loop detection state reset")
 
     def _on_detect_loops_clicked(self):
         """Handle 'Detect Loops' button click - starts async beat analysis"""
@@ -1517,21 +1583,19 @@ class PlayerWidget(QWidget):
             "Load separated stems to use the mixer and playback."
         )
 
-        # Reset loop detection status labels
-        if hasattr(self, "loop_status_line1"):
-            self._set_loop_status(
-                "Click 'Detect Loops' to analyze beat structure",
-                "",
-                ""
-            )
+        # Reset all loop detection state
+        self._reset_loop_detection_state()
 
         self.ctx.logger().info("Cleared all loaded stems")
-        
+
         # Update button states (all should be disabled now)
         self._update_button_states()
 
     def _load_stems(self, file_paths: list[Path]):
         """Load stem files into player"""
+        # Reset all loop detection state before loading new stems
+        self._reset_loop_detection_state()
+
         self.stem_files.clear()
 
         # Clear existing controls
