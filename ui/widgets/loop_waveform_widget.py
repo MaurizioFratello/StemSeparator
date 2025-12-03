@@ -859,9 +859,12 @@ class LoopWaveformWidget(QWidget):
 
         # Scroll area for waveform display
         self.scroll_area = QScrollArea()
-        self.scroll_area.setWidgetResizable(False)  # Don't resize widget to fit scroll area
+        # Start with widgetResizable=True for placeholder (will be set to False when content loads)
+        self.scroll_area.setWidgetResizable(True)
         self.scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         self.scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        # Ensure scroll area expands to fill available space (for placeholder visibility)
+        self.scroll_area.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.scroll_area.setStyleSheet("""
             QScrollArea {
                 background: transparent;
@@ -887,8 +890,9 @@ class LoopWaveformWidget(QWidget):
 
         # Waveform display (inside scroll area)
         self.waveform_display = LoopWaveformDisplay()
-        # Width is managed dynamically (content width), height fills viewport
-        self.waveform_display.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Expanding)
+        # Size policy: width managed by setWidgetResizable toggle, height expands
+        self.waveform_display.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.waveform_display.setMinimumHeight(150)  # Minimum height for readability
         self.scroll_area.setWidget(self.waveform_display)
 
         layout.addWidget(self.scroll_area, stretch=1)
@@ -1001,12 +1005,16 @@ class LoopWaveformWidget(QWidget):
         """Set waveform data for combined mode"""
         # Ensure viewport dimensions are current before setting data
         self._update_display_dimensions()
+        # Disable widget resizing to allow scrolling for content
+        self.scroll_area.setWidgetResizable(False)
         self.waveform_display.set_combined_waveform(audio_data, sample_rate)
 
     def set_stem_waveforms(self, stem_waveforms: Dict[str, np.ndarray], sample_rate: int):
         """Set waveform data for stacked mode"""
         # Ensure viewport dimensions are current before setting data
         self._update_display_dimensions()
+        # Disable widget resizing to allow scrolling for content
+        self.scroll_area.setWidgetResizable(False)
         self.waveform_display.set_stem_waveforms(stem_waveforms, sample_rate)
 
     def set_loop_segments(self, loop_segments: List[Tuple[float, float]]):
@@ -1058,5 +1066,7 @@ class LoopWaveformWidget(QWidget):
 
     def clear(self):
         """Clear all data"""
+        # Enable widget resizing so placeholder fills scroll area horizontally
+        self.scroll_area.setWidgetResizable(True)
         self.waveform_display.clear()
         self.info_label.setText("No loops detected")

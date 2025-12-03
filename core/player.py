@@ -399,6 +399,11 @@ class AudioPlayer:
             # Start new playback from beginning
             self.position_samples = 0
 
+        # Reset loop mode for normal playback
+        # WHY: Normal playback (from Playback tab) should not be in loop mode
+        # Loop mode is only for the Looping tab's play_loop_segment()
+        self.loop_mode_enabled = False
+
         try:
             # Start playback from current position (using sounddevice)
             self._start_playback_from_position()
@@ -620,7 +625,8 @@ class AudioPlayer:
             self.state = PlaybackState.STOPPED
             self.position_samples = 0
 
-            # Clear loop cache to free memory
+            # Clear loop mode and cache to free memory
+            self.loop_mode_enabled = False
             self._loop_cached_audio = None
             self._loop_single_length = 0
 

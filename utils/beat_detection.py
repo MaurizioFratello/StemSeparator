@@ -268,14 +268,16 @@ def calculate_loops_from_downbeats(
         song_start_downbeat_index: Optional index of downbeat marking song start.
                                    If provided, loops are calculated from this point.
         intro_handling: How to handle intro before song start marker:
-                       "pad" - Create intro loops (subdivided, padded to bars_per_loop)
+                       "pad" - Create intro loops calculated BACKWARDS from song start,
+                               aligned to song start, with padding only at audio start
                        "skip" - Skip intro in loop calculation
 
     Returns:
         Tuple of (loops, intro_loops):
-        - loops: List of (start_time, end_time) tuples for main loop segments
+        - loops: List of (start_time, end_time) tuples for main loop segments (forward from song start)
         - intro_loops: List of (start_time, end_time) for intro loops if song_start_downbeat_index is set
-                      NOTE: First intro loop may have negative start_time (silence padding for "Auftakt")
+                      Calculated BACKWARDS from song start in bars_per_loop chunks
+                      NOTE: First intro loop may have negative start_time (silence padding)
                       Each intro loop is exactly bars_per_loop length
 
     Raises:
@@ -287,14 +289,15 @@ def calculate_loops_from_downbeats(
         >>> loops, intro_loops = calculate_loops_from_downbeats(downbeats, bars_per_loop=4, audio_duration=12.0)
         >>> # loops = [(0.0, 8.0), (8.0, 12.0)], intro_loops = []
         >>>
-        >>> # With song start at bar 3, 2 bars/loop (3-bar intro → 2 leading loops):
+        >>> # With song start at bar 3 (time 6.0s), 2 bars/loop:
+        >>> # Backwards from 6.0s: [2.0-6.0] (2 bars), [0.0-2.0] (1 bar + 1 bar padding)
         >>> loops, intro_loops = calculate_loops_from_downbeats(
         ...     downbeats, bars_per_loop=2, audio_duration=12.0,
         ...     song_start_downbeat_index=3, intro_handling="pad"
         ... )
-        >>> # intro_loops = [(-2.0, 2.0), (2.0, 6.0)]  # 2 leading loops of 2 bars each
+        >>> # intro_loops = [(-2.0, 2.0), (2.0, 6.0)]  # Backwards from song start
         >>> # First loop: 1 bar silence + 1 bar audio, Second loop: 2 bars audio
-        >>> # loops = [(6.0, 8.0), (8.0, 10.0), ...]  # main loops from song start
+        >>> # loops = [(6.0, 10.0), (10.0, 12.0)]  # Forward from song start
     """
     if len(downbeat_times) == 0:
         raise ValueError("No downbeats provided")
@@ -323,44 +326,45 @@ def calculate_loops_from_downbeats(
         intro_bars = song_start_downbeat_index
 
         if intro_handling == "pad":
-            # Calculate padding and subdivide intro into multiple loops
-            # WHY: Universal leading loop system - split intro into bars_per_loop chunks
-            # Example: 3-bar intro with 2 bars/loop → 2 leading loops (pad to 4 bars)
+            # Calculate loops BACKWARDS from song start in bars_per_loop chunks
+            # WHY: Loops should align relative to song start (reference point),
+            #      not audio start. This ensures musical alignment.
+            # Example: Song start at bar 3, bars_per_loop=2
+            #   → Loops: [bar 1-3], [bar 0-1 + padding]
             import math
 
             # Use average bar duration from all downbeats
             avg_bar_duration = np.mean(np.diff(downbeat_times))
-
-            # Calculate how many loops we need to fit the intro
-            num_intro_loops = math.ceil(intro_bars / bars_per_loop)
-            target_bars = num_intro_loops * bars_per_loop
-
-            # Calculate padding needed
-            bars_needed = target_bars - intro_bars
-            padding_duration = bars_needed * avg_bar_duration
-
-            # Create leading loops, each exactly bars_per_loop length
-            # First loop starts with padding (negative time), subsequent loops are normal
             loop_duration = bars_per_loop * avg_bar_duration
 
-            for i in range(num_intro_loops):
-                if i == 0:
-                    # First loop includes padding
-                    loop_start = -padding_duration
-                    loop_end = loop_start + loop_duration
-                else:
-                    # Subsequent loops - calculate from previous loop end
-                    loop_start = intro_loops[i-1][1]
-                    loop_end = loop_start + loop_duration
-                    # Don't exceed actual intro end
-                    loop_end = min(loop_end, intro_actual_end)
+            song_start_time = downbeat_times[song_start_downbeat_index]
 
-                intro_loops.append((loop_start, loop_end))
+            # Calculate loops backwards from song start
+            current_end = song_start_time
+            num_intro_loops = 0
+            total_padding = 0.0
+
+            while current_end > 0.0:
+                current_start = current_end - loop_duration
+
+                if current_start >= 0.0:
+                    # Full loop within audio bounds
+                    intro_loops.insert(0, (current_start, current_end))
+                    current_end = current_start
+                    num_intro_loops += 1
+                else:
+                    # Partial loop at audio start - add padding to make full length
+                    actual_audio_duration = current_end  # from 0.0 to current_end
+                    padding_duration = loop_duration - actual_audio_duration
+                    intro_loops.insert(0, (-padding_duration, current_end))
+                    total_padding = padding_duration
+                    num_intro_loops += 1
+                    break  # Reached audio start
 
             logger.info(
-                f"Created {num_intro_loops} leading loops: {padding_duration:.2f}s silence + "
-                f"{intro_actual_end:.2f}s intro = {target_bars} bars total "
-                f"({num_intro_loops} loops × {bars_per_loop} bars, Auftakt for {intro_bars}-bar intro)"
+                f"Created {num_intro_loops} leading loops (backwards from song start): "
+                f"{total_padding:.2f}s silence padding + {song_start_time:.2f}s intro "
+                f"({num_intro_loops} loops × {bars_per_loop} bars each)"
             )
         elif intro_handling == "skip":
             # Skip intro - no intro loops created

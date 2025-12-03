@@ -174,6 +174,7 @@ class StemControl(QWidget):
         # Mute button
         self.btn_mute = QPushButton("M")
         self.btn_mute.setCheckable(True)
+        self.btn_mute.setFocusPolicy(Qt.NoFocus)  # Prevent auto-focus blue border
         ThemeManager.set_widget_property(self.btn_mute, "buttonStyle", "icon")
         ThemeManager.set_widget_property(self.btn_mute, "buttonRole", "mute")
         self.btn_mute.setToolTip("Mute this stem")
@@ -1304,6 +1305,9 @@ class PlayerWidget(QWidget):
         loop_type = "Leading Loop" if is_leading_loop else "Main Loop"
         relative_index = self.selected_loop_index + 1 if is_leading_loop else (self.selected_loop_index - len(self.detected_intro_loops) + 1)
 
+        # Stop position timer for Playback tab (loop playback shouldn't update it)
+        self.position_timer.stop()
+
         # Play loop segment once (no repeat)
         success = self.player.play_loop_segment(start_time, end_time, repeat=False)
 
@@ -1335,6 +1339,9 @@ class PlayerWidget(QWidget):
         is_leading_loop = self.selected_loop_index < len(self.detected_intro_loops)
         loop_type = "Leading Loop" if is_leading_loop else "Main Loop"
         relative_index = self.selected_loop_index + 1 if is_leading_loop else (self.selected_loop_index - len(self.detected_intro_loops) + 1)
+
+        # Stop position timer for Playback tab (loop playback shouldn't update it)
+        self.position_timer.stop()
 
         # Play loop segment with repeat
         success = self.player.play_loop_segment(start_time, end_time, repeat=True)
@@ -2377,13 +2384,11 @@ class PlayerWidget(QWidget):
             self.btn_pause.setEnabled(False)
             self.btn_stop.setEnabled(False)
             self.position_timer.stop()
-            # Update position display to reflect reset to 0
-            # This ensures UI is in sync when playback finishes naturally
-            position = self.player.get_position()
+            # Reset position display to 0 (avoid get_position() lock acquisition)
             self.position_slider.blockSignals(True)
-            self.position_slider.setValue(int(position * 1000))
+            self.position_slider.setValue(0)
             self.position_slider.blockSignals(False)
-            self.current_time_label.setText(self._format_time(position))
+            self.current_time_label.setText("00:00")
 
     def _update_button_states(self):
         """
