@@ -876,9 +876,10 @@ class PlayerWidget(QWidget):
                 self.ctx.logger().info("No drums stem found, using mixed audio for BPM detection")
 
             # Step 4: Calculate timeout and start countdown timer
+            # Increased timeout for M1 and less performant Macs
             import time
             audio_duration = len(mixed_audio) / sample_rate
-            self._beat_analysis_timeout = max(60.0, 30.0 + audio_duration * 0.5)
+            self._beat_analysis_timeout = max(120.0, 60.0 + audio_duration * 1.0)
             self._beat_analysis_start_time = time.time()
             self._beat_analysis_phase = "Starting"
             self._beat_analysis_detail = "Initializing..."

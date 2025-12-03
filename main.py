@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+
 """
 Stem Separator - Main Entry Point
 
@@ -9,6 +10,7 @@ import os
 import fcntl
 import atexit
 from pathlib import Path
+from typing import Optional, Callable
 
 # Füge Projekt-Root zum Python Path hinzu
 sys.path.insert(0, str(Path(__file__).parent))
@@ -87,8 +89,16 @@ def release_lock():
 import os
 
 
-def check_dependencies():
-    """Prüft ob alle Dependencies installiert sind"""
+def check_dependencies(status_callback: Optional[Callable[[str], None]] = None):
+    """
+    Prüft ob alle Dependencies installiert sind
+    
+    Args:
+        status_callback: Optional callback to update status messages
+    """
+    if status_callback:
+        status_callback("Checking dependencies...")
+    
     missing_deps = []
 
     try:
@@ -107,38 +117,60 @@ def check_dependencies():
         missing_deps.append('numpy')
 
     if missing_deps:
-        logger.error("Missing dependencies: " + ", ".join(missing_deps))
+        error_msg = "Missing dependencies: " + ", ".join(missing_deps)
+        logger.error(error_msg)
         logger.error("Please run: pip install -r requirements.txt")
+        if status_callback:
+            status_callback(f"Error: {error_msg}")
         return False
 
     return True
 
 
-def initialize_app():
-    """Initialisiert die Anwendung"""
+def initialize_app(status_callback: Optional[Callable[[str], None]] = None):
+    """
+    Initialisiert die Anwendung
+    
+    Args:
+        status_callback: Optional callback to update status messages
+    """
     logger.info("=" * 60)
     logger.info(f"Starting {APP_NAME} v{APP_VERSION}")
     logger.info("=" * 60)
 
+    if status_callback:
+        status_callback(f"Starting {APP_NAME} v{APP_VERSION}")
+
     # Setze Sprache
+    if status_callback:
+        status_callback("Setting language...")
     set_language(DEFAULT_LANGUAGE)
     logger.info(f"Language set to: {DEFAULT_LANGUAGE}")
 
     # Initialisiere Model Manager
+    if status_callback:
+        status_callback("Initializing Model Manager...")
     logger.info("Initializing Model Manager...")
     model_manager = get_model_manager()
 
     # Zeige verfügbare Modelle
+    if status_callback:
+        status_callback("Checking available models...")
     logger.info("Available models:")
     for model_id, model_info in model_manager.available_models.items():
         status = "✓ Downloaded" if model_info.downloaded else "✗ Not downloaded"
         logger.info(f"  - {model_info.name}: {status} ({model_info.size_mb}MB)")
 
+    if status_callback:
+        status_callback("Initialization complete")
     logger.info("Initialization complete")
 
 
 def main():
     """Main Entry Point"""
+    splash: Optional['SplashScreen'] = None
+    app: Optional['QApplication'] = None
+    
     try:
         # CRITICAL: Check for single instance (prevent multiple app instances)
         if not acquire_lock():
@@ -154,69 +186,134 @@ def main():
             )
             sys.exit(1)
         
-        # Prüfe Dependencies
-        if not check_dependencies():
-            release_lock()
-            sys.exit(1)
-
-        # Initialisiere App
-        initialize_app()
-
-        # Starte GUI
+        # Create QApplication early for splash screen
         from PySide6.QtWidgets import QApplication, QMessageBox
         from PySide6.QtGui import QIcon
-
-        from ui.main_window import MainWindow
-        from ui.theme import ThemeManager
+        from ui.splash_screen import SplashScreen
         from config import ICONS_DIR
-
+        
         app = QApplication(sys.argv)
         app.setApplicationName(APP_NAME)
         app.setApplicationDisplayName(APP_NAME)  # macOS menu bar & fullscreen title
         app.setApplicationVersion(APP_VERSION)
         
-        # Set application icon (for Dock, menu bar, etc.)
+        # Create and show splash screen
         icon_path = ICONS_DIR / "app_icon_1024.png"
+        splash = SplashScreen(icon_path)
+        splash.show()
+        splash.raise_()
+        splash.activateWindow()
+        
+        # Process events multiple times to ensure splash is fully rendered
+        for _ in range(5):
+            app.processEvents()
+        
+        # Small delay to ensure splash is visible before starting initialization
+        import time
+        time.sleep(0.15)
+        
+        # Status callback for splash screen
+        def update_status(message: str):
+            if splash:
+                splash.update_status(message)
+            app.processEvents()  # Keep UI responsive
+        
+        # Prüfe Dependencies
+        if not check_dependencies(status_callback=update_status):
+            if splash:
+                splash.update_status("Error: Missing dependencies")
+                app.processEvents()
+                import time
+                time.sleep(2)  # Show error message briefly
+            release_lock()
+            sys.exit(1)
+
+        # Initialisiere App
+        initialize_app(status_callback=update_status)
+        app.processEvents()
+
+        # Set application icon (for Dock, menu bar, etc.)
         if icon_path.exists():
             app.setWindowIcon(QIcon(str(icon_path)))
             logger.info(f"Application icon set: {icon_path}")
+            update_status("Application icon set")
         else:
             logger.warning(f"Icon not found: {icon_path}")
 
         # Apply theme at application level for consistent styling
         try:
+            update_status("Applying theme...")
+            from ui.theme import ThemeManager
             theme_manager = ThemeManager.instance()
             theme_manager.apply_to_app(app)
             logger.info("Application theme applied successfully")
+            update_status("Theme applied")
         except Exception as theme_error:
             logger.warning(f"Failed to apply theme: {theme_error}. Using default Qt theme.")
+            update_status("Using default theme")
 
-        try:
-            window = MainWindow()
-            window.show()
-            exit_code = app.exec()
-            release_lock()  # Release lock before exit
-            sys.exit(exit_code)
-        except Exception as gui_error:  # pragma: no cover - GUI bootstrap failure is fatal
-            logger.critical(
-                f"Failed to start GUI: {gui_error}",
-                exc_info=True,
-            )
+        # Start BeatNet warm-up in background (after QApplication is ready, before window shown)
+        # WHY: Pre-approve binary with XProtect silently in background, user won't notice
+        from utils.beatnet_warmup import warmup_beatnet_async
+        warmup_beatnet_async()
+
+        # Create main window
+        update_status("Loading main window...")
+        from ui.main_window import MainWindow
+        window = MainWindow()
+        app.processEvents()
+        
+        # Show main window
+        window.show()
+        app.processEvents()
+        
+        # Close splash screen after main window is ready
+        if splash:
+            splash.finish(window)
+            splash = None
+        
+        exit_code = app.exec()
+        release_lock()  # Release lock before exit
+        sys.exit(exit_code)
+        
+    except Exception as gui_error:  # pragma: no cover - GUI bootstrap failure is fatal
+        logger.critical(
+            f"Failed to start GUI: {gui_error}",
+            exc_info=True,
+        )
+        
+        # Show error in splash if still visible
+        if splash and app:
+            splash.update_status(f"Error: {str(gui_error)}")
+            app.processEvents()
+            import time
+            time.sleep(2)
+            splash.close()
+        
+        if app:
             QMessageBox.critical(
                 None,
                 "Application Error",
                 f"Unable to start the GUI.\n\nDetails: {gui_error}\nSee log file: {LOG_FILE}",
             )
-            sys.exit(1)
+        sys.exit(1)
 
     except KeyboardInterrupt:
         logger.info("\nShutdown requested by user")
+        if splash:
+            splash.close()
         release_lock()
         sys.exit(0)
     except Exception as e:
         logger.critical(f"Fatal error: {e}", exc_info=True)
+        if splash:
+            splash.close()
         release_lock()
         sys.exit(1)
+    finally:
+        # Ensure splash is closed
+        if splash:
+            splash.close()
 
 
 if __name__ == "__main__":

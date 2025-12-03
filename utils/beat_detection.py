@@ -22,6 +22,7 @@ from utils.beat_service_client import (
     BeatServiceNotFound,
 )
 from utils.audio_processing import detect_bpm
+from utils.beatnet_warmup import wait_for_warmup_complete
 
 logger = get_logger()
 
@@ -96,16 +97,23 @@ def detect_beats_and_downbeats(
     # Strategy 1: Try BeatNet beat-service for beat grid + DeepRhythm for BPM
     if is_beat_service_available():
         try:
+            # Wait for warm-up to complete before starting real analysis
+            # WHY: Ensures XProtect scanning happens during warm-up, not here
+            # Silent wait - warm-up runs in background, user shouldn't notice
+            # Increased timeout for M1 and less performant Macs
+            wait_for_warmup_complete(max_wait_seconds=120.0)
+            
             # Calculate dynamic timeout based on audio duration
-            # Base: 30s + ~0.5s per second of audio (BeatNet processes ~2x realtime on MPS)
+            # Base: 60s + ~1.0s per second of audio (increased for M1 and less performant Macs)
+            # BeatNet processes ~2x realtime on MPS, but slower on M1/CPU
             try:
                 info = sf.info(str(audio_path))
                 audio_duration = info.duration
-                timeout = max(60.0, 30.0 + audio_duration * 0.5)
+                timeout = max(120.0, 60.0 + audio_duration * 1.0)
                 logger.debug(f"BeatNet timeout: {timeout:.0f}s for {audio_duration:.1f}s audio")
             except Exception:
                 audio_duration = 0
-                timeout = 120.0  # Safe default for unknown duration
+                timeout = 180.0  # Safe default for unknown duration (increased for M1)
 
             report_progress("BeatNet", f"Analyzing beat grid ({audio_duration:.0f}s audio, timeout: {timeout:.0f}s)...")
 
