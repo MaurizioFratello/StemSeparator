@@ -86,7 +86,7 @@ else
                 # Verify it's actually executable
                 if [ -x "$BINARY_PATH" ]; then
                     BINARY_SIZE=$(du -h "$BINARY_PATH" | cut -f1)
-                    echo -e "${GREEN}✓ ScreenCapture tool built successfully${NC}"
+            echo -e "${GREEN}✓ ScreenCapture tool built successfully${NC}"
                     echo -e "${BLUE}  Binary: $BINARY_PATH ($BINARY_SIZE)${NC}"
                 else
                     echo -e "${YELLOW}Warning: Binary exists but is not executable${NC}"

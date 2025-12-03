@@ -75,6 +75,28 @@ EXPORT_BIT_DEPTH = 16  # 16, 24, oder 32 bit
 # Model-Konfiguration
 # model_filename entspricht dem audio-separator Modell-Dateinamen
 MODELS = {
+    'mdx_vocals_hq': {
+        'name': 'MDX-Net Vocals (HQ)',
+        'stems': 2,
+        'stem_names': ['Vocals', 'Instrumental'],
+        'size_mb': 110,
+        'description': '🎤 Vocal-focused MDX-Net (HQ FT)',
+        'model_filename': 'UVR-MDX-NET-Voc_FT.onnx',
+        'recommendation': 'Use for vocal/lead clarity; pairs well with Demucs',
+        'strength': 'vocals',
+        'backend': 'mdx'
+    },
+    'mdx_instrumental_hq': {
+        'name': 'MDX-Net Instrumental (HQ-4)',
+        'stems': 2,
+        'stem_names': ['Vocals', 'Instrumental'],
+        'size_mb': 120,
+        'description': '🎹 Instrumental-focused MDX-Net (HQ 4th gen)',
+        'model_filename': 'UVR-MDX-NET-Inst_HQ_4.onnx',
+        'recommendation': 'Great for clean instrumentals / suppressing vocals',
+        'strength': 'instrumental',
+        'backend': 'mdx'
+    },
     'mel-roformer': {
         'name': 'Mel-Band RoFormer',
         'stems': 2,
@@ -135,6 +157,11 @@ QUALITY_PRESETS = {
             'vr_aggression': 5,
             'vr_enable_tta': False,
             'vr_enable_post_process': False,
+            'mdx_segment_size': 256,
+            'mdx_overlap': 0.22,
+            'mdx_batch_size': 1,
+            'mdx_hop_length': 1024,
+            'mdx_enable_denoise': False,
         }
     },
     'balanced': {
@@ -148,6 +175,11 @@ QUALITY_PRESETS = {
             'vr_aggression': 5,
             'vr_enable_tta': False,
             'vr_enable_post_process': False,
+            'mdx_segment_size': 256,
+            'mdx_overlap': 0.28,
+            'mdx_batch_size': 1,
+            'mdx_hop_length': 1024,
+            'mdx_enable_denoise': False,
         }
     },
     'quality': {
@@ -162,6 +194,11 @@ QUALITY_PRESETS = {
             'vr_enable_tta': True,
             'vr_enable_post_process': True,
             'vr_post_process_threshold': 0.2,
+            'mdx_segment_size': 256,
+            'mdx_overlap': 0.35,
+            'mdx_batch_size': 1,
+            'mdx_hop_length': 1024,
+            'mdx_enable_denoise': True,
         }
     },
     'ultra': {
@@ -177,6 +214,11 @@ QUALITY_PRESETS = {
             'vr_enable_post_process': True,
             'vr_post_process_threshold': 0.15,
             'vr_high_end_process': 'mirroring',
+            'mdx_segment_size': 384,
+            'mdx_overlap': 0.45,
+            'mdx_batch_size': 1,
+            'mdx_hop_length': 1024,
+            'mdx_enable_denoise': True,
         }
     }
 }
@@ -229,6 +271,83 @@ ENSEMBLE_CONFIGS = {
             'bass': [0.40, 0.60],
             'other': [0.45, 0.55]
         }
+    },
+    'mdx_demucs_vocals': {
+        'name': 'MDX + Demucs (Vocal Focus)',
+        'description': '2 Models - MDX vocals + Demucs transients',
+        'models': ['mdx_vocals_hq', 'demucs_4s'],
+        'time_multiplier': 2.2,
+        'quality_gain': '+0.6-0.8 dB (vocals/other)',
+        'fusion_strategy': 'mask_blend',
+        'fusion_stems': ['vocals', 'other'],
+        'weights': {
+            'vocals': [0.7, 0.3],
+            'drums': [0.25, 0.75],
+            'bass': [0.35, 0.65],
+            'other': [0.6, 0.4],
+            'instrumental': [0.7, 0.3]
+        }
+    },
+    # Staged ensembles: fuse vocals first, then process residual for drums/bass/other
+    'balanced_staged': {
+        'name': 'Balanced (Staged)',
+        'description': 'Vocal fusion + residual Demucs',
+        'vocal_models': ['mel-roformer', 'mdx_vocals_hq', 'demucs_4s'],
+        'residual_models': ['demucs_4s'],
+        'fusion_strategy': 'mask_blend',
+        'fusion_stems': ['vocals'],
+        'vocal_weights': {
+            'vocals': [0.40, 0.40, 0.20]
+        },
+        'residual_weights': {
+            'drums': [1.0],
+            'bass': [1.0],
+            'other': [1.0]
+        },
+        'mdx_params': {'segment_size': 256, 'overlap': 0.28, 'enable_denoise': False},
+        'demucs_params': {'shifts': 2, 'overlap': 0.25},
+        'time_multiplier': 2.0,
+        'quality_gain': '+ balanced staged'
+    },
+    'quality_staged': {
+        'name': 'Quality (Staged)',
+        'description': 'Vocal fusion + residual Demucs + MDX-Inst mask for other',
+        'vocal_models': ['mel-roformer', 'mdx_vocals_hq', 'demucs_4s'],
+        'residual_models': ['demucs_4s', 'mdx_instrumental_hq', 'bs-roformer'],
+        'fusion_strategy': 'mask_blend',
+        'fusion_stems': ['vocals', 'other'],
+        'vocal_weights': {
+            'vocals': [0.40, 0.40, 0.20]
+        },
+        'residual_weights': {
+            'drums': [0.6, 0.0, 0.4],
+            'bass':  [0.6, 0.0, 0.4],
+            'other': [0.45, 0.30, 0.25]
+        },
+        'mdx_params': {'segment_size': 256, 'overlap': 0.35, 'enable_denoise': True},
+        'demucs_params': {'shifts': 4, 'overlap': 0.40},
+        'time_multiplier': 3.0,
+        'quality_gain': '+0.8 dB staged'
+    },
+    'ultra_staged': {
+        'name': 'Ultra (Staged)',
+        'description': 'Max vocal fusion + residual Demucs/BS + MDX-Inst for other',
+        'vocal_models': ['mel-roformer', 'mdx_vocals_hq', 'demucs_4s'],
+        'residual_models': ['demucs_4s', 'mdx_instrumental_hq', 'bs-roformer'],
+        'fusion_strategy': 'mask_blend',
+        'fusion_stems': ['vocals', 'other'],
+        'vocal_weights': {
+            'vocals': [0.35, 0.45, 0.20]
+        },
+        'residual_weights': {
+            'drums': [0.6, 0.0, 0.4],
+            'bass':  [0.6, 0.0, 0.4],
+            'other': [0.40, 0.35, 0.25]
+        },
+        'mdx_params': {'segment_size': 384, 'overlap': 0.45, 'enable_denoise': True},
+        'demucs_params': {'shifts': 6, 'overlap': 0.50},
+        'time_multiplier': 4.5,
+        'quality_gain': 'max staged'
     }
 }
 

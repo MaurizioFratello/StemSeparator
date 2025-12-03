@@ -75,9 +75,9 @@ for path in binary_paths:
             try:
                 os.chmod(path, 0o755)
                 if os.access(path, os.X_OK):
-                    screencapture_binary = path
+        screencapture_binary = path
                     print(f"Found and made executable: {path}")
-                    break
+        break
             except Exception as e:
                 print(f"Warning: Binary found but cannot make executable: {path} ({e})")
 
@@ -91,6 +91,48 @@ else:
     print("WARNING: screencapture-recorder binary not found. ScreenCaptureKit recording will not be available.")
     print("  Searched paths:")
     for path in binary_paths:
+        exists = "✓" if path.exists() else "✗"
+        print(f"    {exists} {path}")
+
+
+# BeatNet Beat-Service binary
+# WHY: Bundle the BeatNet beat detection service for loop analysis
+# The binary is built separately with Python 3.8/3.9 (required for numba compatibility)
+beatnet_service_dir = project_root / 'packaging' / 'beatnet_service'
+beatnet_binary_paths = [
+    # Primary: PyInstaller dist output
+    beatnet_service_dir / 'dist' / 'beatnet-service',
+    # Alternative: resources location
+    project_root / 'resources' / 'beatnet' / 'beatnet-service',
+]
+
+beatnet_binary = None
+for path in beatnet_binary_paths:
+    if path.exists() and path.is_file():
+        if os.access(path, os.X_OK):
+            beatnet_binary = path
+            print(f"Found beatnet-service binary: {path}")
+            break
+        else:
+            # Try to make it executable
+            try:
+                os.chmod(path, 0o755)
+                if os.access(path, os.X_OK):
+                    beatnet_binary = path
+                    print(f"Found and made executable: {path}")
+                    break
+            except Exception as e:
+                print(f"Warning: Binary found but cannot make executable: {path} ({e})")
+
+if beatnet_binary:
+    # Bundle to app root for easy discovery by beat_service_client.py
+    datas.append((str(beatnet_binary), '.'))
+    print(f"Bundling beatnet-service to app bundle root")
+else:
+    print("WARNING: beatnet-service binary not found. BeatNet beat detection will use fallback.")
+    print("  Build with: cd packaging/beatnet_service && ./build.sh")
+    print("  Searched paths:")
+    for path in beatnet_binary_paths:
         exists = "✓" if path.exists() else "✗"
         print(f"    {exists} {path}")
 
@@ -178,7 +220,7 @@ excludes = [
 # CRITICAL: This must exist before Analysis() is called, otherwise PyInstaller fails
 build_dir = project_root / 'build' / 'StemSeparator-arm64'
 try:
-    build_dir.mkdir(parents=True, exist_ok=True)
+build_dir.mkdir(parents=True, exist_ok=True)
     # Verify directory was actually created and is writable
     if not build_dir.exists():
         raise RuntimeError(f"Failed to create build directory: {build_dir}")

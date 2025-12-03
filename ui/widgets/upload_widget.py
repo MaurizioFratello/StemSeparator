@@ -421,21 +421,27 @@ class UploadWidget(QWidget):
         """
         model_manager = self.ctx.model_manager()
         
-        # Use a progress dialog since we removed the progress bar
-        progress = QMessageBox(self)
+        # Use a progress dialog that can always be closed; guard with try/finally
+        from PySide6.QtWidgets import QProgressDialog
+        progress = QProgressDialog(
+            f"Downloading model {model_id}...", None, 0, 100, self
+        )
         progress.setWindowTitle("Downloading Model")
-        progress.setText(f"Downloading model {model_id}...")
-        progress.setStandardButtons(QMessageBox.NoButton)
+        progress.setWindowModality(Qt.WindowModal)
+        progress.setCancelButton(None)  # We don't support cancel mid-download yet
+        progress.setMinimumDuration(0)
         progress.show()
         
         def progress_callback(message: str, percent: int):
-            progress.setText(f"{message}\n{percent}%")
+            progress.setLabelText(f"{message}\n{percent}%")
+            progress.setValue(max(0, min(100, percent if percent >= 0 else 0)))
             QApplication.processEvents()
         
-        # Download (blocking for simplicity - could be threaded)
-        success = model_manager.download_model(model_id, progress_callback)
-        
-        progress.close()
+        try:
+            # Download (blocking for simplicity - could be threaded)
+            success = model_manager.download_model(model_id, progress_callback)
+        finally:
+            progress.close()
 
         if success:
             QMessageBox.information(self, "Success", "Model downloaded successfully!")

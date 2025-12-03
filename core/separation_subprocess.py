@@ -42,6 +42,52 @@ def run_separation_subprocess(
     # Import here to keep subprocess isolated
     from audio_separator.separator import Separator as AudioSeparator
 
+    def _apply_preset_attributes(separator: "AudioSeparator", attributes: dict):
+        """
+        Map preset attributes to the correct architecture-specific parameter buckets.
+
+        WHY: audio-separator expects arch params inside separator.arch_specific_params,
+        not as flat attributes. We still fall back to setattr for exotic values.
+        """
+        arch_mappings = {
+            'demucs': ('Demucs', {
+                'segment_size': 'segment_size',
+                'shifts': 'shifts',
+                'overlap': 'overlap',
+                'segments_enabled': 'segments_enabled'
+            }),
+            'vr': ('VR', {
+                'window_size': 'window_size',
+                'aggression': 'aggression',
+                'enable_tta': 'enable_tta',
+                'enable_post_process': 'enable_post_process',
+                'post_process_threshold': 'post_process_threshold',
+                'high_end_process': 'high_end_process'
+            }),
+            'mdx': ('MDX', {
+                'segment_size': 'segment_size',
+                'overlap': 'overlap',
+                'batch_size': 'batch_size',
+                'hop_length': 'hop_length',
+                'enable_denoise': 'enable_denoise'
+            })
+        }
+
+        for attr_name, attr_value in attributes.items():
+            handled = False
+
+            for prefix, (arch_key, param_map) in arch_mappings.items():
+                if attr_name.startswith(f"{prefix}_"):
+                    target_key = attr_name[len(prefix) + 1:]
+                    mapped_key = param_map.get(target_key, target_key)
+                    if hasattr(separator, "arch_specific_params") and arch_key in separator.arch_specific_params:
+                        separator.arch_specific_params[arch_key][mapped_key] = attr_value
+                        handled = True
+                        break
+
+            if not handled:
+                setattr(separator, attr_name, attr_value)
+
     # Create separator instance
     separator = AudioSeparator(
         log_level=20,  # INFO
@@ -51,8 +97,7 @@ def run_separation_subprocess(
     )
 
     # Set architecture-specific attributes
-    for attr_name, attr_value in preset_attributes.items():
-        setattr(separator, attr_name, attr_value)
+    _apply_preset_attributes(separator, preset_attributes)
 
     # Load model
     separator.load_model(model_filename=model_filename)

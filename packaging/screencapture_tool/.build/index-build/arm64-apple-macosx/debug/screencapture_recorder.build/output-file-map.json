@@ -1,0 +1,12 @@
+{
+  "": {
+    "swift-dependencies": "/Users/moritzbruder/Documents/04_Python/StemSeparator/packaging/screencapture_tool/.build/index-build/arm64-apple-macosx/debug/screencapture_recorder.build/master.swiftdeps"
+  },
+  "/Users/moritzbruder/Documents/04_Python/StemSeparator/packaging/screencapture_tool/Sources/main.swift": {
+    "dependencies": "/Users/moritzbruder/Documents/04_Python/StemSeparator/packaging/screencapture_tool/.build/index-build/arm64-apple-macosx/debug/screencapture_recorder.build/main.d",
+    "object": "/Users/moritzbruder/Documents/04_Python/StemSeparator/packaging/screencapture_tool/.build/index-build/arm64-apple-macosx/debug/screencapture_recorder.build/main.swift.o",
+    "swiftmodule": "/Users/moritzbruder/Documents/04_Python/StemSeparator/packaging/screencapture_tool/.build/index-build/arm64-apple-macosx/debug/screencapture_recorder.build/main~partial.swiftmodule",
+    "swift-dependencies": "/Users/moritzbruder/Documents/04_Python/StemSeparator/packaging/screencapture_tool/.build/index-build/arm64-apple-macosx/debug/screencapture_recorder.build/main.swiftdeps",
+    "diagnostics": "/Users/moritzbruder/Documents/04_Python/StemSeparator/packaging/screencapture_tool/.build/index-build/arm64-apple-macosx/debug/screencapture_recorder.build/main.dia"
+  }
+}

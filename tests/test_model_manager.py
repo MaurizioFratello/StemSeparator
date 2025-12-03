@@ -40,7 +40,8 @@ class TestModelInfo:
             stems=4,
             size_mb=100,
             description="Test",
-            model_type="test_type"
+            model_filename="test_model.onnx",
+            backend="test_backend"
         )
 
         assert info.name == "Test Model"

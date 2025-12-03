@@ -10,6 +10,7 @@ from typing import Optional, Dict, Callable, List, Tuple
 import time
 import numpy as np
 import soundfile as sf
+import librosa
 
 from config import (
     ENSEMBLE_CONFIGS,
@@ -73,8 +74,34 @@ class EnsembleSeparator:
             return self._create_error_result(audio_file, output_dir, error_msg)
 
         config = ENSEMBLE_CONFIGS[ensemble_config]
+
+        # Staged path: dedicated vocal stage then residual stage
+        if 'vocal_models' in config and 'residual_models' in config:
+            return self._separate_staged(
+                audio_file=audio_file,
+                config=config,
+                output_dir=output_dir,
+                quality_preset=quality_preset,
+                progress_callback=progress_callback
+            )
+
         models = config['models']
         weights = config['weights']
+        fusion_strategy = config.get('fusion_strategy', 'waveform')
+        fusion_stems = set(config.get('fusion_stems', []))
+        mix_audio = None
+        mix_sample_rate = None
+
+        if fusion_strategy == 'mask_blend':
+            try:
+                mix_audio_arr, mix_sample_rate = sf.read(str(audio_file), always_2d=True, dtype='float32')
+                mix_audio = mix_audio_arr.T  # (channels, samples)
+            except Exception as e:
+                self.logger.warning(
+                    f"Could not load mixture for mask blending: {e}. Falling back to waveform averaging."
+                )
+                fusion_strategy = 'waveform'
+                fusion_stems = set()
 
         self.logger.info(
             f"Starting ensemble separation: {audio_file.name} | "
@@ -158,11 +185,15 @@ class EnsembleSeparator:
             progress_callback("Combining stems with weighted averaging...", 87)
 
         combining_start = time.time()
-        combined_stems = self._combine_stems_weighted(
+        combined_stems, combined_sr = self._combine_stems_weighted(
             results,
             weights,
             models[:len(results)],  # Only models that succeeded
-            ensemble_config  # Pass config to determine expected stems
+            ensemble_config,  # Pass config to determine expected stems
+            fusion_strategy=fusion_strategy,
+            fusion_stems=fusion_stems,
+            mix_audio=mix_audio,
+            mix_sample_rate=mix_sample_rate
         )
         combining_time = time.time() - combining_start
 
@@ -190,7 +221,7 @@ class EnsembleSeparator:
             sf.write(
                 str(output_file),
                 audio_to_save,
-                results[0].stems.get('sample_rate', 44100),  # Get from first result
+                combined_sr or mix_sample_rate or 44100,
                 subtype='PCM_16'
             )
 
@@ -218,13 +249,154 @@ class EnsembleSeparator:
             error_message=None
         )
 
+    def _separate_staged(
+        self,
+        audio_file: Path,
+        config: dict,
+        output_dir: Optional[Path],
+        quality_preset: Optional[str],
+        progress_callback: Optional[Callable[[str, int], None]]
+    ) -> SeparationResult:
+        """
+        Staged flow: fuse vocals first, subtract residual, then process residual for drums/bass/other.
+        """
+        start_time = time.time()
+        vocal_models = config.get('vocal_models', [])
+        residual_models = config.get('residual_models', [])
+
+        try:
+            mix_audio_arr, mix_sample_rate = sf.read(str(audio_file), always_2d=True, dtype='float32')
+            mix_audio = mix_audio_arr.T  # (channels, samples)
+        except Exception as e:
+            error_msg = f"Failed to load mix for staged ensemble: {e}"
+            self.logger.error(error_msg)
+            return self._create_error_result(audio_file, output_dir, error_msg)
+
+        # 1) Vocal stage
+        vocal_results = []
+        for i, model_id in enumerate(vocal_models):
+            if progress_callback:
+                progress_callback(f"Vocal stage {i+1}/{len(vocal_models)}: {MODELS.get(model_id, {}).get('name', model_id)}", 5 + i * 5)
+            res = self.separator.separate(
+                audio_file=audio_file,
+                model_id=model_id,
+                output_dir=self._get_temp_dir(output_dir, model_id, audio_file),
+                quality_preset=quality_preset,
+                progress_callback=None
+            )
+            if res.success:
+                vocal_results.append(res)
+            else:
+                self.logger.warning(f"Vocal model {model_id} failed: {res.error_message}")
+
+        if not vocal_results:
+            return self._create_error_result(audio_file, output_dir, "All vocal models failed")
+
+        vocal_weights = config.get('vocal_weights', {'vocals': [1.0 / len(vocal_results)] * len(vocal_results)})
+        vocals_audio, vocals_sr = self._combine_single_stem(
+            results=vocal_results,
+            model_ids=vocal_models[:len(vocal_results)],
+            stem_name='vocals',
+            weights=vocal_weights.get('vocals', [1.0 / len(vocal_results)] * len(vocal_results)),
+            fusion_strategy=config.get('fusion_strategy', 'waveform'),
+            mix_audio=mix_audio,
+            fallback_sample_rate=mix_sample_rate
+        )
+
+        # Resample mix to vocals_sr for residual math, then align length
+        if vocals_sr and mix_sample_rate and vocals_sr != mix_sample_rate:
+            mix_audio = self._resample_audio_array(mix_audio, mix_sample_rate, vocals_sr)
+            mix_sample_rate = vocals_sr
+        vocals_audio = self._align_length(vocals_audio, mix_audio.shape[1])
+
+        # residual
+        residual = mix_audio - vocals_audio
+        peak = np.max(np.abs(residual))
+        if peak > 1.0:
+            residual = residual * (0.98 / peak)
+
+        residual_path = self.cache_dir / f"{audio_file.stem}_residual.wav"
+        sf.write(str(residual_path), residual.T, mix_sample_rate)
+
+        # 2) Residual stage
+        residual_results = []
+        for i, model_id in enumerate(residual_models):
+            if progress_callback:
+                progress_callback(f"Residual stage {i+1}/{len(residual_models)}: {MODELS.get(model_id, {}).get('name', model_id)}", 30 + i * 5)
+            res = self.separator.separate(
+                audio_file=residual_path,
+                model_id=model_id,
+                output_dir=self._get_temp_dir(output_dir, f"res_{model_id}", audio_file),
+                quality_preset=quality_preset,
+                progress_callback=None
+            )
+            if res.success:
+                residual_results.append(res)
+            else:
+                self.logger.warning(f"Residual model {model_id} failed: {res.error_message}")
+
+        if not residual_results:
+            return self._create_error_result(audio_file, output_dir, "Residual models failed")
+
+        residual_weights = config.get('residual_weights', {})
+        fusion_strategy = config.get('fusion_strategy', 'waveform')
+        fusion_stems = set(config.get('fusion_stems', []))
+
+        combined_residual, combined_residual_sr = self._combine_stems_weighted(
+            residual_results,
+            residual_weights,
+            residual_models[:len(residual_results)],
+            ensemble_config=config.get('name', 'staged'),
+            fusion_strategy=fusion_strategy,
+            fusion_stems=fusion_stems,
+            mix_audio=residual,
+            mix_sample_rate=mix_sample_rate,
+            allowed_stems={'drums', 'bass', 'other'}
+        )
+
+        # Final stems
+        output_dir = output_dir or self.separator.output_dir
+        output_dir.mkdir(parents=True, exist_ok=True)
+        final_stems = {}
+
+        # save vocals
+        vocals_path = output_dir / f"{audio_file.stem}_(vocals).wav"
+        sf.write(str(vocals_path), vocals_audio.T, mix_sample_rate, subtype='PCM_16')
+        final_stems['vocals'] = vocals_path
+
+        for stem_name, audio_data in combined_residual.items():
+            audio_data = self._align_length(audio_data, mix_audio.shape[1])
+            stem_path = output_dir / f"{audio_file.stem}_({stem_name}).wav"
+            sf.write(str(stem_path), audio_data.T, combined_residual_sr or mix_sample_rate, subtype='PCM_16')
+            final_stems[stem_name] = stem_path
+
+        total_time = time.time() - start_time
+        if progress_callback:
+            progress_callback("Staged ensemble complete", 100)
+
+        return SeparationResult(
+            success=True,
+            input_file=audio_file,
+            output_dir=output_dir,
+            stems=final_stems,
+            model_used=f"ensemble_staged",
+            device_used=self.separator.device_manager.get_device(),
+            duration_seconds=total_time,
+            error_message=None
+        )
+
     def _combine_stems_weighted(
         self,
         results: List[SeparationResult],
         weights_config: Dict[str, List[float]],
         model_ids: List[str],
-        ensemble_config: str = 'balanced'
-    ) -> Dict[str, np.ndarray]:
+        ensemble_config: str = 'balanced',
+        fusion_strategy: str = 'waveform',
+        fusion_stems: Optional[set] = None,
+        mix_audio: Optional[np.ndarray] = None,
+        mix_sample_rate: Optional[int] = None,
+        allowed_stems: Optional[set] = None
+    ) -> Tuple[Dict[str, np.ndarray], Optional[int]]:
         """
         Kombiniert Stems mit stem-spezifischen Gewichten
 
@@ -235,11 +407,16 @@ class EnsembleSeparator:
             results: Liste von SeparationResults
             weights_config: Stem-spezifische Gewichte
             model_ids: IDs der verwendeten Modelle
+            fusion_strategy: 'waveform' (default) oder 'mask_blend'
+            fusion_stems: Optional set of stems to apply mask blending on
+            mix_audio: Optional mixture audio for mask blending (channels, samples)
+            mix_sample_rate: Sample rate of mixture audio
 
         Returns:
             Dict mit combined stems: {stem_name: audio_data (channels, samples)}
         """
         combined = {}
+        target_sample_rate: Optional[int] = None
 
         # Determine expected output stems based on ensemble config and model capabilities
         # WHY: We should output all stems that have weights defined and are available
@@ -287,6 +464,9 @@ class EnsembleSeparator:
         # We don't want to output it separately when we have individual instrument stems
         if 'instrumental' in all_stem_names and len(all_stem_names) > 2:
             all_stem_names.remove('instrumental')
+
+        if allowed_stems:
+            all_stem_names = {s for s in all_stem_names if s in allowed_stems}
         
         self.logger.info(
             f"Target stems for ensemble output: {sorted(all_stem_names)} "
@@ -368,53 +548,34 @@ class EnsembleSeparator:
                 for i, (audio, _, model_id, sr) in enumerate(stem_audios)
             ]
 
-            # CRITICAL: Verify sample rates match
-            if len(set(sample_rates)) > 1:
-                sr_info = ", ".join([f"{model_ids[i]}:{sr}Hz" for i, sr in enumerate(sample_rates)])
-                self.logger.error(
-                    f"CRITICAL: Sample rate mismatch for {stem_name}! {sr_info}"
-                )
-                self.logger.error(
-                    f"Models must output the same sample rate. "
-                    f"This would cause severe timing/pitch artifacts!"
-                )
+            target_sr = mix_sample_rate or (sample_rates[0] if sample_rates else None)
+            target_sample_rate = target_sr
+            needs_resample = target_sr is not None and any(sr != target_sr for sr in sample_rates)
 
-                # Use resampling to fix this
-                target_sr = sample_rates[0]  # Use first model's sample rate
-                self.logger.warning(f"Resampling all stems to {target_sr} Hz...")
+            if needs_resample:
+                sr_info = ", ".join([f"{model_ids[i]}:{sr}Hz" for i, sr in enumerate(sample_rates)])
+                self.logger.warning(
+                    f"Resampling {stem_name} stems to {target_sr} Hz (detected: {sr_info})"
+                )
 
                 resampled_audios = []
                 for audio, weight, model_id, sr in stem_audios:
-                    if sr != target_sr:
-                        # Simple resampling using scipy if available
+                    if target_sr is not None and sr != target_sr:
                         try:
                             from scipy import signal
-                            # Resample each channel
                             num_samples = int(audio.shape[1] * target_sr / sr)
                             resampled = np.zeros((audio.shape[0], num_samples), dtype=np.float32)
                             for ch in range(audio.shape[0]):
                                 resampled[ch] = signal.resample(audio[ch], num_samples).astype(np.float32)
-
-                            self.logger.info(
-                                f"Resampled {stem_name} from {model_id}: {sr}Hz -> {target_sr}Hz "
-                                f"({audio.shape[1]} -> {num_samples} samples)"
-                            )
                             resampled_audios.append((resampled, weight, model_id))
                         except ImportError:
-                            self.logger.error(
-                                f"scipy not available for resampling! "
-                                f"Install with: pip install scipy"
-                            )
-                            # Fall back to skipping mismatched sample rates
-                            if sr == target_sr:
-                                resampled_audios.append((audio, weight, model_id))
+                            self.logger.error("scipy not available for resampling; keeping original SR")
+                            resampled_audios.append((audio, weight, model_id))
                     else:
                         resampled_audios.append((audio, weight, model_id))
 
-                # Replace with resampled (remove sr from tuple)
                 stem_audios = [(audio, weight, model_id) for audio, weight, model_id in resampled_audios]
             else:
-                # Remove sr from tuple for consistency
                 stem_audios = [(audio, weight, model_id) for audio, weight, model_id, sr in stem_audios]
 
             # Stelle sicher alle haben gleiche Länge (pad if necessary)
@@ -438,6 +599,7 @@ class EnsembleSeparator:
                     )
 
             padded_audios = []
+            padded_weights = []
 
             for audio, weight, model_id in stem_audios:
                 if audio.shape[1] < max_length:
@@ -446,21 +608,46 @@ class EnsembleSeparator:
                     self.logger.debug(
                         f"Padded {stem_name} from {model_id} with {padding} samples"
                     )
-                padded_audios.append((audio, weight))
+                elif audio.shape[1] > max_length:
+                    audio = audio[:, :max_length]
+                padded_audios.append(audio)
+                padded_weights.append(weight)
 
-            # Weighted Average
-            combined_audio = np.zeros((2, max_length), dtype=np.float32)
+            use_mask_blend = (
+                fusion_strategy == 'mask_blend'
+                and mix_audio is not None
+                and (not fusion_stems or stem_name in fusion_stems)
+            )
 
-            for audio, weight in padded_audios:
-                combined_audio += audio * weight
+            combined_audio = None
+            if use_mask_blend:
+                try:
+                    combined_audio = self._mask_blend_stem(
+                        mix_audio=mix_audio,
+                        stem_audios=padded_audios,
+                        stem_weights=padded_weights,
+                        sample_rate=mix_sample_rate or (sample_rates[0] if sample_rates else None),
+                        target_length=max_length
+                    )
+                except Exception as e:
+                    self.logger.warning(
+                        f"Mask blend failed for {stem_name}, falling back to waveform average: {e}"
+                    )
+                    combined_audio = None
 
-            # Soft clipping für Sicherheit
-            peak = np.max(np.abs(combined_audio))
-            if peak > 1.0:
-                combined_audio = combined_audio * (0.95 / peak)
-                self.logger.debug(
-                    f"Applied soft clipping to {stem_name} (peak was {peak:.2f})"
-                )
+            if combined_audio is None:
+                combined_audio = np.zeros((2, max_length), dtype=np.float32)
+
+                for audio, weight in zip(padded_audios, padded_weights):
+                    combined_audio += audio * weight
+
+                # Soft clipping für Sicherheit
+                peak = np.max(np.abs(combined_audio))
+                if peak > 1.0:
+                    combined_audio = combined_audio * (0.95 / peak)
+                    self.logger.debug(
+                        f"Applied soft clipping to {stem_name} (peak was {peak:.2f})"
+                    )
 
             combined[stem_name] = combined_audio
             self.logger.debug(
@@ -468,7 +655,161 @@ class EnsembleSeparator:
                 f"peak={np.max(np.abs(combined_audio)):.3f}"
             )
 
-        return combined
+        return combined, target_sample_rate
+
+    def _mask_blend_stem(
+        self,
+        mix_audio: np.ndarray,
+        stem_audios: List[np.ndarray],
+        stem_weights: List[float],
+        sample_rate: Optional[int],
+        target_length: Optional[int] = None,
+        n_fft: int = 2048,
+        hop_length: int = 512
+    ) -> np.ndarray:
+        """
+        Blend stems via soft masks on the mixture STFT.
+
+        WHY: Keeps mixture phase and reduces interference vs. straight waveform averaging.
+        """
+        if sample_rate is None:
+            sample_rate = 44100
+
+        target_length = target_length or mix_audio.shape[1]
+        mix = mix_audio
+
+        if mix.shape[1] < target_length:
+            mix = np.pad(mix, ((0, 0), (0, target_length - mix.shape[1])), mode='constant')
+        elif mix.shape[1] > target_length:
+            mix = mix[:, :target_length]
+
+        combined = np.zeros((mix.shape[0], target_length), dtype=np.float32)
+        eps = 1e-6
+
+        for ch in range(mix.shape[0]):
+            mix_spec = librosa.stft(mix[ch], n_fft=n_fft, hop_length=hop_length)
+            weighted_mask = np.zeros_like(mix_spec, dtype=np.float32)
+
+            for audio, weight in zip(stem_audios, stem_weights):
+                stem_channel = audio[ch] if ch < audio.shape[0] else audio[-1]
+
+                if stem_channel.shape[0] < target_length:
+                    stem_channel = np.pad(stem_channel, (0, target_length - stem_channel.shape[0]))
+                elif stem_channel.shape[0] > target_length:
+                    stem_channel = stem_channel[:target_length]
+
+                stem_spec = librosa.stft(stem_channel, n_fft=n_fft, hop_length=hop_length)
+                mask = np.abs(stem_spec) / (np.abs(mix_spec) + eps)
+                weighted_mask += weight * np.clip(mask, 0.0, 1.2)
+
+            blended_spec = np.clip(weighted_mask, 0.0, 1.0) * mix_spec
+            recon = librosa.istft(blended_spec, hop_length=hop_length, length=target_length)
+            combined[ch, : recon.shape[0]] = np.nan_to_num(recon, nan=0.0)
+
+        # Normalize if mask produced >1 peaks
+        peak = np.max(np.abs(combined))
+        if peak > 1.0:
+            combined = combined * (0.98 / peak)
+
+        return combined.astype(np.float32)
+
+    def _combine_single_stem(
+        self,
+        results: List[SeparationResult],
+        model_ids: List[str],
+        stem_name: str,
+        weights: List[float],
+        fusion_strategy: str,
+        mix_audio: np.ndarray,
+        fallback_sample_rate: int
+    ) -> Tuple[np.ndarray, int]:
+        """Combine only one stem (e.g., vocals) across results; returns (audio, sample_rate)."""
+        audios = []
+        used_weights = []
+        stem_sample_rate = None
+
+        for i, res in enumerate(results):
+            stem_file = self._find_stem_file(res, stem_name)
+            if stem_file and stem_file.exists():
+                audio, sr = sf.read(str(stem_file), always_2d=True, dtype='float32')
+                stem_sample_rate = stem_sample_rate or sr
+                audio = audio.T  # (channels, samples)
+                audios.append(audio)
+                used_weights.append(weights[i] if i < len(weights) else 1.0)
+
+        if not audios:
+            raise RuntimeError(f"No audio found for stem {stem_name}")
+
+        total = sum(used_weights)
+        if total <= 0:
+            used_weights = [1.0 / len(audios)] * len(audios)
+        else:
+            used_weights = [w / total for w in used_weights]
+
+        max_len = max(a.shape[1] for a in audios)
+        padded = []
+        for a in audios:
+            if a.shape[1] < max_len:
+                a = np.pad(a, ((0, 0), (0, max_len - a.shape[1])), mode='constant')
+            elif a.shape[1] > max_len:
+                a = a[:, :max_len]
+            padded.append(a)
+
+        target_sr = stem_sample_rate or fallback_sample_rate
+        use_mask_blend = fusion_strategy == 'mask_blend' and mix_audio is not None
+        if use_mask_blend:
+            try:
+                combined = self._mask_blend_stem(
+                    mix_audio=mix_audio,
+                    stem_audios=padded,
+                    stem_weights=used_weights,
+                    sample_rate=target_sr,
+                    target_length=max_len
+                )
+                return combined, target_sr
+            except Exception as e:
+                self.logger.warning(f"Mask blend for {stem_name} failed, fallback to waveform: {e}")
+
+        combined = np.zeros((2, max_len), dtype=np.float32)
+        for a, w in zip(padded, used_weights):
+            combined += a * w
+        peak = np.max(np.abs(combined))
+        if peak > 1.0:
+            combined = combined * (0.98 / peak)
+        return combined, target_sr
+
+    def _align_length(self, audio: np.ndarray, target_len: int) -> np.ndarray:
+        """Pad or trim stereo audio (2, N) to target length."""
+        if audio.shape[1] == target_len:
+            return audio
+        if audio.shape[1] < target_len:
+            pad = target_len - audio.shape[1]
+            return np.pad(audio, ((0, 0), (0, pad)), mode='constant')
+        return audio[:, :target_len]
+
+    def _resample_audio_array(self, audio: np.ndarray, sr_in: int, sr_out: int) -> np.ndarray:
+        """Resample multi-channel audio array (channels, samples) to new sample rate."""
+        if sr_in == sr_out:
+            return audio
+        try:
+            resampled_channels = []
+            for ch in range(audio.shape[0]):
+                resampled_channels.append(
+                    librosa.resample(audio[ch], orig_sr=sr_in, target_sr=sr_out)
+                )
+            # Ensure equal length across channels
+            max_len = max(len(ch_data) for ch_data in resampled_channels)
+            aligned = []
+            for ch_data in resampled_channels:
+                if len(ch_data) < max_len:
+                    ch_data = np.pad(ch_data, (0, max_len - len(ch_data)), mode='constant')
+                elif len(ch_data) > max_len:
+                    ch_data = ch_data[:max_len]
+                aligned.append(ch_data)
+            return np.stack(aligned, axis=0).astype(np.float32)
+        except Exception as e:
+            self.logger.warning(f"Resample failed ({sr_in}->{sr_out}), keeping original: {e}")
+            return audio
 
     def _extract_stem_name(self, file_path: Path) -> str:
         """

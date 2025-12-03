@@ -21,6 +21,7 @@ class ModelInfo:
     size_mb: int
     description: str
     model_filename: str  # audio-separator model filename
+    backend: str = "auto"  # e.g. mdx, demucs, roformer
     downloaded: bool = False
     path: Optional[Path] = None
     stem_names: Optional[List[str]] = None  # List of stem names (e.g., ['Vocals', 'Instrumental'])
@@ -45,6 +46,7 @@ class ModelManager:
                 size_mb=model_config['size_mb'],
                 description=model_config['description'],
                 model_filename=model_config['model_filename'],
+                backend=model_config.get('backend', 'auto'),
                 stem_names=model_config.get('stem_names')  # Optional: list of stem names
             )
 
@@ -99,7 +101,7 @@ class ModelManager:
 
         # Für andere Modelltypen (.ckpt, .pth, etc.): Prüfe Dateigröße
         else:
-            model_extensions = ['.pth', '.pt', '.ckpt', '.bin', '.safetensors']
+            model_extensions = ['.pth', '.pt', '.ckpt', '.bin', '.safetensors', '.onnx']
             if model_path.suffix.lower() in model_extensions:
                 # Modell sollte mindestens 10MB groß sein
                 return model_path.stat().st_size > 10 * 1024 * 1024

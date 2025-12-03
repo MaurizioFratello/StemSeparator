@@ -21,7 +21,7 @@ Stem Separator ist eine professionelle macOS-Anwendung für die KI-gestützte Tr
 
 ### ✨ Highlights
 
-- 🎵 **Multiple AI-Modelle**: Mel-Band RoFormer, BS-RoFormer, Demucs v4
+- 🎵 **Multiple AI-Modelle**: Mel-Band RoFormer, BS-RoFormer, MDX-Net, Demucs v4
 - 🎚️ **Ensemble-Separation**: Kombiniert mehrere Modelle für maximale Qualität
 - 🎤 **System Audio Recording**: Direkte Aufnahme von System-Audio (macOS)
 - 🎧 **Stem Player**: Echtzeit-Mixing mit individueller Lautstärke-Kontrolle
@@ -47,6 +47,7 @@ Stem Separator ist eine professionelle macOS-Anwendung für die KI-gestützte Tr
 ### AI-Modelle
 - **Mel-Band RoFormer** (~100 MB): Beste Qualität für Vocal Separation
 - **BS-RoFormer** (~300 MB): Excellente Qualität, SDX23 Challenge Gewinner
+- **MDX-Net (Vocals/Inst)** (~110-120 MB): Spektrogramm CNN, stark für Vocals & Leads
 - **Demucs v4** (~240 MB): 6-Stem Separation, Sony MDX Challenge Gewinner
 - **Demucs v4 (4-stem)** (~160 MB): Schnelle 4-Stem Separation
 
@@ -54,6 +55,7 @@ Stem Separator ist eine professionelle macOS-Anwendung für die KI-gestützte Tr
 - **Balanced Ensemble**: BS-RoFormer + Demucs (2x langsamer, +0.5-0.7 dB SDR)
 - **Quality Ensemble**: Mel-RoFormer + BS-RoFormer + Demucs (3x langsamer, +0.8-1.0 dB SDR)
 - **Vocals Focus**: Mel-RoFormer + BS-RoFormer (optimal für Karaoke)
+- **MDX + Demucs (Vocal Focus)**: MDX-Net Vocals + Demucs (mask blend, weniger Artefakte)
 
 ### Stem Player
 - **Live-Wiedergabe**: Echtzeit-Mixing separierter Stems

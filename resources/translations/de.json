@@ -137,7 +137,7 @@
   "about.title": "Über Stem Separator",
   "about.description": "KI-gestützte Audio Stem Separation mit modernsten Open-Source-Modellen.",
   "about.version": "Version: {version}",
-  "about.models": "Unterstützte Modelle: BS-RoFormer, Demucs v4",
+  "about.models": "Unterstützte Modelle: BS-RoFormer, MDX-Net, Demucs v4",
   "about.author": "Entwickelt von {author}",
 
   "status.ready": "Bereit",

@@ -137,7 +137,7 @@
   "about.title": "About Stem Separator",
   "about.description": "AI-powered audio stem separation using state-of-the-art open-source models.",
   "about.version": "Version: {version}",
-  "about.models": "Supported models: BS-RoFormer, Demucs v4",
+  "about.models": "Supported models: BS-RoFormer, MDX-Net, Demucs v4",
   "about.author": "Developed by {author}",
 
   "status.ready": "Ready",
