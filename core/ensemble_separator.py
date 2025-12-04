@@ -303,10 +303,12 @@ class EnsembleSeparator:
             fallback_sample_rate=mix_sample_rate
         )
 
-        # Resample mix to vocals_sr for residual math, then align length
+        # FIX: Resample vocals to mix_sr (not vice versa) to preserve original mix SR
+        # WHY: Keeps mix SR constant throughout pipeline, prevents cumulative resampling artifacts
         if vocals_sr and mix_sample_rate and vocals_sr != mix_sample_rate:
-            mix_audio = self._resample_audio_array(mix_audio, mix_sample_rate, vocals_sr)
-            mix_sample_rate = vocals_sr
+            self.logger.info(f"Resampling vocals from {vocals_sr} Hz to mix SR {mix_sample_rate} Hz")
+            vocals_audio = self._resample_audio_array(vocals_audio, vocals_sr, mix_sample_rate)
+            vocals_sr = mix_sample_rate
         vocals_audio = self._align_length(vocals_audio, mix_audio.shape[1])
 
         # residual
@@ -561,16 +563,11 @@ class EnsembleSeparator:
                 resampled_audios = []
                 for audio, weight, model_id, sr in stem_audios:
                     if target_sr is not None and sr != target_sr:
-                        try:
-                            from scipy import signal
-                            num_samples = int(audio.shape[1] * target_sr / sr)
-                            resampled = np.zeros((audio.shape[0], num_samples), dtype=np.float32)
-                            for ch in range(audio.shape[0]):
-                                resampled[ch] = signal.resample(audio[ch], num_samples).astype(np.float32)
-                            resampled_audios.append((resampled, weight, model_id))
-                        except ImportError:
-                            self.logger.error("scipy not available for resampling; keeping original SR")
-                            resampled_audios.append((audio, weight, model_id))
+                        # FIX: Use librosa.resample instead of scipy.signal.resample
+                        # WHY: librosa preserves audio quality better (phase-preserving, anti-aliasing)
+                        # scipy.signal.resample is FFT-based and can cause timing/phase artifacts
+                        resampled = self._resample_audio_array(audio, sr, target_sr)
+                        resampled_audios.append((resampled, weight, model_id))
                     else:
                         resampled_audios.append((audio, weight, model_id))
 
@@ -684,7 +681,9 @@ class EnsembleSeparator:
             mix = mix[:, :target_length]
 
         combined = np.zeros((mix.shape[0], target_length), dtype=np.float32)
-        eps = 1e-6
+        # FIX: Increased epsilon for more stable masks in quiet passages
+        # WHY: 1e-6 can cause unstable masks when mix has very quiet frequencies
+        eps = 1e-5
 
         for ch in range(mix.shape[0]):
             mix_spec = librosa.stft(mix[ch], n_fft=n_fft, hop_length=hop_length)
@@ -702,14 +701,18 @@ class EnsembleSeparator:
                 mask = np.abs(stem_spec) / (np.abs(mix_spec) + eps)
                 weighted_mask += weight * np.clip(mask, 0.0, 1.2)
 
-            blended_spec = np.clip(weighted_mask, 0.0, 1.0) * mix_spec
+            # FIX: Increased final clipping threshold from 1.0 to 1.5
+            # WHY: Allows mask to boost signal when mix is too quiet (e.g., after vocal subtraction)
+            # The waveform soft-clipping below will handle any peaks > 1.0
+            blended_spec = np.clip(weighted_mask, 0.0, 1.5) * mix_spec
             recon = librosa.istft(blended_spec, hop_length=hop_length, length=target_length)
             combined[ch, : recon.shape[0]] = np.nan_to_num(recon, nan=0.0)
 
-        # Normalize if mask produced >1 peaks
+        # Soft clipping if mask boosted signal too much
         peak = np.max(np.abs(combined))
         if peak > 1.0:
-            combined = combined * (0.98 / peak)
+            combined = combined * (0.95 / peak)
+            self.logger.debug(f"Mask blend boosted signal to {peak:.2f}, applied soft clipping")
 
         return combined.astype(np.float32)
 
@@ -757,26 +760,45 @@ class EnsembleSeparator:
 
         target_sr = stem_sample_rate or fallback_sample_rate
         use_mask_blend = fusion_strategy == 'mask_blend' and mix_audio is not None
+        def _waveform_fuse() -> np.ndarray:
+            fused = np.zeros((2, max_len), dtype=np.float32)
+            for a, w in zip(padded, used_weights):
+                fused += a * w
+            peak = np.max(np.abs(fused))
+            if peak > 1.0:
+                fused = fused * (0.98 / peak)
+            return fused
+
         if use_mask_blend:
             try:
+                mix_for_blend = mix_audio
+                if target_sr and fallback_sample_rate and target_sr != fallback_sample_rate:
+                    mix_for_blend = self._resample_audio_array(mix_audio, fallback_sample_rate, target_sr)
                 combined = self._mask_blend_stem(
-                    mix_audio=mix_audio,
+                    mix_audio=mix_for_blend,
                     stem_audios=padded,
                     stem_weights=used_weights,
                     sample_rate=target_sr,
                     target_length=max_len
                 )
+                # Guard: if mask blend produces very low energy vs sources, fallback to waveform
+                if stem_name == 'vocals':
+                    rms_combined = float(np.sqrt(np.mean(combined ** 2)) + 1e-8)
+                    rms_sources = [
+                        float(np.sqrt(np.mean(a ** 2)) + 1e-8) for a in padded
+                    ]
+                    median_src_rms = float(np.median(rms_sources))
+                    if median_src_rms > 0 and rms_combined < 0.5 * median_src_rms:
+                        self.logger.warning(
+                            f"Mask blend for vocals too quiet (rms {rms_combined:.5f} vs median {median_src_rms:.5f}), "
+                            "falling back to waveform fusion"
+                        )
+                        combined = _waveform_fuse()
                 return combined, target_sr
             except Exception as e:
                 self.logger.warning(f"Mask blend for {stem_name} failed, fallback to waveform: {e}")
 
-        combined = np.zeros((2, max_len), dtype=np.float32)
-        for a, w in zip(padded, used_weights):
-            combined += a * w
-        peak = np.max(np.abs(combined))
-        if peak > 1.0:
-            combined = combined * (0.98 / peak)
-        return combined, target_sr
+        return _waveform_fuse(), target_sr
 
     def _align_length(self, audio: np.ndarray, target_len: int) -> np.ndarray:
         """Pad or trim stereo audio (2, N) to target length."""

@@ -311,42 +311,46 @@ ENSEMBLE_CONFIGS = {
     },
     'quality_staged': {
         'name': 'Quality (Staged)',
-        'description': 'Vocal fusion + residual Demucs + MDX-Inst mask for other',
+        'description': 'Vocal fusion + residual ensemble (Demucs + BS-RoFormer)',
         'vocal_models': ['mel-roformer', 'mdx_vocals_hq', 'demucs_4s'],
-        'residual_models': ['demucs_4s', 'mdx_instrumental_hq', 'bs-roformer'],
+        'residual_models': ['demucs_4s', 'bs-roformer'],
         'fusion_strategy': 'mask_blend',
-        'fusion_stems': ['vocals', 'other'],
+        'fusion_stems': ['vocals'],  # FIX: Only mask-blend vocals, not other
         'vocal_weights': {
             'vocals': [0.40, 0.40, 0.20]
         },
         'residual_weights': {
-            'drums': [0.6, 0.0, 0.4],
-            'bass':  [0.6, 0.0, 0.4],
-            'other': [0.45, 0.30, 0.25]
+            # FIX: Removed mdx_instrumental_hq to avoid mixing "Instrumental" (=Drums+Bass+Other) into individual stems
+            # WHY: mdx_instrumental_hq is 2-stem (Vocals/Instrumental) - "Instrumental" is too broad for "Other"
+            # Using only 4-stem models (demucs_4s, bs-roformer) with pure stem separation
+            'drums': [0.60, 0.40],
+            'bass':  [0.60, 0.40],
+            'other': [0.55, 0.45]
         },
         'mdx_params': {'segment_size': 256, 'overlap': 0.35, 'enable_denoise': True},
         'demucs_params': {'shifts': 4, 'overlap': 0.40},
-        'time_multiplier': 3.0,
+        'time_multiplier': 2.5,
         'quality_gain': '+0.8 dB staged'
     },
     'ultra_staged': {
         'name': 'Ultra (Staged)',
-        'description': 'Max vocal fusion + residual Demucs/BS + MDX-Inst for other',
+        'description': 'Max vocal fusion + residual ensemble (Demucs + BS-RoFormer)',
         'vocal_models': ['mel-roformer', 'mdx_vocals_hq', 'demucs_4s'],
-        'residual_models': ['demucs_4s', 'mdx_instrumental_hq', 'bs-roformer'],
+        'residual_models': ['demucs_4s', 'bs-roformer'],
         'fusion_strategy': 'mask_blend',
-        'fusion_stems': ['vocals', 'other'],
+        'fusion_stems': ['vocals'],  # FIX: Only mask-blend vocals, not other
         'vocal_weights': {
             'vocals': [0.35, 0.45, 0.20]
         },
         'residual_weights': {
-            'drums': [0.6, 0.0, 0.4],
-            'bass':  [0.6, 0.0, 0.4],
-            'other': [0.40, 0.35, 0.25]
+            # FIX: Removed mdx_instrumental_hq - same reason as quality_staged
+            'drums': [0.60, 0.40],
+            'bass':  [0.60, 0.40],
+            'other': [0.55, 0.45]
         },
         'mdx_params': {'segment_size': 384, 'overlap': 0.45, 'enable_denoise': True},
         'demucs_params': {'shifts': 6, 'overlap': 0.50},
-        'time_multiplier': 4.5,
+        'time_multiplier': 3.5,
         'quality_gain': 'max staged'
     }
 }
