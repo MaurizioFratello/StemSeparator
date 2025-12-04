@@ -221,14 +221,21 @@ class UploadWidget(QWidget):
         self.model_combo.clear()
 
         for model_id, model_info in model_manager.available_models.items():
-            # Format: "Model Name - Stems: Vocals, Drums, Bass, Other" (with ⚠ for non-downloaded)
+            # Format: "Description - Stems - Model Name" (with ⚠ for non-downloaded)
+            # Example: "⚡ Fast karaoke creation - Vocals, Instrumental - MDX-Net Vocals"
             status = "⚠ " if not model_info.downloaded else ""
-            # Get stem names if available, otherwise show count
+
+            # Get description (remove emoji and "stem" suffix for cleaner look)
+            description = model_info.description if hasattr(model_info, 'description') else ""
+
+            # Get stem names
             if hasattr(model_info, 'stem_names') and model_info.stem_names:
                 stems_info = ', '.join(model_info.stem_names)
-                text = f"{status}{model_info.name} - {stems_info}"
             else:
-                text = f"{status}{model_info.name} ({model_info.stems} stems)"
+                stems_info = f"{model_info.stems} stems"
+
+            # Combine: Description - Stems - Name
+            text = f"{status}{description} - {stems_info} - {model_info.name}"
             self.model_combo.addItem(text, userData=model_id)
 
         # Select default model
@@ -363,17 +370,20 @@ class UploadWidget(QWidget):
                 display_name = f"{config_info['name']} - {config_info['description']}"
                 self.model_combo.addItem(display_name, userData=config_name)
         else:
-            # Load Single Models
+            # Load Single Models (same format as _load_models)
             model_manager = self.ctx.model_manager()
             for model_id, model_info in model_manager.available_models.items():
                 status = "⚠ " if not model_info.downloaded else ""
+                description = model_info.description if hasattr(model_info, 'description') else ""
+
                 if hasattr(model_info, 'stem_names') and model_info.stem_names:
                     stems_info = ', '.join(model_info.stem_names)
-                    text = f"{status}{model_info.name} - {stems_info}"
                 else:
-                    text = f"{status}{model_info.name} ({model_info.stems} stems)"
+                    stems_info = f"{model_info.stems} stems"
+
+                text = f"{status}{description} - {stems_info} - {model_info.name}"
                 self.model_combo.addItem(text, userData=model_id)
-                
+
             # Select default model
             default_model = model_manager.get_default_model()
             for i in range(self.model_combo.count()):

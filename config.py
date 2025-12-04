@@ -76,25 +76,14 @@ EXPORT_BIT_DEPTH = 16  # 16, 24, oder 32 bit
 # model_filename entspricht dem audio-separator Modell-Dateinamen
 MODELS = {
     'mdx_vocals_hq': {
-        'name': 'MDX-Net Vocals (HQ)',
+        'name': 'MDX-Net Vocals',
         'stems': 2,
         'stem_names': ['Vocals', 'Instrumental'],
         'size_mb': 110,
-        'description': '🎤 Vocal-focused MDX-Net (HQ FT)',
+        'description': '⚡ Fast 2-stem separation - Perfect for karaoke',
         'model_filename': 'UVR-MDX-NET-Voc_FT.onnx',
-        'recommendation': 'Use for vocal/lead clarity; pairs well with Demucs',
+        'recommendation': 'Fast vocal extraction, good for quick karaoke creation',
         'strength': 'vocals',
-        'backend': 'mdx'
-    },
-    'mdx_instrumental_hq': {
-        'name': 'MDX-Net Instrumental (HQ-4)',
-        'stems': 2,
-        'stem_names': ['Vocals', 'Instrumental'],
-        'size_mb': 120,
-        'description': '🎹 Instrumental-focused MDX-Net (HQ 4th gen)',
-        'model_filename': 'UVR-MDX-NET-Inst_HQ_4.onnx',
-        'recommendation': 'Great for clean instrumentals / suppressing vocals',
-        'strength': 'instrumental',
         'backend': 'mdx'
     },
     'mel-roformer': {
@@ -102,9 +91,9 @@ MODELS = {
         'stems': 2,
         'stem_names': ['Vocals', 'Instrumental'],
         'size_mb': 100,
-        'description': '🎤 Vocals & Instrumental only (SDR 11.4)',
+        'description': '🎤 Best vocal quality - 2-stem separation',
         'model_filename': 'model_mel_band_roformer_ep_3005_sdr_11.4360.ckpt',
-        'recommendation': 'Perfect for karaoke & vocal extraction',
+        'recommendation': 'Highest quality vocals for professional vocal extraction',
         'strength': 'vocals'  # Primary strength
     },
     'bs-roformer': {
@@ -112,30 +101,30 @@ MODELS = {
         'stems': 4,
         'stem_names': ['Vocals', 'Drums', 'Bass', 'Other'],
         'size_mb': 300,
-        'description': '🏆 Vocals, Drums, Bass, Other (SDR 12.98)',
+        'description': '🏆 Best overall quality - 4-stem balanced separation',
         'model_filename': 'model_bs_roformer_ep_317_sdr_12.9755.ckpt',
-        'recommendation': 'Best for professional work',
+        'recommendation': 'Highest quality 4-stem model, best balance across all stems',
         'strength': 'balanced'  # Good for all stems
-    },
-    'demucs_6s': {
-        'name': 'Demucs v4 (6-stem)',
-        'stems': 6,
-        'stem_names': ['Vocals', 'Drums', 'Bass', 'Piano', 'Guitar', 'Other'],
-        'size_mb': 240,
-        'description': '🎸 Vocals, Drums, Bass, Piano, Guitar, Other',
-        'model_filename': 'htdemucs_6s.yaml',
-        'recommendation': 'Best for detailed separation',
-        'strength': 'versatile'  # Most stems
     },
     'demucs_4s': {
         'name': 'Demucs v4 (4-stem)',
         'stems': 4,
         'stem_names': ['Vocals', 'Drums', 'Bass', 'Other'],
         'size_mb': 160,
-        'description': '⚡ Vocals, Drums, Bass, Other',
+        'description': '⚡ Fast 4-stem separation - Great for drums',
         'model_filename': 'htdemucs.yaml',
-        'recommendation': 'Best for most users',
+        'recommendation': 'Fastest 4-stem option, excellent drum separation',
         'strength': 'drums'  # Particularly good for drums
+    },
+    'demucs_6s': {
+        'name': 'Demucs v4 (6-stem)',
+        'stems': 6,
+        'stem_names': ['Vocals', 'Drums', 'Bass', 'Piano', 'Guitar', 'Other'],
+        'size_mb': 240,
+        'description': '🎸 Maximum detail - Separates Piano & Guitar',
+        'model_filename': 'htdemucs_6s.yaml',
+        'recommendation': 'Only model with Piano/Guitar separation - for detailed work',
+        'strength': 'versatile'  # Most stems
     }
 }
 
@@ -227,71 +216,13 @@ QUALITY_PRESETS = {
 DEFAULT_QUALITY_PRESET = 'balanced'
 
 # Ensemble-Konfiguration für Model-Kombinationen
-# Kombiniert mehrere Modelle für höchste Qualität
+# SIMPLIFIED: Only staged ensembles for best quality with clear progression
+# WHY: Staged approach avoids interference, single models sufficient for speed
 ENSEMBLE_CONFIGS = {
-    'balanced': {
-        'name': 'Balanced Ensemble',
-        'description': '2 Models - Good quality, reasonable speed',
-        'models': ['bs-roformer', 'demucs_4s'],
-        'time_multiplier': 2.0,
-        'quality_gain': '+0.5-0.7 dB SDR',
-        # Stem-spezifische Gewichte: welches Modell ist für welchen Stem besser
-        'weights': {
-            'vocals': [0.6, 0.4],     # BS-RoFormer besser für Vocals
-            'drums': [0.4, 0.6],      # Demucs besser für Drums
-            'bass': [0.5, 0.5],       # Ausgeglichen
-            'other': [0.5, 0.5],      # Ausgeglichen
-            'instrumental': [0.45, 0.55]  # Für 2-stem Modelle
-        }
-    },
-    'quality': {
-        'name': 'Quality Ensemble',
-        'description': '3 Models - Best quality, slower',
-        'models': ['mel-roformer', 'bs-roformer', 'demucs_4s'],
-        'time_multiplier': 3.0,
-        'quality_gain': '+0.8-1.0 dB SDR',
-        'weights': {
-            'vocals': [0.45, 0.35, 0.20],      # Mel-RoFormer beste für Vocals
-            'drums': [0.15, 0.35, 0.50],       # Demucs beste für Drums
-            'bass': [0.20, 0.40, 0.40],        # BS-RoFormer & Demucs
-            'other': [0.25, 0.40, 0.35],       # BS-RoFormer leicht besser
-            'instrumental': [0.40, 0.35, 0.25] # Ausgeglichener
-        }
-    },
-    'vocals_focus': {
-        'name': 'Vocals Focus Ensemble',
-        'description': '2 Models specialized for vocals/karaoke',
-        'models': ['mel-roformer', 'bs-roformer'],
-        'time_multiplier': 2.0,
-        'quality_gain': '+0.6-0.8 dB (vocals only)',
-        'weights': {
-            'vocals': [0.55, 0.45],            # Mel-RoFormer Schwerpunkt
-            'instrumental': [0.45, 0.55],      # BS-RoFormer für Instrumental
-            'drums': [0.45, 0.55],
-            'bass': [0.40, 0.60],
-            'other': [0.45, 0.55]
-        }
-    },
-    'mdx_demucs_vocals': {
-        'name': 'MDX + Demucs (Vocal Focus)',
-        'description': '2 Models - MDX vocals + Demucs transients',
-        'models': ['mdx_vocals_hq', 'demucs_4s'],
-        'time_multiplier': 2.2,
-        'quality_gain': '+0.6-0.8 dB (vocals/other)',
-        'fusion_strategy': 'mask_blend',
-        'fusion_stems': ['vocals', 'other'],
-        'weights': {
-            'vocals': [0.7, 0.3],
-            'drums': [0.25, 0.75],
-            'bass': [0.35, 0.65],
-            'other': [0.6, 0.4],
-            'instrumental': [0.7, 0.3]
-        }
-    },
     # Staged ensembles: fuse vocals first, then process residual for drums/bass/other
     'balanced_staged': {
-        'name': 'Balanced (Staged)',
-        'description': 'Vocal fusion + residual Demucs',
+        'name': 'Balanced',
+        'description': '⚡ Recommended - Good quality, reasonable processing time (~2x)',
         'vocal_models': ['mel-roformer', 'mdx_vocals_hq', 'demucs_4s'],
         'residual_models': ['demucs_4s'],
         'fusion_strategy': 'mask_blend',
@@ -307,22 +238,19 @@ ENSEMBLE_CONFIGS = {
         'mdx_params': {'segment_size': 256, 'overlap': 0.28, 'enable_denoise': False},
         'demucs_params': {'shifts': 2, 'overlap': 0.25},
         'time_multiplier': 2.0,
-        'quality_gain': '+ balanced staged'
+        'quality_gain': '+0.5-0.7 dB SDR'
     },
     'quality_staged': {
-        'name': 'Quality (Staged)',
-        'description': 'Vocal fusion + residual ensemble (Demucs + BS-RoFormer)',
+        'name': 'Quality',
+        'description': '🏆 Professional quality - Best balance of quality/time (~2.5x)',
         'vocal_models': ['mel-roformer', 'mdx_vocals_hq', 'demucs_4s'],
         'residual_models': ['demucs_4s', 'bs-roformer'],
         'fusion_strategy': 'mask_blend',
-        'fusion_stems': ['vocals'],  # FIX: Only mask-blend vocals, not other
+        'fusion_stems': ['vocals'],
         'vocal_weights': {
             'vocals': [0.40, 0.40, 0.20]
         },
         'residual_weights': {
-            # FIX: Removed mdx_instrumental_hq to avoid mixing "Instrumental" (=Drums+Bass+Other) into individual stems
-            # WHY: mdx_instrumental_hq is 2-stem (Vocals/Instrumental) - "Instrumental" is too broad for "Other"
-            # Using only 4-stem models (demucs_4s, bs-roformer) with pure stem separation
             'drums': [0.60, 0.40],
             'bass':  [0.60, 0.40],
             'other': [0.55, 0.45]
@@ -330,20 +258,19 @@ ENSEMBLE_CONFIGS = {
         'mdx_params': {'segment_size': 256, 'overlap': 0.35, 'enable_denoise': True},
         'demucs_params': {'shifts': 4, 'overlap': 0.40},
         'time_multiplier': 2.5,
-        'quality_gain': '+0.8 dB staged'
+        'quality_gain': '+0.8 dB SDR'
     },
     'ultra_staged': {
-        'name': 'Ultra (Staged)',
-        'description': 'Max vocal fusion + residual ensemble (Demucs + BS-RoFormer)',
+        'name': 'Ultra',
+        'description': '💎 Maximum quality - For critical applications (~3.5x)',
         'vocal_models': ['mel-roformer', 'mdx_vocals_hq', 'demucs_4s'],
         'residual_models': ['demucs_4s', 'bs-roformer'],
         'fusion_strategy': 'mask_blend',
-        'fusion_stems': ['vocals'],  # FIX: Only mask-blend vocals, not other
+        'fusion_stems': ['vocals'],
         'vocal_weights': {
             'vocals': [0.35, 0.45, 0.20]
         },
         'residual_weights': {
-            # FIX: Removed mdx_instrumental_hq - same reason as quality_staged
             'drums': [0.60, 0.40],
             'bass':  [0.60, 0.40],
             'other': [0.55, 0.45]
@@ -351,12 +278,12 @@ ENSEMBLE_CONFIGS = {
         'mdx_params': {'segment_size': 384, 'overlap': 0.45, 'enable_denoise': True},
         'demucs_params': {'shifts': 6, 'overlap': 0.50},
         'time_multiplier': 3.5,
-        'quality_gain': 'max staged'
+        'quality_gain': '+1.0 dB SDR'
     }
 }
 
 # Default Ensemble Config
-DEFAULT_ENSEMBLE_CONFIG = 'balanced'
+DEFAULT_ENSEMBLE_CONFIG = 'balanced_staged'
 
 # GPU/CPU Konfiguration
 USE_GPU = True  # Automatisch auf MPS (Apple Silicon) oder CUDA falls verfügbar
