@@ -14,6 +14,7 @@ import sys
 import os
 import numpy as np
 import soundfile as sf
+import librosa
 
 from config import (
     MODELS,
@@ -32,6 +33,11 @@ from utils.error_handler import error_handler, SeparationError
 from utils.file_manager import get_file_manager
 
 logger = get_logger()
+
+# CRITICAL: Universal sample rate for all separation models
+# WHY: Mel-RoFormer and BS-RoFormer require 44100 Hz (hardcoded in model architecture)
+#      All models must process audio at this exact rate to prevent timing drift
+TARGET_SAMPLE_RATE = 44100
 
 
 @dataclass
@@ -99,6 +105,56 @@ class Separator:
                 duration_seconds=0,
                 error_message=error
             )
+
+        # CRITICAL: Ensure input audio is at TARGET_SAMPLE_RATE (44100 Hz)
+        # WHY: All models require 44100 Hz input to prevent timing drift and desynchronization
+        #      Resampling input once is better than resampling output stems multiple times
+        original_audio_file = audio_file
+        try:
+            # Check current sample rate
+            info = sf.info(str(audio_file))
+            current_sr = info.samplerate
+
+            if current_sr != TARGET_SAMPLE_RATE:
+                self.logger.info(
+                    f"Input audio is {current_sr} Hz, resampling to {TARGET_SAMPLE_RATE} Hz "
+                    f"(required for all separation models)"
+                )
+
+                # Load audio
+                audio_data, _ = sf.read(str(audio_file), always_2d=True, dtype='float32')
+                audio_data = audio_data.T  # (samples, channels) -> (channels, samples)
+
+                # Resample each channel
+                resampled_channels = []
+                for channel in audio_data:
+                    resampled = librosa.resample(
+                        channel,
+                        orig_sr=current_sr,
+                        target_sr=TARGET_SAMPLE_RATE,
+                        res_type='soxr_hq'  # High-quality resampling
+                    )
+                    resampled_channels.append(resampled)
+
+                resampled_audio = np.array(resampled_channels)
+
+                # Save resampled audio to temp file
+                temp_resampled_file = TEMP_DIR / f"{audio_file.stem}_resampled_44100.wav"
+                TEMP_DIR.mkdir(parents=True, exist_ok=True)
+                sf.write(
+                    str(temp_resampled_file),
+                    resampled_audio.T,  # (channels, samples) -> (samples, channels)
+                    TARGET_SAMPLE_RATE,
+                    subtype='PCM_16'
+                )
+
+                # Use resampled file for separation
+                audio_file = temp_resampled_file
+                self.logger.debug(f"Created resampled temp file: {temp_resampled_file}")
+
+        except Exception as e:
+            self.logger.warning(f"Could not check/resample input audio: {e}. Proceeding with original file.")
+            audio_file = original_audio_file
 
         # Wähle Model
         model_id = model_id or DEFAULT_MODEL
@@ -429,17 +485,48 @@ class Separator:
             # Allow multiple OpenMP runtimes (needed for subprocess isolation)
             env = os.environ.copy()
             env['KMP_DUPLICATE_LIB_OK'] = 'TRUE'
+            # Ensure ffmpeg is discoverable when launched from bundled app (PATH is often minimal)
+            extra_paths = [
+                "/opt/homebrew/bin",   # Homebrew on Apple Silicon
+                "/usr/local/bin",      # Homebrew on Intel/macOS
+                "/usr/bin",
+            ]
+            if getattr(sys, 'frozen', False):
+                # Add bundled Frameworks folder where ffmpeg is placed
+                meipass = Path(sys._MEIPASS) if hasattr(sys, '_MEIPASS') else None  # type: ignore
+                if meipass:
+                    extra_paths.insert(0, str(meipass / "Frameworks"))
+            env['PATH'] = os.pathsep.join(extra_paths + [env.get('PATH', '')])
 
             # Launch subprocess
-            # Use -m flag to run as module, which works in both development and bundled mode
-            process = subprocess.Popen(
-                [sys.executable, '-m', 'core.separation_subprocess'],
-                stdin=subprocess.PIPE,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                env=env
+            # Use a dedicated flag when frozen so the bundled binary runs the worker path,
+            # otherwise fall back to running the module directly in dev mode.
+            cmd = (
+                [sys.executable, '--separation-subprocess']
+                if getattr(sys, 'frozen', False)
+                else [sys.executable, '-m', 'core.separation_subprocess']
             )
+
+            # On macOS, prevent subprocess from appearing as separate app in Dock
+            # by starting in a new session and using creation flags
+            subprocess_kwargs = {
+                'stdin': subprocess.PIPE,
+                'stdout': subprocess.PIPE,
+                'stderr': subprocess.PIPE,
+                'text': True,
+                'env': env,
+            }
+
+            # Set environment variable to signal subprocess mode (prevents GUI init)
+            env['STEMSEPARATOR_SUBPROCESS'] = '1'
+
+            # Start new session to prevent subprocess from inheriting parent's terminal/GUI
+            if sys.platform == 'darwin' and getattr(sys, 'frozen', False):
+                subprocess_kwargs['start_new_session'] = True
+                # Set LSUIElement to hide from Dock (background app)
+                env['LSUIElement'] = '1'
+
+            process = subprocess.Popen(cmd, **subprocess_kwargs)
 
             # Send parameters via stdin
             params_json = json.dumps(subprocess_params)
@@ -452,7 +539,11 @@ class Separator:
 
             # Check return code
             if process.returncode != 0:
-                error_msg = f"Subprocess failed with code {process.returncode}: {stderr}"
+                error_msg = (
+                    f"Subprocess failed with code {process.returncode}.\n"
+                    f"stdout:\n{stdout}\n"
+                    f"stderr:\n{stderr}"
+                )
                 self.logger.error(error_msg)
                 raise SeparationError(error_msg)
 
