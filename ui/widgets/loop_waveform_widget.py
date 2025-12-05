@@ -11,7 +11,7 @@ ARCHITECTURE:
 SCROLLING: Shows 16 bars at a time with horizontal scrollbar for long songs
 """
 from pathlib import Path
-from typing import Optional, List, Tuple, Dict
+from typing import Optional, List, Tuple, Dict, Union
 import numpy as np
 
 from PySide6.QtWidgets import (
@@ -48,6 +48,11 @@ class LoopWaveformDisplay(QWidget):
     loop_selected = Signal(int)
     song_start_marker_requested = Signal(int)  # downbeat_index
 
+    # Manual downbeat signals
+    manual_downbeat_placed = Signal(float, str)  # time in seconds, stem_name (empty string if None)
+    manual_downbeat_moved = Signal(int, float)  # index, new_time
+    manual_downbeat_cleared = Signal()
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.ctx = AppContext()
@@ -71,6 +76,15 @@ class LoopWaveformDisplay(QWidget):
 
         # Song start marker
         self.song_start_marker_index: Optional[int] = None  # Index in downbeat_times
+
+        # Manual downbeat placement mode
+        self.manual_placement_mode: bool = False
+        self.manual_downbeat_time: Optional[float] = None  # Single user-placed downbeat for entire audio file
+        self.transient_times: Union[np.ndarray, Dict[str, np.ndarray], None] = None  # For snap-to-transient (mixed or per-stem)
+
+        # Drag state
+        self._dragging_downbeat_index: Optional[int] = None
+        self._drag_start_x: int = 0
 
         # Scrolling: calculate bar duration from downbeats
         self._bar_duration: float = 2.0  # Default 2 seconds per bar (120 BPM, 4/4)
@@ -247,6 +261,133 @@ class LoopWaveformDisplay(QWidget):
         self._waveform_cache = None
         self.update()
 
+    def set_transient_times(self, transient_times: np.ndarray):
+        """
+        Set transient peak times for snap-to-transient functionality.
+
+        WHY: Allows accurate manual downbeat placement on transient peaks.
+
+        Args:
+            transient_times: Array of transient positions in seconds
+        """
+        self.transient_times = transient_times
+        self.ctx.logger().debug(f"Set {len(transient_times)} transients for snapping")
+
+    def set_transient_times_per_stem(self, transient_dict: Dict[str, np.ndarray]):
+        """
+        Set transient peak times per stem for stem-specific snap-to-transient.
+
+        WHY: Allows clicking on drum stem to snap to drum transients only.
+
+        Args:
+            transient_dict: Dict mapping stem names to transient time arrays
+        """
+        self.transient_times = transient_dict
+        total_transients = sum(len(t) for t in transient_dict.values())
+        self.ctx.logger().debug(
+            f"Set per-stem transients: {len(transient_dict)} stems, "
+            f"{total_transients} total transients"
+        )
+
+    def set_manual_placement_mode(self, enabled: bool):
+        """Enable/disable manual downbeat placement mode."""
+        self.manual_placement_mode = enabled
+        if enabled:
+            self.setCursor(Qt.CrossCursor)
+            # NEW: Update tooltip to explain Shift modifier
+            self.setToolTip(
+                "Click to place downbeat (snaps to nearest transient)\n"
+                "Hold Shift while clicking for precise placement (no snap)"
+            )
+            self.ctx.logger().info("Manual downbeat placement mode enabled")
+        else:
+            self.setCursor(Qt.ArrowCursor)
+            self.setToolTip("")  # Clear tooltip
+            self.ctx.logger().info("Manual downbeat placement mode disabled")
+        self.update()
+
+    def add_manual_downbeat(self, time: float):
+        """
+        Set manual downbeat (replaces existing if present).
+        WHY: Only ONE downbeat allowed for entire audio file.
+        """
+        replacing = self.manual_downbeat_time is not None
+        self.manual_downbeat_time = time
+
+        action = "replaced" if replacing else "placed"
+        self.update()
+        self.ctx.logger().info(f"Manual downbeat {action} at {time:.2f}s")
+
+    def clear_manual_downbeats(self):
+        """Clear the manually placed downbeat."""
+        self.manual_downbeat_time = None
+        self.manual_downbeat_cleared.emit()
+        self.update()
+        self.ctx.logger().info("Manual downbeat cleared")
+
+    def get_manual_downbeat_times(self) -> List[float]:
+        """Get list with single downbeat (or empty if none)."""
+        return [self.manual_downbeat_time] if self.manual_downbeat_time is not None else []
+
+    def _snap_to_nearest_transient(
+        self,
+        click_time: float,
+        enable_snap: bool = True,  # NEW: Control snapping on/off
+        max_distance: float = 0.04,  # CHANGED: 40ms instead of 200ms
+        stem_name: Optional[str] = None
+    ) -> float:
+        """
+        Find nearest transient to click position, optionally for specific stem.
+
+        Args:
+            click_time: Clicked time in seconds
+            enable_snap: If False, return click_time unchanged (no snapping)
+            max_distance: Maximum distance to search (seconds, default 40ms)
+            stem_name: Optional stem name for stem-specific snapping.
+                      If None, uses mixed transients (backward compatible).
+
+        Returns:
+            Snapped time (or original if no transient nearby or snapping disabled)
+        """
+        # NEW: Early return if snapping disabled
+        if not enable_snap:
+            return click_time
+
+        if self.transient_times is None:
+            return click_time
+
+        # Determine which transient array to use
+        if isinstance(self.transient_times, dict):
+            # Per-stem mode
+            if stem_name and stem_name in self.transient_times:
+                transient_array = self.transient_times[stem_name]
+                self.ctx.logger().debug(f"Using {stem_name} transients for snapping")
+            elif "mixed" in self.transient_times:
+                transient_array = self.transient_times["mixed"]  # Fallback
+            elif len(self.transient_times) > 0:
+                transient_array = next(iter(self.transient_times.values()))
+            else:
+                return click_time
+        else:
+            # Backward compatible: single array (mixed transients)
+            transient_array = self.transient_times
+
+        if len(transient_array) == 0:
+            return click_time
+
+        # Find nearest transient
+        distances = np.abs(transient_array - click_time)
+        nearest_idx = np.argmin(distances)
+        nearest_distance = distances[nearest_idx]
+
+        if nearest_distance <= max_distance:
+            snapped_time = float(transient_array[nearest_idx])
+            stem_info = f" ({stem_name})" if stem_name else ""
+            self.ctx.logger().debug(f"Snapped {click_time:.2f}s to transient at {snapped_time:.2f}s{stem_info}")
+            return snapped_time
+
+        return click_time
+
     def set_selected_loop(self, loop_index: int):
         """Select a loop segment by index"""
         if -1 <= loop_index < len(self.loop_segments):
@@ -274,10 +415,48 @@ class LoopWaveformDisplay(QWidget):
         super().resizeEvent(event)
 
     def mousePressEvent(self, event):
-        """Handle mouse clicks on loop segments and song start marker"""
+        """Handle mouse clicks: placement mode, drag mode, or loop selection"""
         click_x = event.pos().x()
+        click_y = event.pos().y()  # Capture Y coordinate for stem detection
+        click_time = self._x_to_time(click_x)
 
-        # Right-click: Show song start marker context menu
+        # Manual downbeat placement mode (left-click)
+        if self.manual_placement_mode and event.button() == Qt.LeftButton:
+            # NEW: Check if Shift key is pressed (disables snapping)
+            shift_pressed = bool(event.modifiers() & Qt.ShiftModifier)
+
+            # Check if clicking on existing manual downbeat (for drag)
+            manual_db_index = self._find_nearest_manual_downbeat(click_x, max_distance_px=10)
+
+            if manual_db_index is not None:
+                # Start dragging existing downbeat
+                self._dragging_downbeat_index = manual_db_index
+                self._drag_start_x = click_x
+                self.ctx.logger().debug(f"Started dragging manual downbeat {manual_db_index}")
+            else:
+                # Determine which stem was clicked
+                clicked_stem_name = self._get_stem_at_y(click_y)
+
+                # Place new manual downbeat (with conditional snapping)
+                snapped_time = self._snap_to_nearest_transient(
+                    click_time,
+                    enable_snap=(not shift_pressed),  # NEW: Disable snap if Shift pressed
+                    max_distance=0.04,  # NEW: Smaller snap zone (40ms)
+                    stem_name=clicked_stem_name
+                )
+                self.add_manual_downbeat(snapped_time)
+                self.manual_downbeat_placed.emit(snapped_time, clicked_stem_name or "")
+
+                # Log with snap status
+                if clicked_stem_name:
+                    snap_status = " (no snap)" if shift_pressed else f" (snapped to {clicked_stem_name})"
+                    self.ctx.logger().info(
+                        f"Downbeat placed at {snapped_time:.2f}s{snap_status}"
+                    )
+
+            return
+
+        # Right-click: Show song start marker context menu (existing functionality)
         if event.button() == Qt.RightButton:
             # Find nearest downbeat
             downbeat_idx = self._find_nearest_downbeat(click_x, max_distance_px=30)
@@ -285,12 +464,9 @@ class LoopWaveformDisplay(QWidget):
                 self._show_song_start_context_menu(event.globalPos(), downbeat_idx)
             return
 
-        # Left-click: Select loop
+        # Left-click: Select loop (existing functionality)
         if event.button() != Qt.LeftButton:
             return
-
-        # Convert click position to time
-        click_time = self._x_to_time(click_x)
 
         if self.duration == 0:
             return
@@ -305,8 +481,32 @@ class LoopWaveformDisplay(QWidget):
                 break
 
     def mouseMoveEvent(self, event):
-        """Handle mouse hover for loop highlighting"""
+        """Handle mouse move: dragging manual downbeats or hover effects"""
         mouse_x = event.pos().x()
+        mouse_y = event.pos().y()  # Capture Y coordinate for stem detection
+
+        # Handle manual downbeat dragging
+        if self._dragging_downbeat_index is not None:
+            # NEW: Check if Shift key is pressed (disables snapping during drag)
+            shift_pressed = bool(event.modifiers() & Qt.ShiftModifier)
+
+            new_time = self._x_to_time(mouse_x)
+
+            # Determine stem at current Y position for drag snapping
+            dragged_stem_name = self._get_stem_at_y(mouse_y)
+            snapped_time = self._snap_to_nearest_transient(
+                new_time,
+                enable_snap=(not shift_pressed),  # NEW: Disable snap if Shift pressed
+                max_distance=0.04,  # NEW: Smaller snap zone (40ms)
+                stem_name=dragged_stem_name
+            )
+
+            # Update downbeat position
+            self.manual_downbeat_time = snapped_time
+            self.update()
+            return
+
+        # Handle loop hover highlighting (existing functionality)
         hover_time = self._x_to_time(mouse_x)
 
         if self.duration == 0:
@@ -322,6 +522,56 @@ class LoopWaveformDisplay(QWidget):
         if new_hover_index != self._hover_loop_index:
             self._hover_loop_index = new_hover_index
             self.update()
+
+    def mouseReleaseEvent(self, event):
+        """Handle mouse release: finish dragging manual downbeat"""
+        if self._dragging_downbeat_index is not None:
+            final_time = self.manual_downbeat_time
+            if final_time is not None:
+                self.manual_downbeat_moved.emit(0, final_time)
+                self.ctx.logger().info(f"Manual downbeat moved to {final_time:.2f}s")
+            self._dragging_downbeat_index = None
+            self._drag_start_x = 0
+
+    def _find_nearest_manual_downbeat(self, x_pos: int, max_distance_px: int = 10) -> Optional[int]:
+        """Check if click is near the manual downbeat. Returns 0 or None."""
+        if self.manual_downbeat_time is None:
+            return None
+
+        db_x = self._time_to_x(self.manual_downbeat_time)
+        if abs(db_x - x_pos) <= max_distance_px:
+            return 0
+        return None
+
+    def _get_stem_at_y(self, y_pos: int) -> Optional[str]:
+        """
+        Determine which stem was clicked based on Y coordinate.
+
+        WHY: Required for stem-specific transient snapping in stacked mode.
+
+        Args:
+            y_pos: Y pixel position of click
+
+        Returns:
+            Stem name if in stacked mode and valid stem clicked, None otherwise
+        """
+        if self.display_mode != "stacked" or not self.stem_waveforms:
+            return None
+
+        height = self.height()
+        num_stems = len(self.stem_waveforms)
+
+        if num_stems == 0 or height == 0:
+            return None
+
+        stem_height = height / num_stems
+        clicked_stem_index = int(y_pos / stem_height)
+
+        # Clamp to valid range
+        clicked_stem_index = max(0, min(clicked_stem_index, num_stems - 1))
+
+        stem_names = list(self.stem_waveforms.keys())
+        return stem_names[clicked_stem_index]
 
     def paintEvent(self, event):
         """Render waveform(s) with loop segments and beat markers"""
@@ -568,6 +818,7 @@ class LoopWaveformDisplay(QWidget):
                 painter.drawLine(x, 0, x, height)
 
         # --- Downbeats (prominent solid lines) ---
+        # Draw automatic downbeats (blue/purple)
         if self.downbeat_times is not None and len(self.downbeat_times) > 0:
             downbeat_pen = QPen(QColor(ColorPalette.ACCENT_SECONDARY), 2)
             painter.setPen(downbeat_pen)
@@ -575,6 +826,21 @@ class LoopWaveformDisplay(QWidget):
             for downbeat_time in self.downbeat_times:
                 x = self._time_to_x(downbeat_time)
                 painter.drawLine(x, 0, x, height)
+
+        # --- Manual downbeat (orange/red, drawn on top for visibility) ---
+        if self.manual_downbeat_time is not None:
+            # Color: orange in placement mode, red otherwise
+            pen_color = QColor("#f59e0b") if self.manual_placement_mode else QColor("#ef4444")
+            manual_pen = QPen(pen_color, 3)  # Thicker line for manual downbeat
+            painter.setPen(manual_pen)
+            painter.setBrush(pen_color)
+
+            x = self._time_to_x(self.manual_downbeat_time)
+            # Draw vertical line
+            painter.drawLine(x, 0, x, height)
+
+            # Draw small circle handle at top for visual feedback
+            painter.drawEllipse(QPointF(x, 10), 5, 5)
 
     def _draw_song_start_marker(self, painter: QPainter):
         """Draw song start marker as prominent vertical line."""
