@@ -176,13 +176,16 @@ class LoopWaveformDisplay(QWidget):
             return 0.0
         return (x / self._content_width) * self.duration
 
-    def set_combined_waveform(self, audio_data: np.ndarray, sample_rate: int):
+    def set_combined_waveform(self, audio_data: np.ndarray, sample_rate: int, duration: Optional[float] = None):
         """
         Set waveform data for combined mode (all stems mixed)
 
         Args:
             audio_data: numpy array of shape (samples,) or (samples, channels)
             sample_rate: sample rate in Hz
+            duration: Optional duration in seconds. If provided, uses this instead of
+                     calculating from audio_data length. WHY: Ensures waveform duration
+                     matches player's actual duration for accurate beat alignment.
         """
         # Convert to mono if stereo
         if audio_data.ndim == 2:
@@ -190,7 +193,12 @@ class LoopWaveformDisplay(QWidget):
 
         self.waveform_data = audio_data
         self.sample_rate = sample_rate
-        self.duration = len(audio_data) / sample_rate
+        # Use provided duration or calculate from data
+        # WHY: Player may have resampled audio, so duration from file may not match
+        if duration is not None:
+            self.duration = duration
+        else:
+            self.duration = len(audio_data) / sample_rate
         self.display_mode = "combined"
 
         # Recalculate dimensions
@@ -201,13 +209,16 @@ class LoopWaveformDisplay(QWidget):
         self._waveform_cache = None
         self.update()
 
-    def set_stem_waveforms(self, stem_waveforms: Dict[str, np.ndarray], sample_rate: int):
+    def set_stem_waveforms(self, stem_waveforms: Dict[str, np.ndarray], sample_rate: int, duration: Optional[float] = None):
         """
         Set waveform data for stacked mode (separate per stem)
 
         Args:
             stem_waveforms: Dict mapping stem names to audio data arrays
             sample_rate: sample rate in Hz
+            duration: Optional duration in seconds. If provided, uses this instead of
+                     calculating from audio_data length. WHY: Ensures waveform duration
+                     matches player's actual duration for accurate beat alignment.
         """
         # Convert all to mono
         processed = {}
@@ -221,7 +232,12 @@ class LoopWaveformDisplay(QWidget):
 
         self.stem_waveforms = processed
         self.sample_rate = sample_rate
-        self.duration = max_len / sample_rate
+        # Use provided duration or calculate from data
+        # WHY: Player may have resampled audio, so duration from file may not match
+        if duration is not None:
+            self.duration = duration
+        else:
+            self.duration = max_len / sample_rate
         self.display_mode = "stacked"
 
         # Recalculate dimensions
@@ -639,23 +655,34 @@ class LoopWaveformDisplay(QWidget):
             return
 
         center_y = height / 2
+        num_samples = len(self.waveform_data)
 
-        # Calculate samples per pixel based on content width
-        samples_per_pixel = max(1, len(self.waveform_data) // width)
+        # CRITICAL FIX: Use float division to prevent cumulative drift
+        # WHY: Integer division (// ) loses precision, causing waveform and beat markers
+        # to drift apart over time. Using the same coordinate system as _time_to_x()
+        # ensures perfect alignment between waveform and beat grid.
+        # 
+        # Previous: samples_per_pixel = len(self.waveform_data) // width (drift!)
+        # Fixed: Use time-based indexing consistent with _time_to_x()
+        samples_per_pixel = num_samples / width if width > 0 else 1
 
         # Draw waveform
         waveform_pen = QPen(QColor(ColorPalette.WAVEFORM_PRIMARY), 2)
         painter.setPen(waveform_pen)
 
         for x in range(width):
+            # Calculate sample indices using same scale as time_to_x
+            # This ensures waveform pixels align with beat marker pixels
             start_idx = int(x * samples_per_pixel)
-            end_idx = min(start_idx + samples_per_pixel, len(self.waveform_data))
+            end_idx = min(int((x + 1) * samples_per_pixel), num_samples)
 
-            if start_idx >= len(self.waveform_data):
+            if start_idx >= num_samples:
                 break
 
             # Get max/min envelope
             chunk = self.waveform_data[start_idx:end_idx]
+            if len(chunk) == 0:
+                continue
             max_val = np.max(chunk)
             min_val = np.min(chunk)
 
@@ -690,12 +717,15 @@ class LoopWaveformDisplay(QWidget):
             if len(waveform_data) == 0:
                 continue
 
+            num_samples = len(waveform_data)
+
             # Calculate vertical position
             y_offset = i * stem_height
             center_y = y_offset + stem_height / 2
 
-            # Calculate samples per pixel
-            samples_per_pixel = max(1, len(waveform_data) // width)
+            # CRITICAL FIX: Use float division to prevent cumulative drift
+            # WHY: Integer division (// ) causes waveform and beat markers to drift apart
+            samples_per_pixel = num_samples / width if width > 0 else 1
 
             # Draw waveform with unique color
             color = stem_colors[i % len(stem_colors)]
@@ -703,14 +733,17 @@ class LoopWaveformDisplay(QWidget):
             painter.setPen(waveform_pen)
 
             for x in range(width):
+                # Calculate sample indices using same scale as time_to_x
                 start_idx = int(x * samples_per_pixel)
-                end_idx = min(start_idx + samples_per_pixel, len(waveform_data))
+                end_idx = min(int((x + 1) * samples_per_pixel), num_samples)
 
-                if start_idx >= len(waveform_data):
+                if start_idx >= num_samples:
                     break
 
                 # Get max/min envelope
                 chunk = waveform_data[start_idx:end_idx]
+                if len(chunk) == 0:
+                    continue
                 max_val = np.max(chunk)
                 min_val = np.min(chunk)
 
@@ -1267,21 +1300,39 @@ class LoopWaveformWidget(QWidget):
             scroll_to = max(0, loop_center_x - viewport_width // 2)
             self.scroll_area.horizontalScrollBar().setValue(scroll_to)
 
-    def set_combined_waveform(self, audio_data: np.ndarray, sample_rate: int):
-        """Set waveform data for combined mode"""
+    def set_combined_waveform(self, audio_data: np.ndarray, sample_rate: int, duration: Optional[float] = None):
+        """
+        Set waveform data for combined mode
+        
+        Args:
+            audio_data: numpy array of audio samples
+            sample_rate: sample rate in Hz
+            duration: Optional duration in seconds. If provided, uses this instead of
+                     calculating from audio_data length. WHY: Ensures waveform duration
+                     matches player's actual duration for accurate beat alignment.
+        """
         # Ensure viewport dimensions are current before setting data
         self._update_display_dimensions()
         # Disable widget resizing to allow scrolling for content
         self.scroll_area.setWidgetResizable(False)
-        self.waveform_display.set_combined_waveform(audio_data, sample_rate)
+        self.waveform_display.set_combined_waveform(audio_data, sample_rate, duration=duration)
 
-    def set_stem_waveforms(self, stem_waveforms: Dict[str, np.ndarray], sample_rate: int):
-        """Set waveform data for stacked mode"""
+    def set_stem_waveforms(self, stem_waveforms: Dict[str, np.ndarray], sample_rate: int, duration: Optional[float] = None):
+        """
+        Set waveform data for stacked mode
+        
+        Args:
+            stem_waveforms: Dict mapping stem names to audio data arrays
+            sample_rate: sample rate in Hz
+            duration: Optional duration in seconds. If provided, uses this instead of
+                     calculating from audio_data length. WHY: Ensures waveform duration
+                     matches player's actual duration for accurate beat alignment.
+        """
         # Ensure viewport dimensions are current before setting data
         self._update_display_dimensions()
         # Disable widget resizing to allow scrolling for content
         self.scroll_area.setWidgetResizable(False)
-        self.waveform_display.set_stem_waveforms(stem_waveforms, sample_rate)
+        self.waveform_display.set_stem_waveforms(stem_waveforms, sample_rate, duration=duration)
 
     def set_loop_segments(self, loop_segments: List[Tuple[float, float]]):
         """Set loop segment boundaries"""

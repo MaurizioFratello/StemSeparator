@@ -141,6 +141,7 @@ def detect_beats_and_downbeats(
             beatnet_tempo = result.tempo
             final_tempo = beatnet_tempo
             tempo_source = "BeatNet"
+            grid_recalculated = False
 
             bpm_source_path = bpm_audio_path if bpm_audio_path and bpm_audio_path.exists() else audio_path
             bpm_source_name = "drums" if bpm_audio_path and bpm_audio_path.exists() else "mixed"
@@ -152,6 +153,7 @@ def detect_beats_and_downbeats(
                 if audio_data.ndim > 1:
                     audio_data = np.mean(audio_data, axis=1)
 
+                audio_duration = len(audio_data) / sample_rate
                 deeprhythm_tempo, dr_confidence = detect_bpm(audio_data, sample_rate)
 
                 if deeprhythm_tempo > 0 and dr_confidence is not None:
@@ -171,16 +173,47 @@ def detect_beats_and_downbeats(
                         f"librosa={deeprhythm_tempo:.1f} (using librosa)"
                     )
 
+                # CRITICAL FIX: Recalculate beat grid if BPM differs significantly
+                # WHY: BeatNet may detect wrong tempo (e.g., 141 vs 128 BPM), causing
+                # beat positions to drift progressively. The displayed BPM comes from
+                # DeepRhythm, but the grid was drawn from BeatNet's beat times.
+                # This mismatch causes beats to not align with actual audio.
+                bpm_diff_ratio = abs(final_tempo - beatnet_tempo) / beatnet_tempo
+                BPM_RECALC_THRESHOLD = 0.05  # 5% difference triggers recalculation
+
+                if bpm_diff_ratio > BPM_RECALC_THRESHOLD:
+                    logger.warning(
+                        f"BPM mismatch: BeatNet={beatnet_tempo:.1f}, "
+                        f"DeepRhythm={final_tempo:.1f} ({bpm_diff_ratio:.1%} diff). "
+                        f"Recalculating beat grid with DeepRhythm tempo."
+                    )
+                    report_progress("Grid Correction", f"Recalculating beat grid at {final_tempo:.1f} BPM...")
+
+                    # Recalculate grid using DeepRhythm tempo, anchored to first downbeat
+                    beat_times, downbeat_times, first_downbeat = recalculate_beat_grid_from_bpm(
+                        current_beat_times=beat_times,
+                        current_downbeat_times=downbeat_times,
+                        new_bpm=final_tempo,
+                        audio_duration=audio_duration,
+                        first_downbeat_anchor=first_downbeat
+                    )
+                    grid_recalculated = True
+                    logger.info(
+                        f"Beat grid recalculated: {len(beat_times)} beats, "
+                        f"{len(downbeat_times)} downbeats at {final_tempo:.1f} BPM"
+                    )
+
             except Exception as e:
                 logger.warning(f"DeepRhythm BPM detection failed, using BeatNet: {e}")
 
+            grid_source = "recalculated" if grid_recalculated else "BeatNet"
             confidence_msg = (
                 f"{tempo_source}: {final_tempo:.1f} BPM, "
-                f"{len(downbeat_times)} downbeats (grid: BeatNet)"
+                f"{len(downbeat_times)} downbeats (grid: {grid_source})"
             )
 
             logger.info(
-                f"BeatNet analysis: {len(beat_times)} beats, "
+                f"Beat analysis complete: {len(beat_times)} beats, "
                 f"{len(downbeat_times)} downbeats, first at {first_downbeat:.2f}s"
             )
 
@@ -714,26 +747,29 @@ def recalculate_beat_grid_from_bpm(
     anchor = first_downbeat_anchor if first_downbeat_anchor is not None else current_downbeat_times[0]
 
     # Calculate beat interval from BPM
+    # WHY: Using exact division ensures precise beat spacing
     beat_interval = 60.0 / new_bpm
 
-    logger.info(f"Recalculating beat grid: {new_bpm:.1f} BPM, anchor at {anchor:.2f}s")
+    logger.info(f"Recalculating beat grid: {new_bpm:.1f} BPM, anchor at {anchor:.6f}s, interval={beat_interval:.6f}s")
 
-    # Generate beats forward and backward from anchor
-    beats_forward = []
-    current_time = anchor
-    while current_time <= audio_duration:
-        beats_forward.append(current_time)
-        current_time += beat_interval
-
-    beats_backward = []
-    current_time = anchor - beat_interval
-    while current_time >= 0:
-        beats_backward.append(current_time)
-        current_time -= beat_interval
+    # Generate beats using direct multiplication to avoid cumulative floating-point errors
+    # WHY: Repeated addition (current_time += beat_interval) accumulates floating-point errors.
+    #      Direct multiplication (anchor + n * beat_interval) is mathematically equivalent
+    #      but more numerically stable, as each position is calculated independently.
+    
+    # Calculate number of beats forward from anchor to end of audio
+    beats_forward_count = int((audio_duration - anchor) / beat_interval) + 1
+    beats_forward = [anchor + n * beat_interval for n in range(beats_forward_count)
+                     if anchor + n * beat_interval <= audio_duration]
+    
+    # Calculate number of beats backward from anchor to start of audio
+    beats_backward_count = int(anchor / beat_interval)
+    beats_backward = [anchor - n * beat_interval for n in range(1, beats_backward_count + 1)
+                      if anchor - n * beat_interval >= 0]
 
     # Combine and sort
     all_beats = sorted(beats_backward + beats_forward)
-    new_beat_times = np.array(all_beats)
+    new_beat_times = np.array(all_beats, dtype=np.float64)  # Explicit high precision
 
     # Generate downbeats (every 4th beat, assuming 4/4 time)
     anchor_idx = np.argmin(np.abs(new_beat_times - anchor))
@@ -755,6 +791,19 @@ def recalculate_beat_grid_from_bpm(
     new_downbeat_times = new_beat_times[downbeat_indices]
 
     first_downbeat = new_downbeat_times[0] if len(new_downbeat_times) > 0 else anchor
+
+    # Detailed debug logging for drift analysis
+    # WHY: Helps diagnose timing issues by showing exact calculated positions
+    if len(new_downbeat_times) >= 5:
+        logger.debug(
+            f"Beat grid verification (first 5 bars):\n"
+            f"  Bar 1 (beat 1):  {new_downbeat_times[0]:.6f}s\n"
+            f"  Bar 2 (beat 5):  {new_downbeat_times[1]:.6f}s (interval: {new_downbeat_times[1] - new_downbeat_times[0]:.6f}s)\n"
+            f"  Bar 3 (beat 9):  {new_downbeat_times[2]:.6f}s (interval: {new_downbeat_times[2] - new_downbeat_times[1]:.6f}s)\n"
+            f"  Bar 4 (beat 13): {new_downbeat_times[3]:.6f}s (interval: {new_downbeat_times[3] - new_downbeat_times[2]:.6f}s)\n"
+            f"  Bar 5 (beat 17): {new_downbeat_times[4]:.6f}s (interval: {new_downbeat_times[4] - new_downbeat_times[3]:.6f}s)\n"
+            f"  Expected bar duration at {new_bpm:.2f} BPM: {60.0 * 4 / new_bpm:.6f}s"
+        )
 
     logger.info(
         f"Grid recalculated: {len(new_beat_times)} beats, "
@@ -826,24 +875,31 @@ def recalculate_beat_grid_from_manual_downbeats(
                 all_beats.append(beat_time)
 
     # Extend beats beyond last downbeat to end of audio
+    # WHY: Use direct multiplication to avoid cumulative floating-point errors
     if len(downbeat_times) > 0:
         last_downbeat = downbeat_times[-1]
         beat_interval = median_bar_duration / 4
 
-        current_time = last_downbeat + beat_interval
-        while current_time <= audio_duration:
-            all_beats.append(current_time)
-            current_time += beat_interval
+        beats_after_count = int((audio_duration - last_downbeat) / beat_interval)
+        for n in range(1, beats_after_count + 1):
+            beat_time = last_downbeat + n * beat_interval
+            if beat_time <= audio_duration:
+                all_beats.append(beat_time)
 
     # Extend beats before first downbeat to start of audio
+    # WHY: Use direct multiplication to avoid cumulative floating-point errors
     if len(downbeat_times) > 0:
         first_downbeat = downbeat_times[0]
         beat_interval = median_bar_duration / 4
 
-        current_time = first_downbeat - beat_interval
-        while current_time >= 0:
-            all_beats.insert(0, current_time)
-            current_time -= beat_interval
+        beats_before_count = int(first_downbeat / beat_interval)
+        beats_before = []
+        for n in range(1, beats_before_count + 1):
+            beat_time = first_downbeat - n * beat_interval
+            if beat_time >= 0:
+                beats_before.append(beat_time)
+        # Insert at beginning in correct order
+        all_beats = sorted(beats_before) + all_beats
 
     new_beat_times = np.array(sorted(all_beats))
     first_downbeat = float(downbeat_times[0])

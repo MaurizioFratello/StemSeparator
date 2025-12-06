@@ -12,7 +12,8 @@ import soundfile as sf
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
     QSlider, QGroupBox, QFileDialog, QMessageBox, QListWidget,
-    QListWidgetItem, QScrollArea, QProgressBar, QFrame, QStackedWidget
+    QListWidgetItem, QScrollArea, QProgressBar, QFrame, QStackedWidget,
+    QSpinBox
 )
 from PySide6.QtCore import Qt, Signal, Slot, QTimer, QRunnable, QThreadPool, QObject
 from PySide6.QtGui import QDragEnterEvent, QDropEvent
@@ -639,7 +640,67 @@ class PlayerWidget(QWidget):
 
         detection_layout.addLayout(detection_split_layout)
 
-        layout.addWidget(detection_card)
+        # === MANUAL GRID DEFINITION CARD (Combined BPM + Downbeat) ===
+        self.manual_grid_card, manual_grid_layout = self._create_card("Manual Grid Definition")
+        self.manual_grid_card.setVisible(False)
+
+        controls_layout = QHBoxLayout()
+        controls_layout.setSpacing(15)
+
+        # Place Downbeat toggle
+        self.btn_place_downbeat = QPushButton("Place Downbeat")
+        self.btn_place_downbeat.setCheckable(True)
+        ThemeManager.set_widget_property(self.btn_place_downbeat, "buttonStyle", "secondary")
+        self.btn_place_downbeat.setMinimumWidth(130)
+        controls_layout.addWidget(self.btn_place_downbeat)
+
+        # Clear button
+        self.btn_clear_downbeat = QPushButton("Clear")
+        ThemeManager.set_widget_property(self.btn_clear_downbeat, "buttonStyle", "secondary")
+        self.btn_clear_downbeat.setEnabled(False)
+        controls_layout.addWidget(self.btn_clear_downbeat)
+
+        controls_layout.addSpacing(20)
+
+        # BPM spinbox
+        bpm_label = QLabel("BPM:")
+        bpm_label.setStyleSheet("color: #e0e0e0; font-size: 10pt;")
+        controls_layout.addWidget(bpm_label)
+
+        self.manual_grid_bpm_spin = QSpinBox()
+        self.manual_grid_bpm_spin.setRange(60, 200)
+        self.manual_grid_bpm_spin.setSuffix(" BPM")
+        self.manual_grid_bpm_spin.setMinimumWidth(100)
+        self.manual_grid_bpm_spin.setEnabled(False)
+        controls_layout.addWidget(self.manual_grid_bpm_spin)
+
+        # Apply Grid button
+        self.btn_apply_grid = QPushButton("Apply Grid")
+        ThemeManager.set_widget_property(self.btn_apply_grid, "buttonStyle", "primary")
+        self.btn_apply_grid.setEnabled(False)
+        self.btn_apply_grid.setMinimumWidth(120)
+        self.btn_apply_grid.setMinimumHeight(32)
+        controls_layout.addWidget(self.btn_apply_grid)
+
+        controls_layout.addStretch()
+        manual_grid_layout.addLayout(controls_layout)
+
+        # Status label
+        self.manual_grid_info_label = QLabel("Click 'Place Downbeat' and then click on waveform")
+        self.manual_grid_info_label.setStyleSheet("color: #888; font-size: 9pt;")
+        self.manual_grid_info_label.setWordWrap(True)
+        manual_grid_layout.addWidget(self.manual_grid_info_label)
+
+        # Add both cards side-by-side in upper box area
+        upper_cards_layout = QHBoxLayout()
+        upper_cards_layout.setSpacing(15)
+        upper_cards_layout.addWidget(detection_card, stretch=1)
+        upper_cards_layout.addWidget(self.manual_grid_card, stretch=1)
+        layout.addLayout(upper_cards_layout)
+
+        # Initialize state
+        self.manual_downbeat_anchor: Optional[Tuple[float, Optional[str]]] = None  # (time, stem_name)
+        self.detected_bpm: Optional[float] = None
 
         # Waveform visualization
         self.loop_waveform_widget = LoopWaveformWidget()
@@ -689,6 +750,20 @@ class PlayerWidget(QWidget):
         self.btn_play_loop.clicked.connect(self._on_play_loop_clicked)
         self.btn_play_loop_repeat.clicked.connect(self._on_play_loop_repeat_clicked)
         self.btn_stop_loop.clicked.connect(self._on_stop_loop_clicked)
+
+        # Manual Grid Definition signals
+        self.btn_place_downbeat.toggled.connect(self._on_place_downbeat_toggled)
+        self.btn_clear_downbeat.clicked.connect(self._on_clear_downbeat_clicked)
+        self.manual_grid_bpm_spin.valueChanged.connect(self._on_manual_grid_bpm_changed)
+        self.btn_apply_grid.clicked.connect(self._on_apply_grid_clicked)
+
+        # Waveform manual downbeat signals (simplified - single downbeat only)
+        self.loop_waveform_widget.waveform_display.manual_downbeat_placed.connect(
+            self._on_single_downbeat_placed
+        )
+        self.loop_waveform_widget.waveform_display.manual_downbeat_moved.connect(
+            self._on_single_downbeat_moved
+        )
 
         return tab
 
@@ -824,6 +899,22 @@ class PlayerWidget(QWidget):
                 "",
                 ""
             )
+
+        # Reset manual grid UI
+        if hasattr(self, 'manual_grid_card'):
+            self.manual_grid_card.setVisible(False)
+            self.detected_bpm = None
+            self.manual_grid_bpm_spin.setEnabled(False)
+            self.manual_grid_bpm_spin.setValue(120)
+            self.btn_place_downbeat.setChecked(False)
+            self.btn_clear_downbeat.setEnabled(False)
+            self.btn_apply_grid.setEnabled(False)
+            self.manual_grid_info_label.setText("")
+            self.manual_downbeat_anchor = None
+
+            if hasattr(self.loop_waveform_widget, 'waveform_display'):
+                self.loop_waveform_widget.waveform_display.clear_manual_downbeats()
+                self.loop_waveform_widget.waveform_display.set_manual_placement_mode(False)
 
         self.ctx.logger().debug("Loop detection state reset")
 
@@ -996,19 +1087,46 @@ class PlayerWidget(QWidget):
                 ""
             )
 
-            mixed_audio = self._beat_analysis_mixed_audio
-            sample_rate = self._beat_analysis_sample_rate
+            # Get player's actual sample rate and duration for accurate beat alignment
+            # WHY: Player may have resampled audio, so we must use player's rate and duration
+            player_sample_rate = self.player.sample_rate
+            player_duration = self.player.get_duration()
+            
+            # Re-mix stems using player's sample rate to ensure consistency
+            # WHY: Original mix may have used file's native rate, but player uses different rate
+            mixed_audio, sample_rate = self._mix_stems_to_array()
+            
+            # Store for potential reuse
+            self._beat_analysis_mixed_audio = mixed_audio
+            self._beat_analysis_sample_rate = sample_rate
 
-            # Combined mode: use mixed audio
-            self.loop_waveform_widget.set_combined_waveform(mixed_audio, sample_rate)
+            # Combined mode: use mixed audio with player's sample rate
+            self.loop_waveform_widget.set_combined_waveform(mixed_audio, sample_rate, duration=player_duration)
 
             # Stacked mode: load individual stems
+            # WHY: Resample to player's sample rate for consistency
+            player_sample_rate = self.player.sample_rate
             stem_waveforms = {}
             for stem_name, stem_path in self.stem_files.items():
-                audio_data, sr = sf.read(stem_path, dtype='float32')
+                audio_data, file_sr = sf.read(stem_path, dtype='float32')
+                
+                # Resample to player's sample rate if needed
+                # WHY: Ensures waveform uses same sample rate as playback
+                if file_sr != player_sample_rate:
+                    import librosa
+                    audio_data = librosa.resample(
+                        audio_data,
+                        orig_sr=file_sr,
+                        target_sr=player_sample_rate,
+                        res_type='kaiser_best'
+                    )
+                    self.ctx.logger().debug(
+                        f"Resampled {stem_name} for stacked waveform: {file_sr} Hz -> {player_sample_rate} Hz"
+                    )
+                
                 stem_waveforms[stem_name] = audio_data
 
-            self.loop_waveform_widget.set_stem_waveforms(stem_waveforms, sample_rate)
+            self.loop_waveform_widget.set_stem_waveforms(stem_waveforms, player_sample_rate, duration=player_duration)
 
             # Set beat times and loop segments
             self.loop_waveform_widget.set_beat_times(beat_times, downbeat_times)
@@ -1041,9 +1159,10 @@ class PlayerWidget(QWidget):
                 if match:
                     confidence_str = f" ({match.group(1)}%)"
 
-            # Format BPM for display (rounded to integer for consistency with export)
+            # Format BPM for display (one decimal place for accuracy)
+            # WHY: Shows exact BPM used for beat calculation, ensuring consistency
             if calculated_bpm:
-                bpm_prefix = f"{int(calculated_bpm)} BPM{confidence_str}"
+                bpm_prefix = f"{calculated_bpm:.1f} BPM{confidence_str}"
             else:
                 # Fallback: extract from conf_msg
                 bpm_prefix = self._extract_bpm_summary(conf_msg)
@@ -1052,6 +1171,59 @@ class PlayerWidget(QWidget):
 
             # Update header info above waveform: "BPM (conf) • X loops detected • Y bars total"
             self.loop_waveform_widget.set_summary_prefix(bpm_prefix)
+
+            # Initialize correction UIs after successful detection
+            if calculated_bpm:
+                detected_bpm_value = calculated_bpm
+            else:
+                import re
+                bpm_match = re.search(r"(\d+\.?\d*)\s*BPM", conf_msg)
+                detected_bpm_value = float(bpm_match.group(1)) if bpm_match else 120.0
+
+            self.detected_bpm = detected_bpm_value
+
+            # Show manual grid definition card
+            self.manual_grid_card.setVisible(True)
+            self.manual_grid_bpm_spin.setValue(int(detected_bpm_value))
+            self.manual_grid_bpm_spin.setEnabled(True)
+            self.btn_place_downbeat.setChecked(False)
+            self.btn_clear_downbeat.setEnabled(False)
+            self.btn_apply_grid.setEnabled(False)
+            self.manual_grid_info_label.setText(
+                "Click 'Place Downbeat' to define custom grid anchor"
+            )
+            self.manual_grid_info_label.setStyleSheet("color: #888; font-size: 9pt;")
+
+            # Detect transients per stem for stem-specific snapping
+            try:
+                stem_waveforms = {}
+                for stem_name, stem_path in self.stem_files.items():
+                    audio_data_stem, sr = sf.read(stem_path, dtype='float32')
+                    if audio_data_stem.ndim == 2:
+                        audio_data_stem = np.mean(audio_data_stem, axis=1)
+                    stem_waveforms[stem_name] = audio_data_stem
+
+                # Also include mixed audio for fallback
+                stem_waveforms["mixed"] = mixed_audio
+
+                transient_dict = beat_detection.detect_transients_per_stem(
+                    stem_waveforms=stem_waveforms,
+                    sample_rate=sample_rate,
+                    threshold=0.3,
+                    min_distance=0.1
+                )
+
+                self.loop_waveform_widget.waveform_display.set_transient_times_per_stem(transient_dict)
+
+                total = sum(len(t) for t in transient_dict.values())
+                self.ctx.logger().info(f"Transients: {len(transient_dict)} stems, {total} total")
+
+            except Exception as e:
+                self.ctx.logger().warning(f"Per-stem transient detection failed: {e}")
+
+            # Reset manual downbeat state
+            self.manual_downbeat_anchor = None
+            self.loop_waveform_widget.waveform_display.clear_manual_downbeats()
 
             self.ctx.logger().info(f"Loop detection complete: {num_loops} loops detected")
 
@@ -1119,6 +1291,233 @@ class PlayerWidget(QWidget):
                 ""
             )
             self.ctx.logger().info(f"Recalculated loops: {num_loops} loops, {bars_per_loop} bars each")
+
+    # === MANUAL GRID DEFINITION EVENT HANDLERS ===
+
+    def _on_place_downbeat_toggled(self, checked: bool):
+        """Toggle manual downbeat placement mode."""
+        self.loop_waveform_widget.waveform_display.set_manual_placement_mode(checked)
+
+        if checked:
+            self.btn_place_downbeat.setText("Cancel Placement")
+            if self.manual_downbeat_anchor is not None:
+                self.manual_grid_info_label.setText(
+                    "✓ Placement active - Click to reposition downbeat"
+                )
+            else:
+                self.manual_grid_info_label.setText(
+                    "✓ Placement active - Click on stem waveform to place downbeat anchor"
+                )
+            self.manual_grid_info_label.setStyleSheet("color: #10b981; font-size: 9pt;")
+        else:
+            self.btn_place_downbeat.setText("Place Downbeat")
+            if self.manual_downbeat_anchor is not None:
+                time, stem = self.manual_downbeat_anchor
+                stem_info = f" ({stem})" if stem else ""
+                self.manual_grid_info_label.setText(
+                    f"Downbeat at {time:.2f}s{stem_info} - Adjust BPM and click Apply"
+                )
+            else:
+                self.manual_grid_info_label.setText(
+                    "Click 'Place Downbeat' to position anchor point"
+                )
+            self.manual_grid_info_label.setStyleSheet("color: #888; font-size: 9pt;")
+
+    def _on_clear_downbeat_clicked(self):
+        """Clear the single manual downbeat."""
+        self.loop_waveform_widget.waveform_display.clear_manual_downbeats()
+        self.manual_downbeat_anchor = None
+        self._update_manual_grid_ui()
+        self.manual_grid_info_label.setText("Downbeat cleared")
+
+    def _on_manual_grid_bpm_changed(self, value: int):
+        """Handle BPM spinbox value change."""
+        has_downbeat = self.manual_downbeat_anchor is not None
+        bpm_changed = self.detected_bpm and abs(value - self.detected_bpm) > 0.5
+        # Enable Apply Grid if EITHER downbeat is placed OR BPM is changed
+        self.btn_apply_grid.setEnabled(has_downbeat or bpm_changed)
+        self._update_manual_grid_ui()
+
+    def _on_single_downbeat_placed(self, time: float, stem_name: str):
+        """Handle single downbeat placement from waveform."""
+        stem = stem_name if stem_name else None
+        self.manual_downbeat_anchor = (time, stem)
+        self._update_manual_grid_ui()
+        self.ctx.logger().info(f"Manual downbeat anchor placed at {time:.2f}s")
+
+    def _on_single_downbeat_moved(self, index: int, new_time: float):
+        """Handle downbeat repositioning."""
+        if self.manual_downbeat_anchor is not None:
+            _, stem = self.manual_downbeat_anchor
+            self.manual_downbeat_anchor = (new_time, stem)
+            self._update_manual_grid_ui()
+
+    def _update_manual_grid_ui(self):
+        """Update UI state based on current downbeat and BPM."""
+        has_downbeat = self.manual_downbeat_anchor is not None
+        bpm_changed = (self.detected_bpm and
+                       abs(self.manual_grid_bpm_spin.value() - self.detected_bpm) > 0.5)
+
+        self.btn_clear_downbeat.setEnabled(has_downbeat)
+        # Enable Apply Grid if EITHER downbeat is placed OR BPM is changed
+        self.btn_apply_grid.setEnabled(has_downbeat or bpm_changed)
+
+        # Update message based on current state
+        if has_downbeat and bpm_changed:
+            # Both downbeat and BPM changed
+            time, stem = self.manual_downbeat_anchor
+            stem_info = f" ({stem})" if stem else ""
+            bpm_diff = self.manual_grid_bpm_spin.value() - self.detected_bpm
+            self.manual_grid_info_label.setText(
+                f"Downbeat at {time:.2f}s{stem_info} + BPM {bpm_diff:+.0f} - Click Apply"
+            )
+            self.manual_grid_info_label.setStyleSheet("color: #f59e0b; font-size: 9pt;")
+        elif has_downbeat:
+            # Only downbeat placed (no BPM change)
+            time, stem = self.manual_downbeat_anchor
+            stem_info = f" ({stem})" if stem else ""
+            self.manual_grid_info_label.setText(
+                f"Downbeat at {time:.2f}s{stem_info} - Click Apply to realign grid"
+            )
+            self.manual_grid_info_label.setStyleSheet("color: #10b981; font-size: 9pt;")
+        elif bpm_changed:
+            # Only BPM changed (no downbeat)
+            bpm_diff = self.manual_grid_bpm_spin.value() - self.detected_bpm
+            self.manual_grid_info_label.setText(
+                f"BPM {bpm_diff:+.0f} from detected - Click Apply to adjust grid"
+            )
+            self.manual_grid_info_label.setStyleSheet("color: #f59e0b; font-size: 9pt;")
+        else:
+            # No changes
+            self.manual_grid_info_label.setText(
+                "Place downbeat or adjust BPM to modify grid"
+            )
+            self.manual_grid_info_label.setStyleSheet("color: #888; font-size: 9pt;")
+
+    def _on_apply_grid_clicked(self):
+        """Apply manual downbeat and/or BPM change and recalculate beat grid."""
+        try:
+            has_downbeat = self.manual_downbeat_anchor is not None
+            has_bpm_change = (self.detected_bpm and
+                             abs(self.manual_grid_bpm_spin.value() - self.detected_bpm) > 0.5)
+
+            if not has_downbeat and not has_bpm_change:
+                QMessageBox.warning(self, "No Changes",
+                    "Please place a downbeat or adjust BPM first.")
+                return
+
+            # Determine anchor and BPM based on what changed
+            if has_downbeat:
+                downbeat_time, downbeat_stem = self.manual_downbeat_anchor
+                anchor_time = downbeat_time
+                stem_info = f" ({downbeat_stem})" if downbeat_stem else ""
+            else:
+                # No manual downbeat, use first auto-detected downbeat
+                anchor_time = self.detected_downbeat_times[0]
+                downbeat_stem = None
+                stem_info = ""
+
+            if has_bpm_change:
+                new_bpm = float(self.manual_grid_bpm_spin.value())
+            else:
+                # No BPM change, use detected BPM
+                new_bpm = self.detected_bpm
+
+            # Set status message based on what's being applied
+            # WHY: Use .1f for consistency with all BPM displays
+            if has_downbeat and has_bpm_change:
+                status_msg = f"Applying manual anchor + {new_bpm:.1f} BPM"
+            elif has_downbeat:
+                status_msg = f"Realigning grid to manual anchor"
+            else:
+                status_msg = f"Adjusting grid to {new_bpm:.1f} BPM"
+
+            self._set_loop_status("🔄 Recalculating beat grid...", status_msg, "")
+            self.btn_apply_grid.setEnabled(False)
+
+            duration = self.player.get_duration()
+
+            # Recalculate grid using existing function
+            new_beat_times, new_downbeat_times, first_downbeat = \
+                beat_detection.recalculate_beat_grid_from_bpm(
+                    current_beat_times=self.detected_beat_times,
+                    current_downbeat_times=self.detected_downbeat_times,
+                    new_bpm=new_bpm,
+                    audio_duration=duration,
+                    first_downbeat_anchor=anchor_time
+                )
+
+            # Store new grid
+            self.detected_beat_times = new_beat_times
+            self.detected_downbeat_times = new_downbeat_times
+            self.detected_bpm = new_bpm
+
+            # Recalculate loops
+            bars_per_loop = self._bars_per_loop
+            loops, intro_loops = beat_detection.calculate_loops_from_downbeats(
+                new_downbeat_times, bars_per_loop, duration,
+                song_start_downbeat_index=getattr(self, 'song_start_downbeat_index', None),
+                intro_handling=getattr(self, 'intro_handling', 'pad')
+            )
+            self.detected_loop_segments = loops
+            self.detected_intro_loops = intro_loops
+
+            # Update waveform
+            self.loop_waveform_widget.set_beat_times(new_beat_times, new_downbeat_times)
+
+            if intro_loops:
+                all_segments = intro_loops + self.detected_loop_segments
+                self.loop_waveform_widget.set_loop_segments(all_segments)
+            else:
+                self.loop_waveform_widget.set_loop_segments(self.detected_loop_segments)
+
+            # Update display with appropriate label (one decimal place for accuracy)
+            # WHY: Shows exact BPM used for beat calculation, ensuring consistency
+            if has_downbeat and has_bpm_change:
+                bpm_prefix = f"{new_bpm:.1f} BPM (manual{stem_info})"
+            elif has_downbeat:
+                bpm_prefix = f"{new_bpm:.1f} BPM (realigned{stem_info})"
+            else:
+                bpm_prefix = f"{new_bpm:.1f} BPM (adjusted)"
+            self.loop_waveform_widget.set_summary_prefix(bpm_prefix)
+
+            # Success status
+            num_loops = len(self.detected_loop_segments)
+
+            # Set appropriate success message based on what was applied
+            if has_downbeat and has_bpm_change:
+                status_title = "✓ Manual grid applied"
+                status_detail = f"Anchor: {anchor_time:.2f}s{stem_info}"
+                info_msg = f"✓ Applied - Grid anchored at {anchor_time:.2f}s{stem_info}"
+                log_msg = f"Manual grid: {new_bpm:.1f} BPM, anchor {anchor_time:.2f}s, {num_loops} loops"
+            elif has_downbeat:
+                status_title = "✓ Grid realigned"
+                status_detail = f"Anchor: {anchor_time:.2f}s{stem_info}"
+                info_msg = f"✓ Applied - Grid realigned to {anchor_time:.2f}s{stem_info}"
+                log_msg = f"Grid realigned: anchor {anchor_time:.2f}s, {num_loops} loops"
+            else:
+                status_title = "✓ BPM adjusted"
+                status_detail = f"Using auto-detected anchor"
+                info_msg = f"✓ Applied - BPM adjusted to {new_bpm:.1f}"
+                log_msg = f"BPM adjusted: {new_bpm:.1f} BPM, {num_loops} loops"
+
+            self._set_loop_status(
+                status_title,
+                f"{num_loops} loops ({bars_per_loop} bars) at {new_bpm:.1f} BPM",
+                status_detail
+            )
+
+            self.manual_grid_info_label.setText(info_msg)
+            self.manual_grid_info_label.setStyleSheet("color: #10b981; font-size: 9pt;")
+
+            self.ctx.logger().info(log_msg)
+
+        except Exception as e:
+            self.ctx.logger().error(f"Manual grid failed: {e}", exc_info=True)
+            QMessageBox.critical(self, "Manual Grid Error",
+                f"Failed to apply manual grid:\n\n{str(e)}")
+            self._set_loop_status("❌ Manual grid failed", str(e), "")
+            self.btn_apply_grid.setEnabled(True)
 
     def set_song_start_marker(self, downbeat_index: int):
         """
@@ -1243,6 +1642,7 @@ class PlayerWidget(QWidget):
             f"{intro_info}{num_loops} loops ({self._bars_per_loop} bars each)",
             ""
         )
+
 
     def _on_song_start_marker_requested(self, downbeat_index: int):
         """Handle song start marker request from waveform widget."""
@@ -1397,23 +1797,50 @@ class PlayerWidget(QWidget):
 
         Returns:
             Tuple of (mixed_audio, sample_rate)
+            
+        WHY: Uses player's sample rate to ensure waveform matches playback exactly.
+        This prevents drift between beat markers and actual audio playback.
         """
         if not self.stem_files:
             raise ValueError("No stems loaded")
 
+        # Use player's sample rate for consistency
+        # WHY: Player may have resampled stems, so we must use same rate for waveform
+        player_sample_rate = self.player.sample_rate
+        if player_sample_rate == 0:
+            # Player not initialized yet, use first file's rate as fallback
+            first_path = next(iter(self.stem_files.values()))
+            _, fallback_sr = sf.info(str(first_path))
+            player_sample_rate = fallback_sr
+            self.ctx.logger().warning(
+                f"Player sample rate not set, using file rate: {player_sample_rate} Hz"
+            )
+
         mixed_audio = None
-        sample_rate = None
 
         for stem_name, stem_path in self.stem_files.items():
-            audio_data, sr = sf.read(stem_path, dtype='float32')
+            audio_data, file_sr = sf.read(stem_path, dtype='float32')
 
             # Ensure mono
             if audio_data.ndim == 2:
                 audio_data = np.mean(audio_data, axis=1)
 
+            # Resample to player's sample rate if needed
+            # WHY: Ensures waveform uses same sample rate as playback
+            if file_sr != player_sample_rate:
+                import librosa
+                audio_data = librosa.resample(
+                    audio_data,
+                    orig_sr=file_sr,
+                    target_sr=player_sample_rate,
+                    res_type='kaiser_best'
+                )
+                self.ctx.logger().debug(
+                    f"Resampled {stem_name} for waveform: {file_sr} Hz -> {player_sample_rate} Hz"
+                )
+
             if mixed_audio is None:
                 mixed_audio = audio_data
-                sample_rate = sr
             else:
                 # Mix with existing (handle different lengths)
                 min_len = min(len(mixed_audio), len(audio_data))
@@ -1424,7 +1851,7 @@ class PlayerWidget(QWidget):
         if max_val > 0:
             mixed_audio = mixed_audio / max_val
 
-        return mixed_audio, sample_rate
+        return mixed_audio, player_sample_rate
 
     def _connect_signals(self):
         """Connect signals"""

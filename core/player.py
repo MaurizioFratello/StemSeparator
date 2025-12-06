@@ -496,14 +496,18 @@ class AudioPlayer:
     def _position_update_loop(self):
         """Thread loop for updating position (runs separately from audio)"""
         try:
-            start_time = time.time()
+            # Use perf_counter for higher precision timing
+            # WHY: Reduces timing drift compared to time.time()
+            start_time = time.perf_counter()
             start_position = self.position_samples
 
             while not self._stop_update.is_set():
-                # Calculate elapsed time
-                elapsed = time.time() - start_time
-                elapsed_samples = int(elapsed * self.sample_rate)
-                expected_position = start_position + elapsed_samples
+                # Calculate elapsed time with higher precision
+                elapsed = time.perf_counter() - start_time
+                # Use float calculation, round only at end for better accuracy
+                # WHY: Integer truncation accumulates errors over time
+                elapsed_samples_float = elapsed * self.sample_rate
+                expected_position = int(start_position + elapsed_samples_float)
 
                 with self._position_lock:
                     # Check if position was changed externally (e.g., via seek)
@@ -524,7 +528,7 @@ class AudioPlayer:
                             
                             # Reset timing
                             start_position = self.loop_start_samples
-                            start_time = time.time()
+                            start_time = time.perf_counter()
                             self.position_samples = self.loop_start_samples
                             
                             # Restart playback
@@ -536,7 +540,7 @@ class AudioPlayer:
                     elif position_changed_externally:
                         # Position was changed by seek - reset our timing
                         start_position = self.position_samples
-                        start_time = time.time()
+                        start_time = time.perf_counter()
                         self.logger.debug(f"Position update loop detected seek to {self.position_samples} samples, resetting timing")
                     else:
                         # Update position normally
@@ -553,7 +557,7 @@ class AudioPlayer:
                                 
                                 self.position_samples = self.loop_start_samples
                                 start_position = self.loop_start_samples
-                                start_time = time.time()
+                                start_time = time.perf_counter()
                                 
                                 self._start_playback_from_position()
                         else:
