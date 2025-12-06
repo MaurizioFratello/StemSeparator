@@ -41,6 +41,22 @@ def run_separation_subprocess(
     """
     # Import here to keep subprocess isolated
     from audio_separator.separator import Separator as AudioSeparator
+    from types import SimpleNamespace
+
+    # Patch audio-separator version lookup to avoid None/AttributeError in frozen bundles
+    if not hasattr(AudioSeparator, "_original_get_package_distribution"):
+        AudioSeparator._original_get_package_distribution = AudioSeparator.get_package_distribution
+
+        def _safe_get_package_distribution(self, package_name):
+            try:
+                dist = self._original_get_package_distribution(package_name)
+                if dist is None or getattr(dist, "version", None) is None:
+                    return SimpleNamespace(version="0.0.0-bundled")
+                return dist
+            except Exception:
+                return SimpleNamespace(version="0.0.0-bundled")
+
+        AudioSeparator.get_package_distribution = _safe_get_package_distribution
 
     def _apply_preset_attributes(separator: "AudioSeparator", attributes: dict):
         """
@@ -88,22 +104,27 @@ def run_separation_subprocess(
             if not handled:
                 setattr(separator, attr_name, attr_value)
 
-    # Create separator instance
-    separator = AudioSeparator(
-        log_level=20,  # INFO
-        model_file_dir=str(models_dir),
-        output_dir=str(output_dir),
-        **preset_params
-    )
+    try:
+        # Create separator instance
+        separator = AudioSeparator(
+            log_level=20,  # INFO
+            model_file_dir=str(models_dir),
+            output_dir=str(output_dir),
+            **preset_params
+        )
 
-    # Set architecture-specific attributes
-    _apply_preset_attributes(separator, preset_attributes)
+        # Set architecture-specific attributes
+        _apply_preset_attributes(separator, preset_attributes)
 
-    # Load model
-    separator.load_model(model_filename=model_filename)
+        # Load model
+        separator.load_model(model_filename=model_filename)
 
-    # Run separation
-    output_files = separator.separate(str(audio_file))
+        # Run separation
+        output_files = separator.separate(str(audio_file))
+    except Exception:
+        import traceback
+        traceback.print_exc(file=sys.stderr)
+        raise
 
     # Parse output files
     stems = {}

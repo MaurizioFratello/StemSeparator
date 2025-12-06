@@ -1,0 +1,31 @@
+# LARS Service Dependencies
+# Environment: Python 3.9/3.10 (LarsNet compatibility)
+#
+# NOTE: This is a SEPARATE environment from the main StemSeparator app
+# Build environment: lars-env (created by build.sh)
+#
+# Installation:
+#   conda create -n lars-env python=3.10 -y
+#   conda activate lars-env
+#   pip install -r requirements.txt
+
+# ML backend
+torch>=2.0.0
+torchaudio>=2.0.0
+
+# Audio processing
+soundfile>=0.12.1
+librosa>=0.10.0
+scipy>=1.11.0
+
+# Numerical computing
+numpy>=1.24.0
+
+# Drum separation models
+demucs>=4.0.0  # Fallback if LarsNet models not available
+
+# Build tools
+pyinstaller>=5.0.0
+
+# Future: LarsNet package when available
+# larsnet>=1.0.0

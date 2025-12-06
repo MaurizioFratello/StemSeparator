@@ -57,12 +57,36 @@ if [[ "$PYTHON_VERSION" != "3.8" && "$PYTHON_VERSION" != "3.9" ]]; then
     echo "WARNING: Python $PYTHON_VERSION detected. BeatNet works best with 3.8 or 3.9."
 fi
 
-# Verify BeatNet is installed
-python -c "from BeatNet.BeatNet import BeatNet" 2>/dev/null || {
-    echo "ERROR: BeatNet not installed in environment."
-    echo "Install with: pip install -r requirements.txt"
-    exit 1
-}
+# Verify BeatNet is installed, auto-install if missing
+echo "Checking for BeatNet..."
+if ! python -c "from BeatNet.BeatNet import BeatNet" 2>&1; then
+    echo "BeatNet not found. Installing dependencies automatically..."
+    echo ""
+
+    # Install numba via conda (required for Apple Silicon compatibility)
+    echo "Installing numba via conda..."
+    conda install -y -c conda-forge numba=0.54.1
+
+    # Install cython and madmom with special build flags
+    echo "Installing madmom..."
+    pip install cython
+    pip install --no-build-isolation madmom
+
+    # Install remaining dependencies
+    echo "Installing BeatNet and other dependencies..."
+    pip install pyaudio BeatNet soundfile torch pyinstaller
+
+    # Verify installation
+    echo "Verifying BeatNet installation..."
+    if ! python -c "from BeatNet.BeatNet import BeatNet"; then
+        echo "ERROR: Failed to install BeatNet dependencies."
+        echo "BeatNet import test failed. Check the error above."
+        exit 1
+    fi
+
+    echo "✓ Dependencies installed successfully"
+    echo ""
+fi
 
 echo "Building binary with PyInstaller..."
 

@@ -81,6 +81,148 @@ else
     cd - > /dev/null
 fi
 
+# Build BeatNet Beat-Service binary (AUTOMATIC SETUP)
+echo ""
+echo -e "${BLUE}Building BeatNet Beat-Service binary...${NC}"
+BEATNET_DIR="packaging/beatnet_service"
+
+if [ ! -d "$BEATNET_DIR" ]; then
+    echo -e "${RED}ERROR: BeatNet service directory not found${NC}"
+    echo -e "${RED}BeatNet is required for the application!${NC}"
+    exit 1
+fi
+
+# Check if conda is available
+if ! command -v conda &> /dev/null; then
+    echo -e "${RED}ERROR: conda not found. Please install Miniconda or Anaconda.${NC}"
+    echo -e "${BLUE}Download from: https://docs.conda.io/en/latest/miniconda.html${NC}"
+    exit 1
+fi
+
+cd "$BEATNET_DIR"
+
+# Setup conda for bash
+eval "$(conda shell.bash hook)"
+
+# Check if beatnet-env exists, create if not
+ENV_NAME="beatnet-env"
+if ! conda env list | grep -q "^${ENV_NAME} "; then
+    echo -e "${YELLOW}BeatNet environment not found. Creating automatically...${NC}"
+    # IMPORTANT: Python 3.8 required for numba 0.54.1 compatibility
+    conda create -n "$ENV_NAME" python=3.8 -y
+    if [ $? -ne 0 ]; then
+        echo -e "${RED}ERROR: Failed to create beatnet-env${NC}"
+        exit 1
+    fi
+    echo -e "${GREEN}✓ Created beatnet-env (Python 3.8)${NC}"
+fi
+
+# Note: We don't install dependencies here - build.sh will handle that
+# with the correct installation order (conda install numba, then pip packages)
+
+# Build binary
+echo -e "${BLUE}Building BeatNet binary...${NC}"
+if ! [ -f "build.sh" ]; then
+    echo -e "${RED}ERROR: build.sh not found in beatnet_service${NC}"
+    exit 1
+fi
+
+# Build with output visible for debugging
+./build.sh
+BUILD_STATUS=$?
+
+if [ $BUILD_STATUS -eq 0 ]; then
+    BEATNET_BINARY="dist/beatnet-service"
+    if [ -f "$BEATNET_BINARY" ]; then
+        chmod +x "$BEATNET_BINARY" 2>/dev/null || true
+        if [ -x "$BEATNET_BINARY" ]; then
+            BEATNET_SIZE=$(du -h "$BEATNET_BINARY" | cut -f1)
+            echo -e "${GREEN}✓ BeatNet service built successfully${NC}"
+            echo -e "${BLUE}  Binary: $BEATNET_BINARY ($BEATNET_SIZE)${NC}"
+        else
+            echo -e "${RED}ERROR: BeatNet binary exists but is not executable${NC}"
+            exit 1
+        fi
+    else
+        echo -e "${RED}ERROR: BeatNet service build completed but binary not found${NC}"
+        exit 1
+    fi
+else
+    echo -e "${RED}ERROR: BeatNet service build failed${NC}"
+    exit 1
+fi
+
+# Deactivate beatnet-env and return to original environment
+conda deactivate
+cd - > /dev/null
+
+# Build LARS Service binary (AUTOMATIC SETUP)
+echo ""
+echo -e "${BLUE}Building LARS Service binary...${NC}"
+LARS_DIR="packaging/lars_service"
+
+if [ ! -d "$LARS_DIR" ]; then
+    echo -e "${YELLOW}WARNING: LARS service directory not found${NC}"
+    echo -e "${YELLOW}LARS drum separation will not be available${NC}"
+else
+    cd "$LARS_DIR"
+
+    # Setup conda for bash
+    eval "$(conda shell.bash hook)"
+
+    # Check if lars-env exists, create if not
+    LARS_ENV_NAME="lars-env"
+    if ! conda env list | grep -q "^${LARS_ENV_NAME} "; then
+        echo -e "${YELLOW}LARS environment not found. Creating automatically...${NC}"
+        # Python 3.10 recommended for LarsNet
+        conda create -n "$LARS_ENV_NAME" python=3.10 -y
+        if [ $? -ne 0 ]; then
+            echo -e "${RED}WARNING: Failed to create lars-env${NC}"
+            echo -e "${YELLOW}Continuing without LARS service${NC}"
+            conda deactivate
+            cd - > /dev/null
+        else
+            echo -e "${GREEN}✓ Created lars-env (Python 3.10)${NC}"
+        fi
+    fi
+
+    # Build binary (if environment was created/exists)
+    if conda env list | grep -q "^${LARS_ENV_NAME} "; then
+        echo -e "${BLUE}Building LARS binary...${NC}"
+        if [ -f "build.sh" ]; then
+            # Build with output visible for debugging
+            ./build.sh
+            BUILD_STATUS=$?
+
+            if [ $BUILD_STATUS -eq 0 ]; then
+                LARS_BINARY="dist/lars-service"
+                if [ -f "$LARS_BINARY" ]; then
+                    chmod +x "$LARS_BINARY" 2>/dev/null || true
+                    if [ -x "$LARS_BINARY" ]; then
+                        LARS_SIZE=$(du -h "$LARS_BINARY" | cut -f1)
+                        echo -e "${GREEN}✓ LARS service built successfully${NC}"
+                        echo -e "${BLUE}  Binary: $LARS_BINARY ($LARS_SIZE)${NC}"
+                    else
+                        echo -e "${YELLOW}WARNING: LARS binary exists but is not executable${NC}"
+                    fi
+                else
+                    echo -e "${YELLOW}WARNING: LARS service build completed but binary not found${NC}"
+                fi
+            else
+                echo -e "${YELLOW}WARNING: LARS service build failed${NC}"
+                echo -e "${YELLOW}Continuing without LARS service${NC}"
+            fi
+        else
+            echo -e "${YELLOW}WARNING: build.sh not found in lars_service${NC}"
+        fi
+
+        # Deactivate lars-env
+        conda deactivate
+    fi
+
+    cd - > /dev/null
+fi
+
 # Clean previous builds
 echo ""
 echo -e "${BLUE}Cleaning previous builds...${NC}"
@@ -115,10 +257,28 @@ echo ""
 export KMP_DUPLICATE_LIB_OK=TRUE
 export OMP_NUM_THREADS=1
 
+# Resolve PyInstaller command (prefer current env's python -m PyInstaller, then CLI)
+if command -v python >/dev/null 2>&1 && python -m PyInstaller --version >/dev/null 2>&1; then
+    echo -e "${BLUE}Using python -m PyInstaller from current environment${NC}"
+    PYINSTALLER_CMD=("python" "-m" "PyInstaller")
+elif command -v python3 >/dev/null 2>&1 && python3 -m PyInstaller --version >/dev/null 2>&1; then
+    echo -e "${BLUE}Using python3 -m PyInstaller from current environment${NC}"
+    PYINSTALLER_CMD=("python3" "-m" "PyInstaller")
+else
+    PYINSTALLER_BIN=$(command -v pyinstaller || true)
+    if [ -n "$PYINSTALLER_BIN" ]; then
+        echo -e "${BLUE}Using PyInstaller executable: $PYINSTALLER_BIN${NC}"
+        PYINSTALLER_CMD=("$PYINSTALLER_BIN")
+    else
+        echo -e "${RED}Error: PyInstaller not found in current environment. Activate the build env (e.g., conda activate stem-separator) and ensure PyInstaller is installed.${NC}"
+        exit 1
+    fi
+fi
+
 # Note: We don't use --clean here because we already cleaned manually above
 # and --clean might interfere with directory creation
 # Use --noconfirm to avoid interactive prompts when PyInstaller needs to remove directories
-pyinstaller --noconfirm packaging/StemSeparator-intel.spec
+"${PYINSTALLER_CMD[@]}" --noconfirm packaging/StemSeparator-intel.spec
 
 # Check if build succeeded
 if [ ! -d "dist/StemSeparator-intel.app" ]; then
@@ -129,6 +289,43 @@ fi
 
 echo ""
 echo -e "${GREEN}✓ Application bundle created successfully${NC}"
+
+# Remove duplicate FFmpeg dylibs from Frameworks/ (PyInstaller auto-bundles them)
+# WHY: Keep only the copies in Resources/bin/ to avoid conflicts with PySide6
+echo ""
+echo -e "${BLUE}Removing duplicate FFmpeg libraries from Frameworks/...${NC}"
+FRAMEWORKS_DIR="dist/StemSeparator-intel.app/Contents/Frameworks"
+if [ -d "$FRAMEWORKS_DIR" ]; then
+    # Remove FFmpeg dylibs (but NOT PySide6's FFmpeg libraries)
+    for dylib in libavcodec.61.dylib libavfilter.10.dylib libavformat.61.dylib \
+                 libavutil.59.dylib libavdevice.61.dylib libpostproc.58.dylib \
+                 libswresample.5.dylib libswscale.8.dylib; do
+        if [ -f "$FRAMEWORKS_DIR/$dylib" ]; then
+            rm -f "$FRAMEWORKS_DIR/$dylib"
+            echo "  Removed: $dylib"
+        fi
+    done
+    # Also remove FFmpeg's dependency dylibs to save space and avoid conflicts
+    for dylib in libaom*.dylib libass*.dylib libdav1d*.dylib libmp3lame*.dylib \
+                 libopus*.dylib librav1e*.dylib libvorbis*.dylib libvpx*.dylib \
+                 libwebp*.dylib libx264*.dylib libx265*.dylib; do
+        if [ -f "$FRAMEWORKS_DIR/$dylib" ]; then
+            rm -f "$FRAMEWORKS_DIR/$dylib"
+        fi
+    done
+    echo -e "${GREEN}✓ Duplicate FFmpeg libraries removed${NC}"
+else
+    echo -e "${YELLOW}Warning: Frameworks directory not found${NC}"
+fi
+
+# Fix FFmpeg library paths if bundled
+echo ""
+echo -e "${BLUE}Fixing FFmpeg library paths...${NC}"
+if [ -f "packaging/fix_ffmpeg_libs.sh" ]; then
+    ./packaging/fix_ffmpeg_libs.sh "dist/StemSeparator-intel.app"
+else
+    echo -e "${YELLOW}Warning: fix_ffmpeg_libs.sh not found${NC}"
+fi
 
 # Show bundle size
 APP_SIZE=$(du -sh dist/StemSeparator-intel.app | cut -f1)

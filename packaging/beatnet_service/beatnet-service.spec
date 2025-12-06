@@ -8,10 +8,10 @@ datas += collect_data_files('madmom')
 
 a = Analysis(
     ['src/__main__.py'],
-    pathex=['src'],
+    pathex=[],
     binaries=[],
     datas=datas,
-    hiddenimports=['BeatNet', 'BeatNet.BeatNet', 'madmom', 'numba', 'torch', 'device', 'pyaudio'],
+    hiddenimports=['BeatNet', 'BeatNet.BeatNet', 'madmom', 'madmom.features', 'madmom.features.beats', 'madmom.features.downbeats', 'madmom.ml', 'madmom.ml.nn', 'numba', 'torch', 'soundfile', 'numpy'],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],

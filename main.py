@@ -9,11 +9,22 @@ import sys
 import os
 import fcntl
 import atexit
+import json
 from pathlib import Path
 from typing import Optional, Callable
 
 # Füge Projekt-Root zum Python Path hinzu
 sys.path.insert(0, str(Path(__file__).parent))
+
+# Add bundled FFmpeg to PATH (if running from app bundle)
+# WHY: Allow app to work without requiring users to install FFmpeg via homebrew
+if getattr(sys, 'frozen', False):
+    # Running as PyInstaller bundle
+    bundle_dir = Path(sys._MEIPASS)
+    ffmpeg_bin_dir = bundle_dir / 'bin'
+    if ffmpeg_bin_dir.exists():
+        # Prepend to PATH so bundled FFmpeg is found first
+        os.environ['PATH'] = str(ffmpeg_bin_dir) + os.pathsep + os.environ.get('PATH', '')
 
 from utils.logger import get_logger
 from utils.i18n import set_language
@@ -170,7 +181,27 @@ def main():
     """Main Entry Point"""
     splash: Optional['SplashScreen'] = None
     app: Optional['QApplication'] = None
-    
+
+    # Lightweight CLI entry for separation subprocess when running as a frozen app.
+    # Check both command line flag and environment variable (belt and suspenders)
+    if '--separation-subprocess' in sys.argv or os.environ.get('STEMSEPARATOR_SUBPROCESS') == '1':
+        from core.separation_subprocess import run_separation_subprocess
+
+        try:
+            params = json.loads(sys.stdin.read())
+            params['audio_file'] = Path(params['audio_file'])
+            params['output_dir'] = Path(params['output_dir'])
+            params['models_dir'] = Path(params['models_dir'])
+
+            stems = run_separation_subprocess(**params)
+            result = {'success': True, 'stems': stems, 'error': None}
+            print(json.dumps(result))
+            sys.exit(0)
+        except Exception as e:
+            result = {'success': False, 'stems': {}, 'error': str(e)}
+            print(json.dumps(result))
+            sys.exit(1)
+
     try:
         # CRITICAL: Check for single instance (prevent multiple app instances)
         if not acquire_lock():

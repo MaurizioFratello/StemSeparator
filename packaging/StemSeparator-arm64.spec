@@ -34,7 +34,7 @@ for json_file in (resources_dir / 'translations').glob('*.json'):
     datas.append((str(json_file), 'resources/translations'))
 
 # AI Models - include all model files if they exist
-for pattern in ['*.ckpt', '*.yaml', '*.th', '*.json', '*.txt']:
+for pattern in ['*.ckpt', '*.yaml', '*.th', '*.json', '*.txt', '*.onnx']:
     for model_file in (resources_dir / 'models').glob(pattern):
         datas.append((str(model_file), 'resources/models'))
 
@@ -75,9 +75,9 @@ for path in binary_paths:
             try:
                 os.chmod(path, 0o755)
                 if os.access(path, os.X_OK):
-        screencapture_binary = path
+                    screencapture_binary = path
                     print(f"Found and made executable: {path}")
-        break
+                    break
             except Exception as e:
                 print(f"Warning: Binary found but cannot make executable: {path} ({e})")
 
@@ -136,12 +136,114 @@ else:
         exists = "✓" if path.exists() else "✗"
         print(f"    {exists} {path}")
 
+# LARS Service binary
+# WHY: Bundle the LARS drum separation service for advanced drum processing
+# The binary is built separately with Python 3.9/3.10 (required for LarsNet compatibility)
+lars_service_dir = project_root / 'packaging' / 'lars_service'
+lars_binary_paths = [
+    # Primary: PyInstaller dist output
+    lars_service_dir / 'dist' / 'lars-service',
+    # Alternative: resources location
+    project_root / 'resources' / 'lars' / 'lars-service',
+]
+
+lars_binary = None
+for path in lars_binary_paths:
+    if path.exists() and path.is_file():
+        if os.access(path, os.X_OK):
+            lars_binary = path
+            print(f"Found lars-service binary: {path}")
+            break
+        else:
+            # Try to make it executable
+            try:
+                os.chmod(path, 0o755)
+                if os.access(path, os.X_OK):
+                    lars_binary = path
+                    print(f"Found and made executable: {path}")
+                    break
+            except Exception as e:
+                print(f"Warning: Binary found but cannot make executable: {path} ({e})")
+
+if lars_binary:
+    # Bundle to app root for easy discovery by lars_service_client.py
+    datas.append((str(lars_binary), '.'))
+    print(f"Bundling lars-service to app bundle root")
+else:
+    print("WARNING: lars-service binary not found. LARS drum separation will not be available.")
+    print("  Build with: cd packaging/lars_service && ./build.sh")
+    print("  Searched paths:")
+    for path in lars_binary_paths:
+        exists = "✓" if path.exists() else "✗"
+        print(f"    {exists} {path}")
+
+# FFmpeg: Bundle in separate directory to avoid conflicts with PySide6
+# Place in Resources/bin/ with proper library isolation
+ffmpeg_binary = None
+ffmpeg_search_paths = [
+    Path('/opt/homebrew/bin/ffmpeg'),  # Apple Silicon Homebrew
+    Path('/usr/local/bin/ffmpeg'),     # Intel Homebrew
+    Path('/usr/bin/ffmpeg'),           # System
+]
+
+for path in ffmpeg_search_paths:
+    if path.exists() and os.access(path, os.X_OK):
+        ffmpeg_binary = path
+        print(f"Found ffmpeg: {path}")
+        break
+
+if ffmpeg_binary:
+    # Bundle to Resources/bin/ (isolated from Frameworks and PySide6)
+    datas.append((str(ffmpeg_binary), 'bin'))
+    print(f"Bundling ffmpeg to Resources/bin/")
+
+    # Bundle FFmpeg dylibs from homebrew
+    import subprocess
+    try:
+        # Get list of dylib dependencies
+        otool_output = subprocess.check_output(['otool', '-L', str(ffmpeg_binary)], text=True)
+        for line in otool_output.split('\n')[1:]:  # Skip first line (the binary itself)
+            line = line.strip()
+            if not line or line.startswith('/usr/lib/') or line.startswith('/System/'):
+                continue  # Skip system libraries
+
+            # Extract dylib path (before the first '(')
+            dylib_path = line.split('(')[0].strip()
+            if dylib_path and Path(dylib_path).exists():
+                # Bundle FFmpeg's dylibs to same bin/ directory
+                datas.append((dylib_path, 'bin'))
+                print(f"  Bundling FFmpeg dylib: {Path(dylib_path).name}")
+    except Exception as e:
+        print(f"Warning: Could not bundle FFmpeg dylibs: {e}")
+else:
+    print("WARNING: ffmpeg not found. App will require users to install it.")
+    print("  Install with: brew install ffmpeg")
+
+# Bundle audio_separator resource files (e.g., models-scores.json)
+# Use PyInstaller's collect_data_files to properly bundle package data
+try:
+    from PyInstaller.utils.hooks import collect_data_files
+    audio_sep_datas = collect_data_files('audio_separator')
+    if audio_sep_datas:
+        datas.extend(audio_sep_datas)
+        print(f"Bundled {len(audio_sep_datas)} audio_separator data file(s)")
+    else:
+        print("WARNING: No audio_separator data files found")
+except Exception as e:
+    print(f"WARNING: Could not collect audio_separator data files: {e}")
+
 
 # Hidden imports that PyInstaller might miss
 hiddenimports = [
     # Audio separator
     'audio_separator',
     'audio_separator.separator',
+    'audio_separator.separator.architectures',
+    'audio_separator.separator.architectures.demucs_separator',
+    'audio_separator.separator.architectures.mdx_separator',
+    'audio_separator.separator.architectures.mdxc_separator',
+    'audio_separator.separator.architectures.vr_separator',
+    'audio_separator.separator.common_separator',
 
     # Audio libraries
     'soundcard',
@@ -153,6 +255,7 @@ hiddenimports = [
     'torch',
     'torch.nn',
     'torch.nn.functional',
+    'torch.cuda',              # Needed even for CPU-only builds (module-level refs)
     'torch.backends.mps',  # Apple Metal Performance Shaders
     'torchaudio',
     'onnxruntime',
@@ -208,10 +311,6 @@ excludes = [
     'matplotlib',
     'PyQt5',        # Exclude conflicting Qt binding (app uses PySide6)
     'PyQt6',        # Exclude conflicting Qt binding (app uses PySide6)
-
-    # CUDA (macOS doesn't use CUDA)
-    'torch.cuda',
-    'torch.cudnn',
 ]
 
 
@@ -220,7 +319,7 @@ excludes = [
 # CRITICAL: This must exist before Analysis() is called, otherwise PyInstaller fails
 build_dir = project_root / 'build' / 'StemSeparator-arm64'
 try:
-build_dir.mkdir(parents=True, exist_ok=True)
+    build_dir.mkdir(parents=True, exist_ok=True)
     # Verify directory was actually created and is writable
     if not build_dir.exists():
         raise RuntimeError(f"Failed to create build directory: {build_dir}")

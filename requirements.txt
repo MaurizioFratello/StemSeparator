@@ -23,10 +23,10 @@ scipy>=1.11.0  # For signal resampling in ensemble mode
 # If not installed, system falls back to librosa for BPM detection
 deeprhythm>=0.0.13  # Optional: Enhanced BPM detection with confidence scores
 
-# Beat Detection for Loop Preview (State-of-the-art beat/downbeat tracking)
-# Automatically uses CUDA/MPS if available, falls back to CPU
-BeatNet>=1.1.3  # Beat and downbeat detection for loop segmentation
-madmom>=0.16.1  # BeatNet dependency for DBN inference
+# Beat Detection for Loop Preview
+# NOTE: BeatNet runs as isolated subprocess binary (packaging/beatnet_service/)
+# It has its own environment due to numba version conflicts.
+# The main app communicates via beat_service_client.py → beatnet-service binary
 
 # ML Models
 torch>=2.0.0
@@ -38,6 +38,7 @@ requests>=2.31.0
 tqdm>=4.66.0
 colorlog>=6.8.0
 PyYAML>=6.0.0
+psutil>=5.9.0
 
 # Testing
 pytest>=7.4.0

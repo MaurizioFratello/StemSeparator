@@ -38,6 +38,7 @@ dependencies:
       - tqdm>=4.66.0
       - colorlog>=6.8.0
       - PyYAML>=6.0.0  # For YAML configuration files
+      - psutil>=5.9.0
 
       # Testing
       - pytest>=7.4.0
