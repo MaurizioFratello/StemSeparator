@@ -35,7 +35,6 @@ from ui.widgets.recording_widget import RecordingWidget
 from ui.widgets.queue_widget import QueueWidget
 from ui.widgets.player_widget import PlayerWidget
 from ui.widgets.settings_dialog import SettingsDialog
-from ui.widgets.drum_details_widget import DrumDetailsWidget
 from ui.widgets.export_mixed_widget import ExportMixedWidget
 from ui.widgets.export_loops_widget import ExportLoopsWidget
 from ui.theme.macos_effects import MacOSEffects
@@ -123,7 +122,6 @@ class MainWindow(QMainWindow):
         self._recording_widget = RecordingWidget(self)
         self._queue_widget = QueueWidget(self)
         self._player_widget = PlayerWidget(self)
-        self._drum_details_widget = DrumDetailsWidget(self)
         self._export_mixed_widget = ExportMixedWidget(player_widget=self._player_widget, parent=self)
         self._export_loops_widget = ExportLoopsWidget(player_widget=self._player_widget, parent=self)
 
@@ -132,9 +130,8 @@ class MainWindow(QMainWindow):
         self._content_stack.addWidget(self._recording_widget) # Index 1
         self._content_stack.addWidget(self._queue_widget)     # Index 2
         self._content_stack.addWidget(self._player_widget)    # Index 3
-        self._content_stack.addWidget(self._drum_details_widget)  # Index 4
-        self._content_stack.addWidget(self._export_mixed_widget)  # Index 5
-        self._content_stack.addWidget(self._export_loops_widget)  # Index 6
+        self._content_stack.addWidget(self._export_mixed_widget)  # Index 4
+        self._content_stack.addWidget(self._export_loops_widget)  # Index 5
 
         # Create Nav Buttons
         # We will set text in _apply_translations
@@ -184,10 +181,6 @@ class MainWindow(QMainWindow):
         sidebar_layout.addWidget(self._btn_playback)
         sidebar_layout.addWidget(self._btn_looping)
 
-        # Add Drum Details button (navigates to DrumDetailsWidget at index 4)
-        self._btn_drum_details = self._create_nav_button("drum", 4)
-        sidebar_layout.addWidget(self._btn_drum_details)
-        
         # SEPARATOR 3
         sep3 = QFrame()
         sep3.setObjectName("sidebar_separator")
@@ -200,13 +193,13 @@ class MainWindow(QMainWindow):
         self._lbl_export.setObjectName("sidebar_header")
         sidebar_layout.addWidget(self._lbl_export)
 
-        # Export Mixed button - navigates to ExportMixedWidget (index 5)
-        self._btn_export_mixed = self._create_export_page_button("export_mixed", 5)
+        # Export Mixed button - navigates to ExportMixedWidget (index 4)
+        self._btn_export_mixed = self._create_export_page_button("export_mixed", 4)
         self._btn_export_mixed.setToolTip("Configure and export mixed audio")
         sidebar_layout.addWidget(self._btn_export_mixed)
 
-        # Export Loops button - navigates to ExportLoopsWidget (index 6)
-        self._btn_export_loops = self._create_export_page_button("export_loops", 6)
+        # Export Loops button - navigates to ExportLoopsWidget (index 5)
+        self._btn_export_loops = self._create_export_page_button("export_loops", 5)
         self._btn_export_loops.setToolTip("Configure and export sampler loops")
         sidebar_layout.addWidget(self._btn_export_loops)
         
@@ -473,7 +466,6 @@ class MainWindow(QMainWindow):
         self._btn_stems.setText(translator("tabs.stems", fallback="📂 Stems"))
         self._btn_playback.setText(translator("tabs.playback", fallback="▶ Playback"))
         self._btn_looping.setText(translator("tabs.looping", fallback="🎧 Looping"))
-        self._btn_drum_details.setText(translator("tabs.drum_details", fallback="🥁 Drum Details"))
 
         if self.statusBar():
             self.statusBar().showMessage(translator("status.ready", fallback="Ready"))
