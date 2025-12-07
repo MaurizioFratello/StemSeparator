@@ -96,7 +96,7 @@ Stem Separator is a professional macOS application for AI-powered separation of 
 
 **No Python installation required!** Download a pre-built application:
 
-1. Download the appropriate DMG file for your Mac:
+1. Download the appropriate DMG file for your Mac from the [Releases page](https://github.com/MaurizioFratello/StemSeparator/releases):
    - **Intel Macs**: `StemSeparator-intel.dmg`
    - **Apple Silicon (M1/M2/M3)**: `StemSeparator-arm64.dmg`
 
@@ -263,7 +263,7 @@ Main configuration is located in `config.py`:
 - **Default Ensemble**: `DEFAULT_ENSEMBLE_CONFIG = 'balanced'`
 - **GPU Usage**: `USE_GPU = True`
 - **Log Level**: `LOG_LEVEL = "INFO"`
-- **Default Language**: `DEFAULT_LANGUAGE = "de"`
+- **Default Language**: `DEFAULT_LANGUAGE = "de"` (change to `"en"` for English)
 - **Sample Rate**: `RECORDING_SAMPLE_RATE = 44100`
 
 ---

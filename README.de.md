@@ -96,7 +96,7 @@ Stem Separator ist eine professionelle macOS-Anwendung für die KI-gestützte Tr
 
 **Keine Python-Installation erforderlich!** Lade eine vorgefertigte Anwendung herunter:
 
-1. Lade die passende DMG-Datei für deinen Mac herunter:
+1. Lade die passende DMG-Datei für deinen Mac von der [Releases-Seite](https://github.com/MaurizioFratello/StemSeparator/releases) herunter:
    - **Intel Macs**: `StemSeparator-intel.dmg`
    - **Apple Silicon (M1/M2/M3)**: `StemSeparator-arm64.dmg`
 
