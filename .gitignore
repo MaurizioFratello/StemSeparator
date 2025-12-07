@@ -82,3 +82,7 @@ build/
 *.app
 packaging/icon.icns
 packaging/dmg/background.png
+
+# Swift build artifacts
+packaging/screencapture_tool/.build/
+packaging/screencapture_tool/ScreenCaptureRecorder.app
