@@ -2,145 +2,145 @@
 
 <div align="center">
 
-**KI-gestützte Audio Stem Separation mit modernsten Open-Source-Modellen**
+**AI-Powered Audio Stem Separation with State-of-the-Art Open Source Models**
 
 [![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)](https://github.com/MaurizioFratello/StemSeparator)
 [![Python](https://img.shields.io/badge/python-3.9%2B-blue.svg)](https://www.python.org/)
 [![Platform](https://img.shields.io/badge/platform-macOS-lightgrey.svg)](https://www.apple.com/macos/)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
-[Features](#-features) • [Installation](#-installation) • [Usage](#-verwendung) • [Documentation](#-dokumentation) • [Support](#-support)
+[Features](#-features) • [Installation](#-installation) • [Usage](#-usage) • [Documentation](#-documentation) • [Support](#-support)
 
 </div>
 
 ---
 
-## 🎯 Überblick
+## 🎯 Overview
 
-Stem Separator ist eine professionelle macOS-Anwendung für die KI-gestützte Trennung von Audio-Stems (Vocals, Drums, Bass, etc.) aus Musik-Dateien. Die Anwendung nutzt State-of-the-Art Deep-Learning-Modelle und bietet eine intuitive grafische Benutzeroberfläche.
+Stem Separator is a professional macOS application for AI-powered separation of audio stems (vocals, drums, bass, etc.) from music files. The application uses state-of-the-art deep learning models and provides an intuitive graphical user interface.
 
 ### ✨ Highlights
 
-- 🎵 **Multiple AI-Modelle**: Mel-Band RoFormer, BS-RoFormer, MDX-Net, Demucs v4
-- 🎚️ **Ensemble-Separation**: Kombiniert mehrere Modelle für maximale Qualität
-- 🎤 **System Audio Recording**: Direkte Aufnahme von System-Audio (macOS)
-- 🎧 **Stem Player**: Echtzeit-Mixing mit individueller Lautstärke-Kontrolle
-- ⚡ **GPU-Beschleunigung**: Apple Silicon (MPS) und NVIDIA (CUDA) Support
-- 🌍 **Mehrsprachig**: Deutsch und Englisch
-- 🎨 **Modernes Dark Theme**: Professionelle, benutzerfreundliche Oberfläche
+- 🎵 **Multiple AI Models**: Mel-Band RoFormer, BS-RoFormer, MDX-Net, Demucs v4
+- 🎚️ **Ensemble Separation**: Combines multiple models for maximum quality
+- 🎤 **System Audio Recording**: Direct recording of system audio (macOS)
+- 🎧 **Stem Player**: Real-time mixing with individual volume control
+- ⚡ **GPU Acceleration**: Apple Silicon (MPS) and NVIDIA (CUDA) support
+- 🌍 **Multilingual**: German and English
+- 🎨 **Modern Dark Theme**: Professional, user-friendly interface
 
 ---
 
 ## 🚀 Features
 
-### Audio-Verarbeitung
-- **Audio-Datei Upload**: Drag & Drop oder Datei-Browser
-- **System Audio Recording**: Aufnahme von System-Audio (macOS mit BlackHole)
-- **Automatisches Chunking**: Große Dateien (>30min) werden automatisch in 5-Minuten-Chunks zerlegt
-- **Intelligente Fehlerbehandlung**: Automatischer Fallback auf CPU bei GPU-Problemen
+### Audio Processing
+- **Audio File Upload**: Drag & drop or file browser
+- **System Audio Recording**: Record system audio (macOS with BlackHole)
+- **Automatic Chunking**: Large files (>30min) automatically split into 5-minute chunks
+- **Intelligent Error Handling**: Automatic CPU fallback on GPU issues
 
-### Stem-Separation
-- **4-Stem-Modus**: Vocals, Drums, Bass, Other
-- **6-Stem-Modus**: Vocals, Drums, Bass, Piano, Guitar, Other
-- **2-Stem-Modus**: Vocals, Instrumental (für Karaoke)
+### Stem Separation
+- **4-Stem Mode**: Vocals, Drums, Bass, Other
+- **6-Stem Mode**: Vocals, Drums, Bass, Piano, Guitar, Other
+- **2-Stem Mode**: Vocals, Instrumental (for karaoke)
 
-### AI-Modelle
-- **Mel-Band RoFormer** (~100 MB): Beste Qualität für Vocal Separation
-- **BS-RoFormer** (~300 MB): Excellente Qualität, SDX23 Challenge Gewinner
-- **MDX-Net (Vocals/Inst)** (~110-120 MB): Spektrogramm CNN, stark für Vocals & Leads
-- **Demucs v4** (~240 MB): 6-Stem Separation, Sony MDX Challenge Gewinner
-- **Demucs v4 (4-stem)** (~160 MB): Schnelle 4-Stem Separation
+### AI Models
+- **Mel-Band RoFormer** (~100 MB): Best quality for vocal separation
+- **BS-RoFormer** (~300 MB): Excellent quality, SDX23 Challenge winner
+- **MDX-Net (Vocals/Inst)** (~110-120 MB): Spectrogram CNN, strong for vocals & leads
+- **Demucs v4** (~240 MB): 6-stem separation, Sony MDX Challenge winner
+- **Demucs v4 (4-stem)** (~160 MB): Fast 4-stem separation
 
-### Ensemble-Separation 🆕
-- **Balanced Ensemble**: BS-RoFormer + Demucs (2x langsamer, +0.5-0.7 dB SDR)
-- **Quality Ensemble**: Mel-RoFormer + BS-RoFormer + Demucs (3x langsamer, +0.8-1.0 dB SDR)
-- **Vocals Focus**: Mel-RoFormer + BS-RoFormer (optimal für Karaoke)
-- **MDX + Demucs (Vocal Focus)**: MDX-Net Vocals + Demucs (mask blend, weniger Artefakte)
+### Ensemble Separation 🆕
+- **Balanced Ensemble**: BS-RoFormer + Demucs (2x slower, +0.5-0.7 dB SDR)
+- **Quality Ensemble**: Mel-RoFormer + BS-RoFormer + Demucs (3x slower, +0.8-1.0 dB SDR)
+- **Vocals Focus**: Mel-RoFormer + BS-RoFormer (optimal for karaoke)
+- **MDX + Demucs (Vocal Focus)**: MDX-Net Vocals + Demucs (mask blend, fewer artifacts)
 
 ### Stem Player
-- **Live-Wiedergabe**: Echtzeit-Mixing separierter Stems
-- **Individuelle Kontrollen**: Lautstärke, Mute, Solo pro Stem
-- **Master-Volume**: Gesamt-Lautstärke-Kontrolle
-- **Position-Seeking**: Präzise Navigation durch das Audio
-- **Audio-Export**: Export gemischter Stems
+- **Live Playback**: Real-time mixing of separated stems
+- **Individual Controls**: Volume, mute, solo per stem
+- **Master Volume**: Overall volume control
+- **Position Seeking**: Precise navigation through audio
+- **Audio Export**: Export mixed stems
 
-### Weitere Features
-- **Queue-System**: Mehrere Dateien nacheinander verarbeiten
-- **Native macOS Integration**: Systemmenü, native Dialoge, macOS-Tastaturkürzel
-- **Modernes Dark Theme**: Professionelle UI mit Purple-Blue Accents
-- **Mehrsprachig**: Deutsch/Englisch mit vollständiger Übersetzung
+### Additional Features
+- **Queue System**: Process multiple files sequentially
+- **Native macOS Integration**: System menu, native dialogs, macOS keyboard shortcuts
+- **Modern Dark Theme**: Professional UI with purple-blue accents
+- **Multilingual**: German/English with full translation
 
 ---
 
-## 📋 Systemanforderungen
+## 📋 System Requirements
 
 ### Minimum
-- **Betriebssystem**: macOS 10.15 (Catalina) oder neuer
-- **Python**: 3.9+ (3.11 empfohlen)
+- **Operating System**: macOS 10.15 (Catalina) or newer
+- **Python**: 3.9+ (3.11 recommended)
 - **RAM**: 8 GB
-- **Speicherplatz**: ~1.5 GB für Modelle
+- **Storage**: ~1.5 GB for models
 
-### Empfohlen
-- **Betriebssystem**: macOS 11.0+ (Big Sur) für Apple Silicon
+### Recommended
+- **Operating System**: macOS 11.0+ (Big Sur) for Apple Silicon
 - **RAM**: 16 GB
-- **GPU**: Apple Silicon (M1/M2/M3) für MPS-Beschleunigung oder NVIDIA GPU für CUDA
+- **GPU**: Apple Silicon (M1/M2/M3) for MPS acceleration or NVIDIA GPU for CUDA
 
-### Optional (für System Audio Recording)
-- **BlackHole 2ch**: Virtuelles Audio-Device (wird automatisch installiert)
+### Optional (for System Audio Recording)
+- **BlackHole 2ch**: Virtual audio device (automatically installed)
 
 ---
 
 ## 💻 Installation
 
-### Option 1: Standalone macOS Application (Empfohlen für End-User)
+### Option 1: Standalone macOS Application (Recommended for End Users)
 
-**Keine Python-Installation erforderlich!** Lade eine vorgefertigte Anwendung herunter:
+**No Python installation required!** Download a pre-built application:
 
-1. Lade die passende DMG-Datei für deinen Mac herunter:
+1. Download the appropriate DMG file for your Mac:
    - **Intel Macs**: `StemSeparator-intel.dmg`
    - **Apple Silicon (M1/M2/M3)**: `StemSeparator-arm64.dmg`
 
-2. Öffne die DMG-Datei und ziehe "Stem Separator" in den Applications-Ordner
+2. Open the DMG file and drag "Stem Separator" to the Applications folder
 
-3. Starte die App (beim ersten Mal: Rechtsklick → "Öffnen" um Gatekeeper zu umgehen)
+3. Launch the app (first time: right-click → "Open" to bypass Gatekeeper)
 
-**Build-Anleitung:** Siehe [PACKAGING.md](PACKAGING.md) für Details zum Erstellen von App-Bundles.
+**Build Instructions:** See [docs/PACKAGING.md](docs/PACKAGING.md) for details on creating app bundles.
 
-### Option 2: Development Installation (Für Entwickler)
+### Option 2: Development Installation (For Developers)
 
-#### 1. Repository klonen
+#### 1. Clone Repository
 
 ```bash
 git clone https://github.com/MaurizioFratello/StemSeparator.git
 cd StemSeparator
 ```
 
-#### 2. Conda Environment erstellen
+#### 2. Create Conda Environment
 
 ```bash
-# Environment aus environment.yml erstellen
+# Create environment from environment.yml
 conda env create -f environment.yml
 
-# Environment aktivieren
+# Activate environment
 conda activate stem-separator
 ```
 
-**Alternative: Manuelle Installation mit Conda**
+**Alternative: Manual Installation with Conda**
 ```bash
-# Environment erstellen
+# Create environment
 conda create -n stem-separator python=3.11
 
-# Environment aktivieren
+# Activate environment
 conda activate stem-separator
 
-# Dependencies installieren
+# Install dependencies
 pip install -r requirements.txt
 ```
 
-#### 3. Modelle vorbereiten (optional)
+#### 3. Prepare Models (Optional)
 
-Die Modelle werden automatisch beim ersten Gebrauch heruntergeladen.
-Für manuelles Pre-Download:
+Models are automatically downloaded on first use.
+For manual pre-download:
 
 ```bash
 python -c "from core.model_manager import get_model_manager; get_model_manager().download_all_models()"
@@ -148,9 +148,9 @@ python -c "from core.model_manager import get_model_manager; get_model_manager()
 
 ---
 
-## 📖 Verwendung
+## 📖 Usage
 
-### App starten
+### Starting the App
 
 ```bash
 python main.py
@@ -158,72 +158,72 @@ python main.py
 
 ### Stem Separation
 
-1. Wählen Sie den **"Upload"** oder **"Recording"** Tab
-2. Laden Sie eine Audio-Datei (Drag & Drop) oder starten Sie eine Aufnahme
-3. Wählen Sie ein Modell:
-   - **Mel-RoFormer**: Beste Qualität für Vocals (empfohlen)
-   - **BS-RoFormer**: Excellente Qualität für alle Stems
-   - **Demucs v4**: 6-Stem Separation (Piano, Guitar)
-   - **Ensemble-Modi**: Maximale Qualität (langsamer)
-4. Klicken Sie auf **"Separate"**
-5. Stems werden automatisch gespeichert
+1. Select the **"Upload"** or **"Recording"** tab
+2. Load an audio file (drag & drop) or start a recording
+3. Choose a model:
+   - **Mel-RoFormer**: Best quality for vocals (recommended)
+   - **BS-RoFormer**: Excellent quality for all stems
+   - **Demucs v4**: 6-stem separation (piano, guitar)
+   - **Ensemble Modes**: Maximum quality (slower)
+4. Click **"Separate"**
+5. Stems are automatically saved
 
-### Ensemble-Separation
+### Ensemble Separation
 
-1. Wählen Sie **"Ensemble Mode"** im Upload-Widget
-2. Wählen Sie eine Ensemble-Konfiguration:
-   - **Balanced**: Beste Balance zwischen Qualität und Geschwindigkeit
-   - **Quality**: Maximale Qualität (langsamer)
-   - **Vocals Focus**: Optimal für Karaoke
-3. Starten Sie die Separation
+1. Select **"Ensemble Mode"** in the upload widget
+2. Choose an ensemble configuration:
+   - **Balanced**: Best balance between quality and speed
+   - **Quality**: Maximum quality (slower)
+   - **Vocals Focus**: Optimal for karaoke
+3. Start separation
 
 ### Stem Player
 
-1. Wechseln Sie zum **"Player"** Tab
-2. Laden Sie separierte Stems (per Verzeichnis oder einzelne Dateien)
-3. Nutzen Sie die Mixer-Kontrollen:
-   - **M**: Mute (Stem stumm schalten)
-   - **S**: Solo (nur diesen Stem hören)
-   - **Volume Slider**: Lautstärke pro Stem
-   - **Master Volume**: Gesamt-Lautstärke
-4. Playback-Kontrollen:
+1. Switch to the **"Player"** tab
+2. Load separated stems (by directory or individual files)
+3. Use mixer controls:
+   - **M**: Mute (silence stem)
+   - **S**: Solo (hear only this stem)
+   - **Volume Slider**: Volume per stem
+   - **Master Volume**: Overall volume
+4. Playback controls:
    - Play/Pause/Stop
-   - Position-Slider für Seeking
-   - Export gemischtes Audio
+   - Position slider for seeking
+   - Export mixed audio
 
 ### System Audio Recording
 
-1. Wechseln Sie zum **"Recording"** Tab
-2. Wählen Sie **"In: BlackHole 2ch"** als Eingabegerät
-3. Klicken Sie auf **"Start Recording"**
-4. Spielen Sie Audio auf Ihrem Mac ab
-5. Klicken Sie auf **"Stop & Save"** wenn fertig
-6. Die aufgenommene Datei kann direkt für Separation verwendet werden
+1. Switch to the **"Recording"** tab
+2. Select **"In: BlackHole 2ch"** as input device
+3. Click **"Start Recording"**
+4. Play audio on your Mac
+5. Click **"Stop & Save"** when finished
+6. The recorded file can be directly used for separation
 
 ---
 
-## 🏗️ Projektstruktur
+## 🏗️ Project Structure
 
 ```
 StemSeparator/
 ├── main.py                 # Entry point
-├── config.py               # Zentrale Konfiguration
+├── config.py               # Central configuration
 ├── requirements.txt        # Dependencies
 │
-├── core/                   # Business Logic
-│   ├── separator.py        # Stem Separation Engine
-│   ├── ensemble_separator.py # Ensemble Separation
-│   ├── recorder.py         # System Audio Recording
-│   ├── player.py           # Stem Player (sounddevice)
-│   ├── model_manager.py    # Model Management
-│   ├── chunk_processor.py  # Audio Chunking
-│   ├── device_manager.py   # GPU/CPU Detection
+├── core/                   # Business logic
+│   ├── separator.py        # Stem separation engine
+│   ├── ensemble_separator.py # Ensemble separation
+│   ├── recorder.py         # System audio recording
+│   ├── player.py           # Stem player (sounddevice)
+│   ├── model_manager.py    # Model management
+│   ├── chunk_processor.py  # Audio chunking
+│   ├── device_manager.py   # GPU/CPU detection
 │   └── blackhole_installer.py
 │
-├── ui/                     # GUI Components (PySide6)
-│   ├── main_window.py      # Main Window
-│   ├── app_context.py      # Singleton für Services
-│   ├── theme/              # Modern Dark Theme
+├── ui/                     # GUI components (PySide6)
+│   ├── main_window.py      # Main window
+│   ├── app_context.py      # Singleton for services
+│   ├── theme/              # Modern dark theme
 │   └── widgets/
 │       ├── upload_widget.py
 │       ├── recording_widget.py
@@ -231,71 +231,73 @@ StemSeparator/
 │       └── player_widget.py
 │
 ├── utils/                  # Utilities
-│   ├── logger.py           # Logging System
-│   ├── error_handler.py    # Error Handling & Retry
+│   ├── logger.py           # Logging system
+│   ├── error_handler.py    # Error handling & retry
 │   ├── i18n.py             # Internationalization
-│   └── file_manager.py     # File Operations
+│   └── file_manager.py     # File operations
 │
-├── tests/                  # Unit & Integration Tests
-│   ├── test_*.py           # Backend Tests
+├── tests/                  # Unit & integration tests
+│   ├── test_*.py           # Backend tests
 │   └── ui/
-│       └── test_*.py       # GUI Tests
+│       └── test_*.py       # GUI tests
 │
-├── docs/                   # Dokumentation
-│   ├── DEVELOPMENT.md      # Entwicklungsdokumentation
-│   ├── PROJECT_STATUS.md   # Projekt-Status
+├── docs/                   # Documentation
+│   ├── DEVELOPMENT.md      # Development documentation
+│   ├── PROJECT_STATUS.md   # Project status
 │   └── ...
 │
 └── resources/             # Resources
-    ├── translations/      # DE/EN Übersetzungen
-    ├── icons/            # UI Icons
-    └── models/           # Downloaded Models
+    ├── translations/      # DE/EN translations
+    ├── icons/            # UI icons
+    └── models/           # Downloaded models
 ```
 
 ---
 
-## ⚙️ Konfiguration
+## ⚙️ Configuration
 
-Die Hauptkonfiguration befindet sich in `config.py`:
+Main configuration is located in `config.py`:
 
-- **Chunk-Größe**: `CHUNK_LENGTH_SECONDS = 300` (5 Minuten)
-- **Standard-Modell**: `DEFAULT_MODEL = 'mel-roformer'`
-- **Standard-Ensemble**: `DEFAULT_ENSEMBLE_CONFIG = 'balanced'`
-- **GPU-Nutzung**: `USE_GPU = True`
-- **Log-Level**: `LOG_LEVEL = "INFO"`
-- **Standard-Sprache**: `DEFAULT_LANGUAGE = "de"`
+- **Chunk Size**: `CHUNK_LENGTH_SECONDS = 300` (5 minutes)
+- **Default Model**: `DEFAULT_MODEL = 'mel-roformer'`
+- **Default Ensemble**: `DEFAULT_ENSEMBLE_CONFIG = 'balanced'`
+- **GPU Usage**: `USE_GPU = True`
+- **Log Level**: `LOG_LEVEL = "INFO"`
+- **Default Language**: `DEFAULT_LANGUAGE = "de"`
 - **Sample Rate**: `RECORDING_SAMPLE_RATE = 44100`
 
 ---
 
-## 🧪 Tests ausführen
+## 🧪 Running Tests
 
 ```bash
-# Alle Tests
+# All tests
 pytest
 
-# Mit Coverage-Report
+# With coverage report
 pytest --cov
 
-# Nur Unit Tests
+# Only unit tests
 pytest -m unit
 
-# Nur bestimmte Tests
+# Only specific tests
 pytest tests/test_player.py
 
-# GUI Tests
+# GUI tests
 pytest tests/ui/
 ```
 
 ---
 
-## 📚 Dokumentation
+## 📚 Documentation
 
-- **[DEVELOPMENT.md](docs/DEVELOPMENT.md)**: Technische Entwicklungsdokumentation
-- **[PROJECT_STATUS.md](docs/PROJECT_STATUS.md)**: Aktueller Projekt-Status
-- **[ENSEMBLE_FEATURE.md](docs/ENSEMBLE_FEATURE.md)**: Ensemble-Separation Feature
-- **[PACKAGING.md](PACKAGING.md)**: Packaging-Anleitung
-- **[INSTALL_CONDA.md](INSTALL_CONDA.md)**: Detaillierte Conda-Installation
+- **[docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)**: Technical development documentation
+- **[docs/PROJECT_STATUS.md](docs/PROJECT_STATUS.md)**: Current project status
+- **[docs/ENSEMBLE_FEATURE.md](docs/ENSEMBLE_FEATURE.md)**: Ensemble separation feature
+- **[docs/PACKAGING.md](docs/PACKAGING.md)**: Packaging guide
+- **[docs/INSTALL_CONDA.md](docs/INSTALL_CONDA.md)**: Detailed Conda installation
+- **[CONTRIBUTING.md](CONTRIBUTING.md)**: Contribution guidelines
+- **[CHANGELOG.md](CHANGELOG.md)**: Version history
 
 ---
 
@@ -305,104 +307,103 @@ pytest tests/ui/
 ```bash
 brew install blackhole-2ch
 ```
-Die App kann BlackHole auch automatisch installieren.
+The app can also install BlackHole automatically.
 
 ### "GPU out of memory"
-Die App wechselt automatisch zu CPU-Modus. Alternativ:
-- Kleinere Audio-Dateien verwenden
-- Andere Anwendungen schließen
-- Chunk-Größe in `config.py` reduzieren
+The app automatically switches to CPU mode. Alternatively:
+- Use smaller audio files
+- Close other applications
+- Reduce chunk size in `config.py`
 
 ### "Model download failed"
-Manueller Download:
+Manual download:
 ```bash
 python -c "from core.model_manager import get_model_manager; get_model_manager().download_model('mel-roformer')"
 ```
 
-### Kein Audio bei Stem-Wiedergabe
-Stellen Sie sicher, dass:
-- `sounddevice` installiert ist: `pip install sounddevice`
-- Das richtige Audio-Gerät in macOS Systemeinstellungen ausgewählt ist
-- Die Lautsprecher nicht stumm geschaltet sind
+### No audio during stem playback
+Ensure that:
+- `sounddevice` is installed: `pip install sounddevice`
+- The correct audio device is selected in macOS system settings
+- Speakers are not muted
 
-### Logs prüfen
-Logs werden gespeichert in `logs/app.log` mit automatischer Rotation:
-- **DEBUG**: Detaillierte Debug-Informationen
-- **INFO**: Normale Operationen (Standard)
-- **WARNING**: Warnungen ohne Funktionsverlust
-- **ERROR**: Fehler mit Stack-Traces
+### Check Logs
+Logs are saved in `logs/app.log` with automatic rotation:
+- **DEBUG**: Detailed debug information
+- **INFO**: Normal operations (default)
+- **WARNING**: Warnings without loss of functionality
+- **ERROR**: Errors with stack traces
 
-Log-Level kann in `config.py` angepasst werden.
+Log level can be adjusted in `config.py`.
 
 ---
 
-## 🎓 Entwicklung
+## 🎓 Development
 
-### Code-Style
+### Code Style
 ```bash
 black .
 flake8 .
 ```
 
-### Tests hinzufügen
-Neue Tests in `tests/` Verzeichnis erstellen mit Präfix `test_`.
+### Adding Tests
+Create new tests in the `tests/` directory with `test_` prefix.
 
 **Best Practices:**
-- Unit Tests für isolierte Komponenten
-- Integration Tests für UI-Komponenten
-- Mock externe Dependencies (Audio-Devices, File I/O)
+- Unit tests for isolated components
+- Integration tests for UI components
+- Mock external dependencies (audio devices, file I/O)
 
-### Neue Übersetzungen
-Keys in `resources/translations/de.json` und `en.json` hinzufügen.
+### New Translations
+Add keys to `resources/translations/de.json` and `en.json`.
 
 ---
 
 ## 📝 Changelog
 
-### v1.0.0 (November 2025)
-- ✅ Ensemble-Separation Feature (Balanced, Quality, Vocals Focus)
-- ✅ Modernes Dark Theme mit Purple-Blue Accents
-- ✅ Native macOS Integration (Systemmenü, native Dialoge)
-- ✅ Migration von rtmixer zu sounddevice für Stem Player
-- ✅ Behebung von Deadlocks beim Stop/Pause
-- ✅ Verbesserte Fehlerbehandlung mit detaillierten Meldungen
-- ✅ Umfassende Tests für alle Komponenten
-- ✅ Vollständige Dokumentation
+See [CHANGELOG.md](CHANGELOG.md) for detailed version history.
 
-### v1.0.0-rc1 (November 2025)
-- Initiale Release Candidate
-- Alle Basis-Features implementiert
-- Umfassende Test-Coverage
+### v1.0.0 (December 2024)
+- ✅ Ensemble separation feature (Balanced, Quality, Vocals Focus)
+- ✅ Modern dark theme with purple-blue accents
+- ✅ Native macOS integration (system menu, native dialogs)
+- ✅ Migration from rtmixer to sounddevice for stem player
+- ✅ Fixed deadlocks on stop/pause
+- ✅ Improved error handling with detailed messages
+- ✅ Comprehensive tests for all components
+- ✅ Complete documentation
 
 ---
 
 ## 🗺️ Roadmap
 
-- [ ] Windows/Linux Support für System Audio Recording
-- [ ] Weitere Modelle (MDX-Net, VR Architecture, etc.)
-- [ ] Batch-Export-Funktionalität
-- [ ] Real-time Preview während Verarbeitung
-- [ ] Custom Model Training Interface
-- [ ] VST/AU Plugin Version
-- [ ] Cloud-basierte Verarbeitung (optional)
-- [ ] Mobile App (iOS/Android)
+- [ ] Windows/Linux support for system audio recording
+- [ ] Additional models (MDX-Net variations, VR Architecture, etc.)
+- [ ] Batch export functionality
+- [ ] Real-time preview during processing
+- [ ] Custom model training interface
+- [ ] VST/AU plugin version
+- [ ] Cloud-based processing (optional)
+- [ ] Mobile app (iOS/Android)
 
 ---
 
-## 📄 Lizenz
+## 📄 License
 
-Dieses Projekt verwendet Open-Source-Modelle:
+This project uses open source models:
 - **Mel-Band RoFormer**: Open Source
 - **BS-RoFormer**: Open Source
 - **Demucs**: MIT License
 - **sounddevice**: MIT License
 - **PySide6**: LGPL License
 
+See [LICENSE](LICENSE) file for details.
+
 ---
 
 ## 🙏 Credits
 
-- **audio-separator**: Python-Bibliothek für Stem Separation
+- **audio-separator**: Python library for stem separation
 - **Demucs**: Facebook Research (Meta AI)
 - **BS-RoFormer**: ByteDance AI Lab
 - **Mel-Band RoFormer**: Music Source Separation Community
@@ -414,21 +415,28 @@ Dieses Projekt verwendet Open-Source-Modelle:
 
 ## 💬 Support
 
-Bei Problemen:
-1. Logs in `logs/app.log` prüfen
-2. [Issue auf GitHub erstellen](https://github.com/MaurizioFratello/StemSeparator/issues) mit:
-   - Fehlerbeschreibung
-   - Relevante Log-Auszüge
-   - System-Informationen (OS, Python-Version)
-3. Debugging mit `LOG_LEVEL = "DEBUG"` in config.py
+For issues:
+1. Check logs in `logs/app.log`
+2. [Create an issue on GitHub](https://github.com/MaurizioFratello/StemSeparator/issues) with:
+   - Error description
+   - Relevant log excerpts
+   - System information (OS, Python version)
+3. Debug with `LOG_LEVEL = "DEBUG"` in config.py
+
+---
+
+## 🌍 Languages
+
+- [English](README.md) (this file)
+- [Deutsch](README.de.md)
 
 ---
 
 <div align="center">
 
-**Version**: 1.0.0  
-**Entwickelt mit**: Python, PySide6, PyTorch, sounddevice, audio-separator  
-**Maintainer**: Moritz Bruder  
+**Version**: 1.0.0
+**Built with**: Python, PySide6, PyTorch, sounddevice, audio-separator
+**Maintainer**: Moritz Bruder
 **Repository**: [https://github.com/MaurizioFratello/StemSeparator](https://github.com/MaurizioFratello/StemSeparator)
 
 Made with ❤️ for the music community
