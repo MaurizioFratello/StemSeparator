@@ -1,6 +1,7 @@
 """
 System Audio Recorder mit BlackHole Support (macOS)
 """
+
 from pathlib import Path
 from typing import Optional, Callable, List
 from dataclasses import dataclass
@@ -10,12 +11,7 @@ import numpy as np
 import soundfile as sf
 import threading
 
-from config import (
-    RECORDING_SAMPLE_RATE,
-    RECORDING_CHANNELS,
-    RECORDING_FORMAT,
-    TEMP_DIR
-)
+from config import RECORDING_SAMPLE_RATE, RECORDING_CHANNELS, RECORDING_FORMAT, TEMP_DIR
 from utils.logger import get_logger
 from utils.error_handler import error_handler
 from utils.audio_processing import trim_leading_silence
@@ -25,6 +21,7 @@ logger = get_logger()
 
 class RecordingBackend(Enum):
     """Recording Backend Options"""
+
     SCREENCAPTURE_KIT = "screencapture_kit"  # macOS 13+ native ScreenCaptureKit
     BLACKHOLE = "blackhole"  # BlackHole virtual audio driver
     AUTO = "auto"  # Auto-select best available
@@ -32,6 +29,7 @@ class RecordingBackend(Enum):
 
 class RecordingState(Enum):
     """Recording States"""
+
     IDLE = "idle"
     RECORDING = "recording"
     PAUSED = "paused"
@@ -41,12 +39,15 @@ class RecordingState(Enum):
 @dataclass
 class RecordingInfo:
     """Informationen über eine Aufnahme"""
+
     duration_seconds: float
     sample_rate: int
     channels: int
     file_path: Optional[Path] = None
     peak_level: float = 0.0  # Peak audio level (0.0 - 1.0)
-    trimmed_silence_duration: float = 0.0  # Duration of silence trimmed from start (seconds)
+    trimmed_silence_duration: float = (
+        0.0  # Duration of silence trimmed from start (seconds)
+    )
 
 
 class Recorder:
@@ -77,16 +78,16 @@ class Recorder:
         # Level Meter Ballistics (professional audio meter behavior)
         # Attack time: how quickly meter responds to increasing signal (300ms = VU meter standard)
         # Release time: how quickly meter falls when signal decreases (600ms for smooth, pleasant decay)
-        self.attack_time_ms = 300.0   # Fast response to peaks
+        self.attack_time_ms = 300.0  # Fast response to peaks
         self.release_time_ms = 600.0  # Slower, smoother decay
-        self.current_level = 0.0      # Current smoothed level (0.0-1.0)
+        self.current_level = 0.0  # Current smoothed level (0.0-1.0)
 
         # Display range for dBFS scale
         # Professional meters typically show -60 dBFS to 0 dBFS
         # -60 dBFS is very quiet (digital silence threshold)
         # 0 dBFS is digital full scale (clipping point)
         self.db_range_min = -60.0  # Bottom of meter
-        self.db_range_max = 0.0    # Top of meter (clipping)
+        self.db_range_max = 0.0  # Top of meter (clipping)
 
         # Backend selection
         self.backend = backend
@@ -113,17 +114,21 @@ class Recorder:
         """Importiert SoundCard Library"""
         try:
             import soundcard as sc
+
             self._soundcard = sc
             self.logger.info("SoundCard library loaded")
             return True
         except ImportError:
-            self.logger.warning("SoundCard not installed. BlackHole backend will not be available.")
+            self.logger.warning(
+                "SoundCard not installed. BlackHole backend will not be available."
+            )
             return False
 
     def _import_screencapture(self) -> bool:
         """Import ScreenCaptureKit wrapper"""
         try:
             from core.screencapture_recorder import ScreenCaptureRecorder
+
             self._screencapture = ScreenCaptureRecorder()
             info = self._screencapture.is_available()
             if info.available:
@@ -141,14 +146,18 @@ class Recorder:
         # Prefer ScreenCaptureKit on macOS 13+ (no driver installation needed)
         if self._screencapture and self._screencapture.is_available().available:
             self._selected_backend = RecordingBackend.SCREENCAPTURE_KIT
-            self.logger.info("Auto-selected ScreenCaptureKit backend (native macOS 13+)")
+            self.logger.info(
+                "Auto-selected ScreenCaptureKit backend (native macOS 13+)"
+            )
         elif self._soundcard and self.find_blackhole_device():
             self._selected_backend = RecordingBackend.BLACKHOLE
             self.logger.info("Auto-selected BlackHole backend")
         elif self._soundcard:
             # SoundCard available but no BlackHole - still use it for other devices
             self._selected_backend = RecordingBackend.BLACKHOLE
-            self.logger.warning("BlackHole not found, but SoundCard available for other devices")
+            self.logger.warning(
+                "BlackHole not found, but SoundCard available for other devices"
+            )
         else:
             self._selected_backend = None
             self.logger.error("No recording backend available")
@@ -193,7 +202,7 @@ class Recorder:
             microphones = self._soundcard.all_microphones()
 
             for mic in microphones:
-                if 'blackhole' in mic.name.lower():
+                if "blackhole" in mic.name.lower():
                     self.logger.info(f"Found BlackHole device: {mic.name}")
                     return mic
 
@@ -207,7 +216,7 @@ class Recorder:
     def start_recording(
         self,
         device_name: Optional[str] = None,
-        level_callback: Optional[Callable[[float], None]] = None
+        level_callback: Optional[Callable[[float], None]] = None,
     ) -> bool:
         """
         Startet Aufnahme
@@ -229,7 +238,10 @@ class Recorder:
             self.stop_monitoring()
 
         # If device_name is None, use the selected backend
-        if device_name is None and self._selected_backend == RecordingBackend.SCREENCAPTURE_KIT:
+        if (
+            device_name is None
+            and self._selected_backend == RecordingBackend.SCREENCAPTURE_KIT
+        ):
             # Use ScreenCaptureKit
             if not self._screencapture:
                 self.logger.error("ScreenCaptureKit not available")
@@ -249,7 +261,11 @@ class Recorder:
             # Suche spezifisches Device
             device = None
             for mic in self._soundcard.all_microphones():
-                if device_name == mic.name or device_name in mic.name or mic.name in device_name:
+                if (
+                    device_name == mic.name
+                    or device_name in mic.name
+                    or mic.name in device_name
+                ):
                     device = mic
                     self.logger.info(f"Found matching device: {mic.name}")
                     break
@@ -262,7 +278,9 @@ class Recorder:
             # Debug: Liste alle verfügbaren Microphones
             try:
                 all_mics = self._soundcard.all_microphones()
-                self.logger.error(f"Available microphones: {[mic.name for mic in all_mics]}")
+                self.logger.error(
+                    f"Available microphones: {[mic.name for mic in all_mics]}"
+                )
             except:
                 pass
             return False
@@ -278,15 +296,15 @@ class Recorder:
 
         # Starte Recording Thread
         self.recording_thread = threading.Thread(
-            target=self._record_loop,
-            args=(device,),
-            daemon=True
+            target=self._record_loop, args=(device,), daemon=True
         )
         self.recording_thread.start()
 
         return True
 
-    def _start_screencapture_recording(self, level_callback: Optional[Callable[[float], None]]) -> bool:
+    def _start_screencapture_recording(
+        self, level_callback: Optional[Callable[[float], None]]
+    ) -> bool:
         """
         Start recording using ScreenCaptureKit
 
@@ -320,8 +338,7 @@ class Recorder:
 
         # Start level monitoring thread
         self.recording_thread = threading.Thread(
-            target=self._screencapture_monitor_loop,
-            daemon=True
+            target=self._screencapture_monitor_loop, daemon=True
         )
         self.recording_thread.start()
 
@@ -330,7 +347,7 @@ class Recorder:
     def get_current_level(self) -> float:
         """
         Get current audio level (0.0-1.0)
-        
+
         Returns:
             Current smoothed level
         """
@@ -343,10 +360,13 @@ class Recorder:
         self.logger.info("Starting ScreenCaptureKit monitor loop")
         last_log_time = 0
         last_update_time = time.time()
-        
+
         while self.state == RecordingState.RECORDING:
             # Level update from growing file
-            if self._screencapture_output_path and self._screencapture_output_path.exists():
+            if (
+                self._screencapture_output_path
+                and self._screencapture_output_path.exists()
+            ):
                 try:
                     # Read raw bytes from the growing file (skip WAV header parsing which fails on incomplete files)
                     # Format: Float32 (4 bytes), Stereo (2 channels) -> 8 bytes per frame
@@ -354,19 +374,21 @@ class Recorder:
                     bytes_per_frame = 8
                     frames_needed = int(48000 * 0.1)  # Last 100ms
                     bytes_needed = frames_needed * bytes_per_frame
-                    
+
                     file_size = self._screencapture_output_path.stat().st_size
-                    
+
                     current_time = time.time()
-                    
+
                     # Log file size periodically (debug)
                     if current_time - last_log_time > 2.0:
-                        self.logger.debug(f"Monitor: File size {file_size} bytes, Path: {self._screencapture_output_path}")
+                        self.logger.debug(
+                            f"Monitor: File size {file_size} bytes, Path: {self._screencapture_output_path}"
+                        )
                         last_log_time = current_time
-                    
+
                     # WAV header is typically 44 bytes
                     if file_size > 44:
-                        with open(self._screencapture_output_path, 'rb') as f:
+                        with open(self._screencapture_output_path, "rb") as f:
                             # Determine where to seek
                             if file_size - 44 < bytes_needed:
                                 # File is smaller than window, read what we have
@@ -374,17 +396,19 @@ class Recorder:
                             else:
                                 # Seek to end minus window
                                 f.seek(max(44, file_size - bytes_needed))
-                            
+
                             raw_data = f.read()
-                            
+
                             if raw_data:
                                 # Convert to numpy array
                                 try:
-                                    audio_data = np.frombuffer(raw_data, dtype=np.float32)
-                                    
+                                    audio_data = np.frombuffer(
+                                        raw_data, dtype=np.float32
+                                    )
+
                                     if len(audio_data) > 0:
                                         # Calculate RMS
-                                        rms = np.sqrt(np.mean(audio_data ** 2))
+                                        rms = np.sqrt(np.mean(audio_data**2))
                                         dbfs = self._rms_to_dbfs(rms)
                                         level = self._dbfs_to_display(dbfs)
 
@@ -393,26 +417,34 @@ class Recorder:
                                         last_update_time = current_time
 
                                         # Update level with ballistics
-                                        self.current_level = float(self._apply_ballistics(level, dt))
-                                        
+                                        self.current_level = float(
+                                            self._apply_ballistics(level, dt)
+                                        )
+
                                         # Call callback
                                         if self.level_callback:
                                             try:
                                                 self.level_callback(self.current_level)
                                             except Exception as e:
-                                                self.logger.error(f"Error in level callback: {e}")
+                                                self.logger.error(
+                                                    f"Error in level callback: {e}"
+                                                )
                                 except Exception as e:
                                     self.logger.error(f"Monitor conversion error: {e}")
                 except Exception as e:
                     self.logger.error(f"Monitor error: {e}")
             else:
                 if time.time() - last_log_time > 2.0:
-                     self.logger.warning(f"Monitor: Output file not found or path not set: {self._screencapture_output_path}")
-                     last_log_time = time.time()
+                    self.logger.warning(
+                        f"Monitor: Output file not found or path not set: {self._screencapture_output_path}"
+                    )
+                    last_log_time = time.time()
 
             time.sleep(0.1)  # Update every 100ms
 
-    def _stop_screencapture_recording(self, save_path: Optional[Path] = None) -> Optional[RecordingInfo]:
+    def _stop_screencapture_recording(
+        self, save_path: Optional[Path] = None
+    ) -> Optional[RecordingInfo]:
         """
         Stop ScreenCaptureKit recording and save file
 
@@ -438,7 +470,9 @@ class Recorder:
 
             # Check if file has any data
             if len(data) == 0:
-                self.logger.error("ScreenCaptureKit recording is empty - no audio samples captured")
+                self.logger.error(
+                    "ScreenCaptureKit recording is empty - no audio samples captured"
+                )
                 self.logger.error("Possible causes:")
                 self.logger.error("  - Screen Recording permission not granted")
                 self.logger.error("  - No audio was playing during recording")
@@ -447,10 +481,7 @@ class Recorder:
 
             # Trim leading silence (automatic for recordings)
             data, trimmed_duration = trim_leading_silence(
-                data,
-                sr,
-                threshold_db=-40.0,
-                min_silence_duration=0.5
+                data, sr, threshold_db=-40.0, min_silence_duration=0.5
             )
 
             duration = len(data) / sr
@@ -487,11 +518,13 @@ class Recorder:
                 channels=data.shape[1] if data.ndim > 1 else 1,
                 file_path=final_path,
                 peak_level=peak_level,
-                trimmed_silence_duration=trimmed_duration
+                trimmed_silence_duration=trimmed_duration,
             )
 
         except Exception as e:
-            self.logger.error(f"Error saving ScreenCaptureKit recording: {e}", exc_info=True)
+            self.logger.error(
+                f"Error saving ScreenCaptureKit recording: {e}", exc_info=True
+            )
             return None
 
     def _rms_to_dbfs(self, rms: float) -> float:
@@ -564,7 +597,9 @@ class Recorder:
         alpha = 1.0 - np.exp(-dt_seconds / time_constant_s)
 
         # Apply exponential smoothing
-        self.current_level = self.current_level + alpha * (target_level - self.current_level)
+        self.current_level = self.current_level + alpha * (
+            target_level - self.current_level
+        )
 
         return self.current_level
 
@@ -578,7 +613,9 @@ class Recorder:
             # Update level meter every ~50ms (20 Hz) for smooth visual feedback
             # Too fast = flickering, too slow = laggy response
             update_interval = 0.05  # 50ms
-            blocks_per_update = max(1, int((update_interval * self.sample_rate) / blocksize))
+            blocks_per_update = max(
+                1, int((update_interval * self.sample_rate) / blocksize)
+            )
 
             self.logger.debug(
                 f"Recording with blocksize={blocksize}, "
@@ -587,9 +624,7 @@ class Recorder:
             )
 
             with device.recorder(
-                samplerate=self.sample_rate,
-                channels=self.channels,
-                blocksize=blocksize
+                samplerate=self.sample_rate, channels=self.channels, blocksize=blocksize
             ) as recorder:
 
                 block_counter = 0
@@ -672,8 +707,7 @@ class Recorder:
         return True
 
     def stop_recording(
-        self,
-        save_path: Optional[Path] = None
+        self, save_path: Optional[Path] = None
     ) -> Optional[RecordingInfo]:
         """
         Stoppt Aufnahme und speichert
@@ -691,7 +725,10 @@ class Recorder:
         self.logger.info("Stopping recording...")
 
         # Check if using ScreenCaptureKit
-        if self._selected_backend == RecordingBackend.SCREENCAPTURE_KIT and self._screencapture_output_path:
+        if (
+            self._selected_backend == RecordingBackend.SCREENCAPTURE_KIT
+            and self._screencapture_output_path
+        ):
             return self._stop_screencapture_recording(save_path)
 
         # Otherwise use SoundCard/BlackHole logic
@@ -717,15 +754,14 @@ class Recorder:
                 audio_data,
                 self.sample_rate,
                 threshold_db=-40.0,
-                min_silence_duration=0.5
+                min_silence_duration=0.5,
             )
 
             duration = len(audio_data) / self.sample_rate
             peak_level = float(np.max(np.abs(audio_data)))
 
             self.logger.info(
-                f"Recorded {duration:.1f}s, "
-                f"peak level: {peak_level:.2f}"
+                f"Recorded {duration:.1f}s, " f"peak level: {peak_level:.2f}"
             )
 
             # Speichere wenn Pfad angegeben
@@ -733,11 +769,7 @@ class Recorder:
                 save_path = Path(save_path)
                 save_path.parent.mkdir(parents=True, exist_ok=True)
 
-                sf.write(
-                    str(save_path),
-                    audio_data,
-                    self.sample_rate
-                )
+                sf.write(str(save_path), audio_data, self.sample_rate)
 
                 self.logger.info(f"Recording saved to: {save_path}")
 
@@ -747,11 +779,7 @@ class Recorder:
                 save_path = TEMP_DIR / f"recording_{timestamp}.wav"
                 save_path.parent.mkdir(parents=True, exist_ok=True)
 
-                sf.write(
-                    str(save_path),
-                    audio_data,
-                    self.sample_rate
-                )
+                sf.write(str(save_path), audio_data, self.sample_rate)
 
                 self.logger.info(f"Recording saved to temp: {save_path}")
 
@@ -765,7 +793,7 @@ class Recorder:
                 channels=self.channels,
                 file_path=save_path,
                 peak_level=peak_level,
-                trimmed_silence_duration=trimmed_duration
+                trimmed_silence_duration=trimmed_duration,
             )
 
         except Exception as e:
@@ -806,18 +834,28 @@ class Recorder:
             # ScreenCaptureKit Cleanup
             # WHY: ScreenCaptureKit subprocess must be stopped explicitly,
             # otherwise it keeps running and blocks subsequent recordings
-            if self._selected_backend == RecordingBackend.SCREENCAPTURE_KIT and self._screencapture:
-                self.logger.info("Stopping ScreenCaptureKit process due to cancellation")
+            if (
+                self._selected_backend == RecordingBackend.SCREENCAPTURE_KIT
+                and self._screencapture
+            ):
+                self.logger.info(
+                    "Stopping ScreenCaptureKit process due to cancellation"
+                )
                 self._screencapture.stop_recording()
-                
+
                 # Clean up temp file
-                if self._screencapture_output_path and self._screencapture_output_path.exists():
+                if (
+                    self._screencapture_output_path
+                    and self._screencapture_output_path.exists()
+                ):
                     try:
                         self._screencapture_output_path.unlink()
-                        self.logger.info(f"Deleted temp file: {self._screencapture_output_path}")
+                        self.logger.info(
+                            f"Deleted temp file: {self._screencapture_output_path}"
+                        )
                     except Exception as e:
                         self.logger.warning(f"Failed to delete temp file: {e}")
-                
+
                 self._screencapture_output_path = None
 
             # Stoppe Thread
@@ -835,7 +873,7 @@ class Recorder:
     def start_monitoring(
         self,
         device_name: Optional[str] = None,
-        level_callback: Optional[Callable[[float], None]] = None
+        level_callback: Optional[Callable[[float], None]] = None,
     ) -> bool:
         """
         Start live audio monitoring (level metering without recording)
@@ -867,7 +905,11 @@ class Recorder:
 
             device = None
             for mic in self._soundcard.all_microphones():
-                if device_name == mic.name or device_name in mic.name or mic.name in device_name:
+                if (
+                    device_name == mic.name
+                    or device_name in mic.name
+                    or mic.name in device_name
+                ):
                     device = mic
                     self.logger.info(f"Found matching device: {mic.name}")
                     break
@@ -889,9 +931,7 @@ class Recorder:
 
         # Start monitoring thread
         self.monitoring_thread = threading.Thread(
-            target=self._monitoring_loop,
-            args=(device,),
-            daemon=True
+            target=self._monitoring_loop, args=(device,), daemon=True
         )
         self.monitoring_thread.start()
 
@@ -931,7 +971,9 @@ class Recorder:
         try:
             blocksize = 512
             update_interval = 0.05  # 50ms
-            blocks_per_update = max(1, int((update_interval * self.sample_rate) / blocksize))
+            blocks_per_update = max(
+                1, int((update_interval * self.sample_rate) / blocksize)
+            )
 
             self.logger.debug(
                 f"Monitoring with blocksize={blocksize}, "
@@ -939,9 +981,7 @@ class Recorder:
             )
 
             with device.recorder(
-                samplerate=self.sample_rate,
-                channels=self.channels,
-                blocksize=blocksize
+                samplerate=self.sample_rate, channels=self.channels, blocksize=blocksize
             ) as recorder:
 
                 block_counter = 0
@@ -994,9 +1034,11 @@ class Recorder:
             Dictionary with backend info
         """
         return {
-            'backend': self._selected_backend.value if self._selected_backend else None,
-            'screencapture_available': self._screencapture is not None and self._screencapture.is_available().available,
-            'blackhole_available': self._soundcard is not None and self.find_blackhole_device() is not None,
+            "backend": self._selected_backend.value if self._selected_backend else None,
+            "screencapture_available": self._screencapture is not None
+            and self._screencapture.is_available().available,
+            "blackhole_available": self._soundcard is not None
+            and self.find_blackhole_device() is not None,
         }
 
 

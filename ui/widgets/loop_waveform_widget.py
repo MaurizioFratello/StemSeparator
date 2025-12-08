@@ -10,13 +10,21 @@ ARCHITECTURE:
 
 SCROLLING: Shows 16 bars at a time with horizontal scrollbar for long songs
 """
+
 from pathlib import Path
 from typing import Optional, List, Tuple, Dict, Union
 import numpy as np
 
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFrame, QButtonGroup, QPushButton,
-    QScrollArea, QSizePolicy
+    QWidget,
+    QVBoxLayout,
+    QHBoxLayout,
+    QLabel,
+    QFrame,
+    QButtonGroup,
+    QPushButton,
+    QScrollArea,
+    QSizePolicy,
 )
 from PySide6.QtCore import Qt, Signal, QRectF, QPointF, QPoint
 from PySide6.QtGui import QPainter, QPen, QColor, QPixmap, QLinearGradient, QFont
@@ -26,8 +34,8 @@ from ui.theme import ColorPalette
 
 
 # Display constants
-DEFAULT_VISIBLE_BARS = 16    # Default number of bars visible without scrolling
-MIN_PIXELS_PER_BAR = 40      # Minimum width per bar for readability
+DEFAULT_VISIBLE_BARS = 16  # Default number of bars visible without scrolling
+MIN_PIXELS_PER_BAR = 40  # Minimum width per bar for readability
 
 
 class LoopWaveformDisplay(QWidget):
@@ -49,7 +57,9 @@ class LoopWaveformDisplay(QWidget):
     song_start_marker_requested = Signal(int)  # downbeat_index
 
     # Manual downbeat signals
-    manual_downbeat_placed = Signal(float, str)  # time in seconds, stem_name (empty string if None)
+    manual_downbeat_placed = Signal(
+        float, str
+    )  # time in seconds, stem_name (empty string if None)
     manual_downbeat_moved = Signal(int, float)  # index, new_time
     manual_downbeat_cleared = Signal()
 
@@ -59,13 +69,19 @@ class LoopWaveformDisplay(QWidget):
 
         # Waveform data
         self.waveform_data: Optional[np.ndarray] = None  # Combined mode: (samples,)
-        self.stem_waveforms: Dict[str, np.ndarray] = {}  # Stacked mode: {stem_name: (samples,)}
+        self.stem_waveforms: Dict[str, np.ndarray] = (
+            {}
+        )  # Stacked mode: {stem_name: (samples,)}
         self.sample_rate: int = 44100
         self.duration: float = 0.0
 
         # Loop and beat data
-        self.loop_segments: List[Tuple[float, float]] = []  # [(start_sec, end_sec), ...]
-        self.beat_times: Optional[np.ndarray] = None  # Array of beat positions in seconds
+        self.loop_segments: List[Tuple[float, float]] = (
+            []
+        )  # [(start_sec, end_sec), ...]
+        self.beat_times: Optional[np.ndarray] = (
+            None  # Array of beat positions in seconds
+        )
         self.downbeat_times: Optional[np.ndarray] = None  # Array of downbeat positions
 
         # Display mode
@@ -79,8 +95,12 @@ class LoopWaveformDisplay(QWidget):
 
         # Manual downbeat placement mode
         self.manual_placement_mode: bool = False
-        self.manual_downbeat_time: Optional[float] = None  # Single user-placed downbeat for entire audio file
-        self.transient_times: Union[np.ndarray, Dict[str, np.ndarray], None] = None  # For snap-to-transient (mixed or per-stem)
+        self.manual_downbeat_time: Optional[float] = (
+            None  # Single user-placed downbeat for entire audio file
+        )
+        self.transient_times: Union[np.ndarray, Dict[str, np.ndarray], None] = (
+            None  # For snap-to-transient (mixed or per-stem)
+        )
 
         # Drag state
         self._dragging_downbeat_index: Optional[int] = None
@@ -106,7 +126,7 @@ class LoopWaveformDisplay(QWidget):
     def _calculate_bar_duration(self):
         """
         Calculate average bar duration from downbeat times.
-        
+
         WHY: Bar duration is needed to determine content width for scrolling.
         """
         if self.downbeat_times is not None and len(self.downbeat_times) >= 2:
@@ -124,7 +144,7 @@ class LoopWaveformDisplay(QWidget):
     def _calculate_content_width(self):
         """
         Calculate total content width based on song duration, bar duration, and visible bars setting.
-        
+
         WHY: More visible bars = less detail but more overview
              Fewer visible bars = more detail but more scrolling
         """
@@ -133,7 +153,9 @@ class LoopWaveformDisplay(QWidget):
             return
 
         # Calculate pixels per bar based on viewport width and visible bars setting
-        pixels_per_bar = max(MIN_PIXELS_PER_BAR, self._viewport_width / self._visible_bars)
+        pixels_per_bar = max(
+            MIN_PIXELS_PER_BAR, self._viewport_width / self._visible_bars
+        )
 
         # Calculate total bars in song
         num_bars = self.duration / self._bar_duration
@@ -148,7 +170,7 @@ class LoopWaveformDisplay(QWidget):
     def set_visible_bars(self, num_bars: int):
         """
         Set number of bars visible in viewport without scrolling.
-        
+
         Args:
             num_bars: Number of bars to show (typically 2, 4, 8, or 16)
         """
@@ -176,7 +198,9 @@ class LoopWaveformDisplay(QWidget):
             return 0.0
         return (x / self._content_width) * self.duration
 
-    def set_combined_waveform(self, audio_data: np.ndarray, sample_rate: int, duration: Optional[float] = None):
+    def set_combined_waveform(
+        self, audio_data: np.ndarray, sample_rate: int, duration: Optional[float] = None
+    ):
         """
         Set waveform data for combined mode (all stems mixed)
 
@@ -209,7 +233,12 @@ class LoopWaveformDisplay(QWidget):
         self._waveform_cache = None
         self.update()
 
-    def set_stem_waveforms(self, stem_waveforms: Dict[str, np.ndarray], sample_rate: int, duration: Optional[float] = None):
+    def set_stem_waveforms(
+        self,
+        stem_waveforms: Dict[str, np.ndarray],
+        sample_rate: int,
+        duration: Optional[float] = None,
+    ):
         """
         Set waveform data for stacked mode (separate per stem)
 
@@ -343,14 +372,16 @@ class LoopWaveformDisplay(QWidget):
 
     def get_manual_downbeat_times(self) -> List[float]:
         """Get list with single downbeat (or empty if none)."""
-        return [self.manual_downbeat_time] if self.manual_downbeat_time is not None else []
+        return (
+            [self.manual_downbeat_time] if self.manual_downbeat_time is not None else []
+        )
 
     def _snap_to_nearest_transient(
         self,
         click_time: float,
         enable_snap: bool = True,  # NEW: Control snapping on/off
         max_distance: float = 0.04,  # CHANGED: 40ms instead of 200ms
-        stem_name: Optional[str] = None
+        stem_name: Optional[str] = None,
     ) -> float:
         """
         Find nearest transient to click position, optionally for specific stem.
@@ -399,7 +430,9 @@ class LoopWaveformDisplay(QWidget):
         if nearest_distance <= max_distance:
             snapped_time = float(transient_array[nearest_idx])
             stem_info = f" ({stem_name})" if stem_name else ""
-            self.ctx.logger().debug(f"Snapped {click_time:.2f}s to transient at {snapped_time:.2f}s{stem_info}")
+            self.ctx.logger().debug(
+                f"Snapped {click_time:.2f}s to transient at {snapped_time:.2f}s{stem_info}"
+            )
             return snapped_time
 
         return click_time
@@ -442,13 +475,17 @@ class LoopWaveformDisplay(QWidget):
             shift_pressed = bool(event.modifiers() & Qt.ShiftModifier)
 
             # Check if clicking on existing manual downbeat (for drag)
-            manual_db_index = self._find_nearest_manual_downbeat(click_x, max_distance_px=10)
+            manual_db_index = self._find_nearest_manual_downbeat(
+                click_x, max_distance_px=10
+            )
 
             if manual_db_index is not None:
                 # Start dragging existing downbeat
                 self._dragging_downbeat_index = manual_db_index
                 self._drag_start_x = click_x
-                self.ctx.logger().debug(f"Started dragging manual downbeat {manual_db_index}")
+                self.ctx.logger().debug(
+                    f"Started dragging manual downbeat {manual_db_index}"
+                )
             else:
                 # Determine which stem was clicked
                 clicked_stem_name = self._get_stem_at_y(click_y)
@@ -456,16 +493,22 @@ class LoopWaveformDisplay(QWidget):
                 # Place new manual downbeat (with conditional snapping)
                 snapped_time = self._snap_to_nearest_transient(
                     click_time,
-                    enable_snap=(not shift_pressed),  # NEW: Disable snap if Shift pressed
+                    enable_snap=(
+                        not shift_pressed
+                    ),  # NEW: Disable snap if Shift pressed
                     max_distance=0.04,  # NEW: Smaller snap zone (40ms)
-                    stem_name=clicked_stem_name
+                    stem_name=clicked_stem_name,
                 )
                 self.add_manual_downbeat(snapped_time)
                 self.manual_downbeat_placed.emit(snapped_time, clicked_stem_name or "")
 
                 # Log with snap status
                 if clicked_stem_name:
-                    snap_status = " (no snap)" if shift_pressed else f" (snapped to {clicked_stem_name})"
+                    snap_status = (
+                        " (no snap)"
+                        if shift_pressed
+                        else f" (snapped to {clicked_stem_name})"
+                    )
                     self.ctx.logger().info(
                         f"Downbeat placed at {snapped_time:.2f}s{snap_status}"
                     )
@@ -493,7 +536,9 @@ class LoopWaveformDisplay(QWidget):
                 self.selected_loop_index = i
                 self.loop_selected.emit(i)
                 self.update()
-                self.ctx.logger().info(f"Loop {i + 1} selected: {start_time:.2f}s - {end_time:.2f}s")
+                self.ctx.logger().info(
+                    f"Loop {i + 1} selected: {start_time:.2f}s - {end_time:.2f}s"
+                )
                 break
 
     def mouseMoveEvent(self, event):
@@ -514,7 +559,7 @@ class LoopWaveformDisplay(QWidget):
                 new_time,
                 enable_snap=(not shift_pressed),  # NEW: Disable snap if Shift pressed
                 max_distance=0.04,  # NEW: Smaller snap zone (40ms)
-                stem_name=dragged_stem_name
+                stem_name=dragged_stem_name,
             )
 
             # Update downbeat position
@@ -549,7 +594,9 @@ class LoopWaveformDisplay(QWidget):
             self._dragging_downbeat_index = None
             self._drag_start_x = 0
 
-    def _find_nearest_manual_downbeat(self, x_pos: int, max_distance_px: int = 10) -> Optional[int]:
+    def _find_nearest_manual_downbeat(
+        self, x_pos: int, max_distance_px: int = 10
+    ) -> Optional[int]:
         """Check if click is near the manual downbeat. Returns 0 or None."""
         if self.manual_downbeat_time is None:
             return None
@@ -603,15 +650,15 @@ class LoopWaveformDisplay(QWidget):
 
         # Check if we have data
         has_data = (
-            (self.display_mode == "combined" and self.waveform_data is not None) or
-            (self.display_mode == "stacked" and len(self.stem_waveforms) > 0)
-        )
+            self.display_mode == "combined" and self.waveform_data is not None
+        ) or (self.display_mode == "stacked" and len(self.stem_waveforms) > 0)
 
         if not has_data:
             # Show placeholder
             painter.setPen(QColor(ColorPalette.TEXT_SECONDARY))
-            painter.drawText(self.rect(), Qt.AlignCenter,
-                           "Load stems and detect beats to view loops")
+            painter.drawText(
+                self.rect(), Qt.AlignCenter, "Load stems and detect beats to view loops"
+            )
             return
 
         # Use cached waveform if available and size hasn't changed
@@ -661,7 +708,7 @@ class LoopWaveformDisplay(QWidget):
         # WHY: Integer division (// ) loses precision, causing waveform and beat markers
         # to drift apart over time. Using the same coordinate system as _time_to_x()
         # ensures perfect alignment between waveform and beat grid.
-        # 
+        #
         # Previous: samples_per_pixel = len(self.waveform_data) // width (drift!)
         # Fixed: Use time-based indexing consistent with _time_to_x()
         samples_per_pixel = num_samples / width if width > 0 else 1
@@ -807,7 +854,9 @@ class LoopWaveformDisplay(QWidget):
 
             # Draw label background
             label_rect = painter.fontMetrics().boundingRect(loop_label)
-            label_rect.moveTopLeft(QPoint(int(label_x), int(label_y - label_rect.height())))
+            label_rect.moveTopLeft(
+                QPoint(int(label_x), int(label_y - label_rect.height()))
+            )
             label_rect.adjust(-3, -2, 3, 2)
 
             bg_color = QColor(ColorPalette.BACKGROUND_PRIMARY)
@@ -863,7 +912,9 @@ class LoopWaveformDisplay(QWidget):
         # --- Manual downbeat (orange/red, drawn on top for visibility) ---
         if self.manual_downbeat_time is not None:
             # Color: orange in placement mode, red otherwise
-            pen_color = QColor("#f59e0b") if self.manual_placement_mode else QColor("#ef4444")
+            pen_color = (
+                QColor("#f59e0b") if self.manual_placement_mode else QColor("#ef4444")
+            )
             manual_pen = QPen(pen_color, 3)  # Thicker line for manual downbeat
             painter.setPen(manual_pen)
             painter.setBrush(pen_color)
@@ -913,15 +964,20 @@ class LoopWaveformDisplay(QWidget):
         # Background for label - positioned at bottom
         label_width = 150
         label_height = 20
-        label_x = max(5, min(marker_x - label_width // 2, self.width() - label_width - 5))
+        label_x = max(
+            5, min(marker_x - label_width // 2, self.width() - label_width - 5)
+        )
         label_y = height - label_height - 5  # 5px from bottom
 
-        painter.fillRect(label_x, label_y, label_width, label_height, QColor(255, 165, 0, 200))
+        painter.fillRect(
+            label_x, label_y, label_width, label_height, QColor(255, 165, 0, 200)
+        )
 
         # Label text
         painter.setPen(QPen(QColor(0, 0, 0), 1))
-        painter.drawText(label_x, label_y, label_width, label_height,
-                        Qt.AlignCenter, label)
+        painter.drawText(
+            label_x, label_y, label_width, label_height, Qt.AlignCenter, label
+        )
 
     def set_song_start_marker(self, downbeat_index: int):
         """
@@ -941,7 +997,9 @@ class LoopWaveformDisplay(QWidget):
         self.song_start_marker_index = None
         self.update()  # Trigger repaint
 
-    def _find_nearest_downbeat(self, x: int, max_distance_px: int = 20) -> Optional[int]:
+    def _find_nearest_downbeat(
+        self, x: int, max_distance_px: int = 20
+    ) -> Optional[int]:
         """
         Find nearest downbeat to given x position.
 
@@ -959,7 +1017,7 @@ class LoopWaveformDisplay(QWidget):
 
         # Find nearest downbeat
         nearest_idx = None
-        min_distance = float('inf')
+        min_distance = float("inf")
 
         for idx, downbeat_time in enumerate(self.downbeat_times):
             downbeat_x = self._time_to_x(downbeat_time)
@@ -995,7 +1053,9 @@ class LoopWaveformDisplay(QWidget):
         else:
             # Option to set marker at this downbeat
             downbeat_time = self.downbeat_times[downbeat_idx]
-            action = menu.addAction(f"⚑ Set Song Start at Bar {downbeat_idx} ({downbeat_time:.2f}s)")
+            action = menu.addAction(
+                f"⚑ Set Song Start at Bar {downbeat_idx} ({downbeat_time:.2f}s)"
+            )
             if menu.exec_(global_pos) == action:
                 self.set_song_start_marker(downbeat_idx)
                 self.ctx.logger().info(f"Song start marker set at bar {downbeat_idx}")
@@ -1017,7 +1077,7 @@ class LoopWaveformWidget(QWidget):
 
     # Signals
     loop_selected = Signal(int)  # loop_index
-    mode_changed = Signal(str)   # "combined" or "stacked"
+    mode_changed = Signal(str)  # "combined" or "stacked"
     bars_per_loop_changed = Signal(int)  # 2, 4, or 8 bars per loop
 
     def __init__(self, parent=None):
@@ -1028,7 +1088,7 @@ class LoopWaveformWidget(QWidget):
         self._connect_signals()
 
         # Summary info for header label
-        self._summary_prefix: str = ""   # e.g. "104.0 BPM (85%)"
+        self._summary_prefix: str = ""  # e.g. "104.0 BPM (85%)"
         self._loops_count: int = 0
         self._bars_total: int = 0
 
@@ -1151,7 +1211,9 @@ class LoopWaveformWidget(QWidget):
 
         # Info label
         self.info_label = QLabel("No loops detected")
-        self.info_label.setStyleSheet(f"color: {ColorPalette.TEXT_SECONDARY}; font-size: 9pt;")
+        self.info_label.setStyleSheet(
+            f"color: {ColorPalette.TEXT_SECONDARY}; font-size: 9pt;"
+        )
         controls_layout.addWidget(self.info_label)
 
         layout.addLayout(controls_layout)
@@ -1164,7 +1226,8 @@ class LoopWaveformWidget(QWidget):
         self.scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         # Ensure scroll area expands to fill available space (for placeholder visibility)
         self.scroll_area.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        self.scroll_area.setStyleSheet("""
+        self.scroll_area.setStyleSheet(
+            """
             QScrollArea {
                 background: transparent;
                 border: none;
@@ -1185,12 +1248,15 @@ class LoopWaveformWidget(QWidget):
             QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
                 width: 0;
             }
-        """)
+        """
+        )
 
         # Waveform display (inside scroll area)
         self.waveform_display = LoopWaveformDisplay()
         # Size policy: width managed by setWidgetResizable toggle, height expands
-        self.waveform_display.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.waveform_display.setSizePolicy(
+            QSizePolicy.Expanding, QSizePolicy.Expanding
+        )
         self.waveform_display.setMinimumHeight(150)  # Minimum height for readability
         self.scroll_area.setWidget(self.waveform_display)
 
@@ -1198,6 +1264,7 @@ class LoopWaveformWidget(QWidget):
 
         # Schedule initial dimension update after layout is complete
         from PySide6.QtCore import QTimer
+
         QTimer.singleShot(0, self._update_display_dimensions)
 
     def _connect_signals(self):
@@ -1244,32 +1311,36 @@ class LoopWaveformWidget(QWidget):
         super().resizeEvent(event)
         # Use singleShot to ensure layout is complete before updating dimensions
         from PySide6.QtCore import QTimer
+
         QTimer.singleShot(0, self._update_display_dimensions)
 
     def showEvent(self, event):
         """Update dimensions when widget becomes visible (e.g., tab switch, fullscreen)"""
         super().showEvent(event)
         from PySide6.QtCore import QTimer
+
         QTimer.singleShot(0, self._update_display_dimensions)
 
     def eventFilter(self, watched, event):
         """
         Catch resize events on scroll area viewport.
-        
+
         WHY: When window goes fullscreen, the viewport resizes but resizeEvent
         of the parent widget may not trigger dimension updates correctly.
         """
         from PySide6.QtCore import QEvent
+
         if watched == self.scroll_area.viewport() and event.type() == QEvent.Resize:
             # Defer update to ensure layout is complete
             from PySide6.QtCore import QTimer
+
             QTimer.singleShot(0, self._update_display_dimensions)
         return super().eventFilter(watched, event)
 
     def _update_display_dimensions(self):
         """
         Update waveform display dimensions based on current scroll area size.
-        
+
         WHY: Ensures waveform fills available space both horizontally and vertically.
         Called on resize and before loading new waveform data.
         """
@@ -1293,17 +1364,21 @@ class LoopWaveformWidget(QWidget):
         # Auto-scroll to selected loop
         if 0 <= loop_index < len(self.waveform_display.loop_segments):
             start_time, end_time = self.waveform_display.loop_segments[loop_index]
-            loop_center_x = self.waveform_display._time_to_x((start_time + end_time) / 2)
+            loop_center_x = self.waveform_display._time_to_x(
+                (start_time + end_time) / 2
+            )
 
             # Center the loop in the viewport
             viewport_width = self.scroll_area.viewport().width()
             scroll_to = max(0, loop_center_x - viewport_width // 2)
             self.scroll_area.horizontalScrollBar().setValue(scroll_to)
 
-    def set_combined_waveform(self, audio_data: np.ndarray, sample_rate: int, duration: Optional[float] = None):
+    def set_combined_waveform(
+        self, audio_data: np.ndarray, sample_rate: int, duration: Optional[float] = None
+    ):
         """
         Set waveform data for combined mode
-        
+
         Args:
             audio_data: numpy array of audio samples
             sample_rate: sample rate in Hz
@@ -1315,12 +1390,19 @@ class LoopWaveformWidget(QWidget):
         self._update_display_dimensions()
         # Disable widget resizing to allow scrolling for content
         self.scroll_area.setWidgetResizable(False)
-        self.waveform_display.set_combined_waveform(audio_data, sample_rate, duration=duration)
+        self.waveform_display.set_combined_waveform(
+            audio_data, sample_rate, duration=duration
+        )
 
-    def set_stem_waveforms(self, stem_waveforms: Dict[str, np.ndarray], sample_rate: int, duration: Optional[float] = None):
+    def set_stem_waveforms(
+        self,
+        stem_waveforms: Dict[str, np.ndarray],
+        sample_rate: int,
+        duration: Optional[float] = None,
+    ):
         """
         Set waveform data for stacked mode
-        
+
         Args:
             stem_waveforms: Dict mapping stem names to audio data arrays
             sample_rate: sample rate in Hz
@@ -1332,7 +1414,9 @@ class LoopWaveformWidget(QWidget):
         self._update_display_dimensions()
         # Disable widget resizing to allow scrolling for content
         self.scroll_area.setWidgetResizable(False)
-        self.waveform_display.set_stem_waveforms(stem_waveforms, sample_rate, duration=duration)
+        self.waveform_display.set_stem_waveforms(
+            stem_waveforms, sample_rate, duration=duration
+        )
 
     def set_loop_segments(self, loop_segments: List[Tuple[float, float]]):
         """Set loop segment boundaries"""
@@ -1341,7 +1425,9 @@ class LoopWaveformWidget(QWidget):
         # Store counts for header info
         self._loops_count = len(loop_segments)
         if self._loops_count > 0 and self.waveform_display._bar_duration > 0:
-            self._bars_total = int(self.waveform_display.duration / self.waveform_display._bar_duration)
+            self._bars_total = int(
+                self.waveform_display.duration / self.waveform_display._bar_duration
+            )
         else:
             self._bars_total = 0
 

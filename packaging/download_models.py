@@ -27,25 +27,27 @@ def download_all_models():
     try:
         from audio_separator.separator import Separator
     except ImportError:
-        logger.error("audio-separator not installed. Run: pip install -r requirements.txt")
+        logger.error(
+            "audio-separator not installed. Run: pip install -r requirements.txt"
+        )
         sys.exit(1)
 
-    print("\n" + "="*70)
+    print("\n" + "=" * 70)
     print("StemSeparator Model Download Script")
-    print("="*70)
+    print("=" * 70)
     print(f"\nDownloading all models to: {MODELS_DIR}")
     print(f"Total size: ~800MB")
     print("\nThis may take several minutes depending on your internet connection...")
-    print("="*70 + "\n")
+    print("=" * 70 + "\n")
 
     total_models = len(MODELS)
     successful = 0
     failed = []
 
     for idx, (model_id, model_config) in enumerate(MODELS.items(), 1):
-        model_name = model_config['name']
-        model_file = model_config['model_filename']
-        size_mb = model_config['size_mb']
+        model_name = model_config["name"]
+        model_file = model_config["model_filename"]
+        size_mb = model_config["size_mb"]
 
         print(f"\n[{idx}/{total_models}] Downloading: {model_name}")
         print(f"    File: {model_file}")
@@ -58,7 +60,7 @@ def download_all_models():
             separator = Separator(
                 model_name=model_file,
                 output_dir=str(MODELS_DIR.parent / "temp" / "separated"),
-                output_format="wav"
+                output_format="wav",
             )
 
             # Load the model (triggers download if needed)
@@ -74,16 +76,18 @@ def download_all_models():
             print(f"  Error: {str(e)[:100]}")
 
     # Summary
-    print("\n" + "="*70)
+    print("\n" + "=" * 70)
     print("Download Summary")
-    print("="*70)
+    print("=" * 70)
     print(f"Successful: {successful}/{total_models}")
 
     if failed:
         print(f"Failed: {len(failed)}")
         for model_name in failed:
             print(f"  - {model_name}")
-        print("\n⚠ Some models failed to download. You can try running this script again.")
+        print(
+            "\n⚠ Some models failed to download. You can try running this script again."
+        )
         sys.exit(1)
     else:
         print("\n✓ All models downloaded successfully!")
@@ -92,7 +96,7 @@ def download_all_models():
         # Verify files
         print("\nVerifying downloaded files:")
         for model_id, model_config in MODELS.items():
-            model_file = model_config['model_filename']
+            model_file = model_config["model_filename"]
             model_path = MODELS_DIR / model_file
             if model_path.exists():
                 size_mb = model_path.stat().st_size / (1024 * 1024)
@@ -100,7 +104,7 @@ def download_all_models():
             else:
                 print(f"  ✗ {model_file} (not found)")
 
-    print("="*70 + "\n")
+    print("=" * 70 + "\n")
 
 
 if __name__ == "__main__":

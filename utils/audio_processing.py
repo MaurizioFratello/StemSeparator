@@ -3,6 +3,7 @@ Audio Processing Utilities
 
 Utility functions for audio manipulation and processing.
 """
+
 import numpy as np
 import soundfile as sf
 import librosa
@@ -16,6 +17,7 @@ logger = get_logger()
 # Try to import DeepRhythm for enhanced BPM detection
 try:
     from deeprhythm import DeepRhythmPredictor
+
     DEEPRHYTHM_AVAILABLE = True
     logger.info("DeepRhythm available for BPM detection")
 except ImportError:
@@ -30,7 +32,7 @@ def trim_leading_silence(
     audio_data: np.ndarray,
     sample_rate: int,
     threshold_db: float = -40.0,
-    min_silence_duration: float = 0.5
+    min_silence_duration: float = 0.5,
 ) -> Tuple[np.ndarray, float]:
     """
     Remove silence from the beginning of an audio recording.
@@ -84,7 +86,9 @@ def trim_leading_silence(
 
     if len(above_threshold) == 0:
         # Entire audio is silence - don't trim
-        logger.info("trim_leading_silence: Entire audio is below threshold, no trimming")
+        logger.info(
+            "trim_leading_silence: Entire audio is below threshold, no trimming"
+        )
         return audio_data, 0.0
 
     first_sound_idx = above_threshold[0]
@@ -143,7 +147,7 @@ def find_nearest_zero_crossing(
     audio_data: np.ndarray,
     target_index: int,
     sample_rate: int,
-    max_search_duration: float = 0.050
+    max_search_duration: float = 0.050,
 ) -> Optional[int]:
     """
     Find the nearest zero-crossing point before a target index.
@@ -213,8 +217,8 @@ def export_audio_chunks(
     sample_rate: int,
     output_path: Path,
     chunk_length_seconds: float,
-    file_format: str = 'WAV',
-    bit_depth: int = 24
+    file_format: str = "WAV",
+    bit_depth: int = 24,
 ) -> List[Path]:
     """
     Export audio data split into chunks at zero-crossings.
@@ -273,12 +277,8 @@ def export_audio_chunks(
     extension = output_path.suffix if output_path.suffix else f".{file_format.lower()}"
 
     # Determine subtype for soundfile
-    subtype_map = {
-        16: 'PCM_16',
-        24: 'PCM_24',
-        32: 'PCM_32'
-    }
-    subtype = subtype_map.get(bit_depth, 'PCM_24')
+    subtype_map = {16: "PCM_16", 24: "PCM_24", 32: "PCM_32"}
+    subtype = subtype_map.get(bit_depth, "PCM_24")
 
     chunk_paths = []
     current_pos = 0
@@ -300,7 +300,7 @@ def export_audio_chunks(
                 audio_transposed,
                 ideal_end,
                 sample_rate,
-                max_search_duration=0.050  # 50ms search window
+                max_search_duration=0.050,  # 50ms search window
             )
 
             if zc_end and zc_end > current_pos:
@@ -336,7 +336,7 @@ def export_audio_chunks(
                 chunk_data,
                 sample_rate,
                 subtype=subtype,
-                format=file_format
+                format=file_format,
             )
             logger.info(
                 f"Exported chunk {chunk_num}: {chunk_path.name} "
@@ -373,14 +373,17 @@ def _get_deeprhythm_predictor():
             # Priority: CUDA (NVIDIA) > MPS (Apple Silicon) > CPU
             try:
                 import torch
+
                 if torch.cuda.is_available():
-                    device = 'cuda'
-                elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
-                    device = 'mps'  # Apple Silicon (M1/M2/M3)
+                    device = "cuda"
+                elif (
+                    hasattr(torch.backends, "mps") and torch.backends.mps.is_available()
+                ):
+                    device = "mps"  # Apple Silicon (M1/M2/M3)
                 else:
-                    device = 'cpu'
+                    device = "cpu"
             except ImportError:
-                device = 'cpu'
+                device = "cpu"
 
             _deeprhythm_predictor = DeepRhythmPredictor(device=device)
             logger.info(f"DeepRhythm model loaded on {device}")
@@ -391,7 +394,9 @@ def _get_deeprhythm_predictor():
     return _deeprhythm_predictor
 
 
-def _detect_bpm_deeprhythm(audio_data: np.ndarray, sample_rate: int) -> Tuple[float, float]:
+def _detect_bpm_deeprhythm(
+    audio_data: np.ndarray, sample_rate: int
+) -> Tuple[float, float]:
     """
     Detect BPM using DeepRhythm CNN model (more accurate than librosa).
 
@@ -418,9 +423,7 @@ def _detect_bpm_deeprhythm(audio_data: np.ndarray, sample_rate: int) -> Tuple[fl
 
         # Predict BPM with confidence score
         bpm, confidence = predictor.predict_from_audio(
-            audio_mono,
-            sample_rate,
-            include_confidence=True
+            audio_mono, sample_rate, include_confidence=True
         )
 
         return float(bpm), float(confidence)
@@ -468,7 +471,7 @@ def _detect_bpm_librosa(audio_data: np.ndarray, sample_rate: int) -> float:
         start_bpm=120.0,
         std_bpm=1.0,
         ac_size=8.0,
-        max_tempo=240.0
+        max_tempo=240.0,
     )
 
     # librosa.beat.tempo returns an array, extract the first value
@@ -477,7 +480,9 @@ def _detect_bpm_librosa(audio_data: np.ndarray, sample_rate: int) -> float:
     # Additional validation: check for common tempo doubling/halving errors
     # If BPM is very high, it might be double-tempo
     if detected_bpm > 180:
-        logger.info(f"Detected high BPM ({detected_bpm:.1f}), checking if half-tempo is more likely")
+        logger.info(
+            f"Detected high BPM ({detected_bpm:.1f}), checking if half-tempo is more likely"
+        )
         half_tempo = detected_bpm / 2
         # Accept half-tempo if it falls in typical range (60-180 BPM)
         if 60 <= half_tempo <= 180:
@@ -486,7 +491,9 @@ def _detect_bpm_librosa(audio_data: np.ndarray, sample_rate: int) -> float:
 
     # If BPM is very low, it might be half-tempo
     elif detected_bpm < 60:
-        logger.info(f"Detected low BPM ({detected_bpm:.1f}), checking if double-tempo is more likely")
+        logger.info(
+            f"Detected low BPM ({detected_bpm:.1f}), checking if double-tempo is more likely"
+        )
         double_tempo = detected_bpm * 2
         # Accept double-tempo if it falls in typical range (60-180 BPM)
         if 60 <= double_tempo <= 180:
@@ -496,7 +503,9 @@ def _detect_bpm_librosa(audio_data: np.ndarray, sample_rate: int) -> float:
     return detected_bpm
 
 
-def detect_bpm(audio_data: np.ndarray, sample_rate: int, method: str = 'auto') -> Tuple[float, Optional[float]]:
+def detect_bpm(
+    audio_data: np.ndarray, sample_rate: int, method: str = "auto"
+) -> Tuple[float, Optional[float]]:
     """
     Detect BPM (tempo) of audio using the best available method.
 
@@ -545,16 +554,17 @@ def detect_bpm(audio_data: np.ndarray, sample_rate: int, method: str = 'auto') -
         audio_mono = audio_data
 
     # Method selection
-    use_deeprhythm = (
-        method == 'deeprhythm' or
-        (method == 'auto' and DEEPRHYTHM_AVAILABLE)
+    use_deeprhythm = method == "deeprhythm" or (
+        method == "auto" and DEEPRHYTHM_AVAILABLE
     )
 
     # Try DeepRhythm first if requested/available
     if use_deeprhythm:
         try:
             bpm, confidence = _detect_bpm_deeprhythm(audio_mono, sample_rate)
-            logger.info(f"DeepRhythm detected: {bpm:.1f} BPM ({confidence:.0%} confident)")
+            logger.info(
+                f"DeepRhythm detected: {bpm:.1f} BPM ({confidence:.0%} confident)"
+            )
             return bpm, confidence
         except Exception as e:
             logger.warning(f"DeepRhythm failed: {e}, falling back to librosa")
@@ -571,8 +581,7 @@ def detect_bpm(audio_data: np.ndarray, sample_rate: int, method: str = 'auto') -
 
 
 def normalize_peak_to_dbfs(
-    audio_data: np.ndarray,
-    target_dbfs: float = -1.0
+    audio_data: np.ndarray, target_dbfs: float = -1.0
 ) -> np.ndarray:
     """
     Normalize audio to a target peak level in dBFS.
@@ -644,7 +653,7 @@ def resample_audio(
     audio_data: np.ndarray,
     original_sr: int,
     target_sr: int,
-    quality: str = 'kaiser_best'
+    quality: str = "kaiser_best",
 ) -> np.ndarray:
     """
     Resample audio to a different sample rate using high-quality resampling.
@@ -697,10 +706,7 @@ def resample_audio(
             for ch_idx in range(audio_data.shape[1]):
                 channel = audio_data[:, ch_idx]
                 resampled_ch = resampy.resample(
-                    channel,
-                    original_sr,
-                    target_sr,
-                    filter=quality
+                    channel, original_sr, target_sr, filter=quality
                 )
                 resampled_channels.append(resampled_ch)
 
@@ -709,10 +715,7 @@ def resample_audio(
         else:
             # Mono: (samples,)
             resampled = resampy.resample(
-                audio_data,
-                original_sr,
-                target_sr,
-                filter=quality
+                audio_data, original_sr, target_sr, filter=quality
             )
 
         logger.debug(
@@ -727,10 +730,7 @@ def resample_audio(
         return audio_data
 
 
-def apply_tpdf_dither(
-    audio_data: np.ndarray,
-    bit_depth: int
-) -> np.ndarray:
+def apply_tpdf_dither(audio_data: np.ndarray, bit_depth: int) -> np.ndarray:
     """
     Apply TPDF (Triangular Probability Density Function) dither before quantization.
 

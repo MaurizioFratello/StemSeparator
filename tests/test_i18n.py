@@ -1,6 +1,7 @@
 """
 Unit Tests für I18n System
 """
+
 import pytest
 from utils.i18n import I18n, t, set_language, get_language
 
@@ -18,57 +19,57 @@ class TestI18n:
     def test_default_language(self):
         """Teste Standard-Sprache"""
         lang = get_language()
-        assert lang in ['de', 'en']
+        assert lang in ["de", "en"]
 
     def test_set_language(self):
         """Teste Sprach-Wechsel"""
-        set_language('en')
-        assert get_language() == 'en'
+        set_language("en")
+        assert get_language() == "en"
 
-        set_language('de')
-        assert get_language() == 'de'
+        set_language("de")
+        assert get_language() == "de"
 
     def test_invalid_language(self):
         """Teste ungültige Sprache"""
         original = get_language()
-        set_language('fr')  # Nicht verfügbar
+        set_language("fr")  # Nicht verfügbar
         # Sollte bei ursprünglicher Sprache bleiben
         assert get_language() == original
 
     def test_translate_existing_key(self):
         """Teste Übersetzung mit existierendem Key"""
-        translation = t('app.title')
+        translation = t("app.title")
         assert isinstance(translation, str)
         assert len(translation) > 0
 
     def test_translate_missing_key(self):
         """Teste Übersetzung mit fehlendem Key"""
-        translation = t('non.existent.key', fallback='Fallback')
-        assert translation == 'Fallback'
+        translation = t("non.existent.key", fallback="Fallback")
+        assert translation == "Fallback"
 
     def test_translate_with_variables(self):
         """Teste Übersetzung mit Variablen"""
         # Dies setzt voraus, dass ein Key mit {version} existiert
-        translation = t('app.version', version='1.0.0')
-        assert '1.0.0' in translation
+        translation = t("app.version", version="1.0.0")
+        assert "1.0.0" in translation
 
     def test_translate_without_fallback(self):
         """Teste Übersetzung ohne Fallback"""
-        translation = t('completely.missing.key')
+        translation = t("completely.missing.key")
         # Sollte den Key selbst zurückgeben
-        assert translation == 'completely.missing.key'
+        assert translation == "completely.missing.key"
 
     def test_translate_with_missing_variable(self):
         """Teste Übersetzung mit fehlender Variable"""
         # Sollte nicht crashen, auch wenn Variable fehlt
-        translation = t('app.version', missing_var='test')
+        translation = t("app.version", missing_var="test")
         assert isinstance(translation, str)
 
     def test_tr_alias(self):
         """Teste tr() Alias-Funktion"""
         from utils.i18n import tr
 
-        translation = tr('app.title')
+        translation = tr("app.title")
         assert isinstance(translation, str)
         assert len(translation) > 0
 
@@ -86,8 +87,8 @@ class TestI18n:
         """Teste get_language Funktion"""
         from utils.i18n import get_language, set_language
 
-        set_language('de')
-        assert get_language() == 'de'
+        set_language("de")
+        assert get_language() == "de"
 
-        set_language('en')
-        assert get_language() == 'en'
+        set_language("en")
+        assert get_language() == "en"

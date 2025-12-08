@@ -7,6 +7,7 @@ CONTEXT: Runs lars-service as subprocess, handles JSON I/O, timeouts, errors
 The lars-service binary is a separate executable built with PyInstaller
 from a Python 3.9/3.10 environment (required for LarsNet compatibility).
 """
+
 import sys
 import os
 import json
@@ -33,9 +34,11 @@ SUPPORTED_STEMS: List[StemName] = ["kick", "snare", "toms", "hihat", "cymbals"]
 # Data Classes
 # ============================================================================
 
+
 @dataclass
 class DrumStemPaths:
     """Paths to separated drum stems."""
+
     kick: Optional[Path] = None
     snare: Optional[Path] = None
     toms: Optional[Path] = None
@@ -60,6 +63,7 @@ class DrumStemPaths:
 @dataclass
 class SeparationResult:
     """Result of LARS drum separation."""
+
     stems: DrumStemPaths
     processing_time: float
     backend: str  # cpu/mps/cuda
@@ -74,29 +78,35 @@ class SeparationResult:
 # Exceptions
 # ============================================================================
 
+
 class LarsServiceError(Exception):
     """General error from LARS service."""
+
     pass
 
 
 class LarsServiceTimeout(LarsServiceError):
     """Timeout waiting for LARS service."""
+
     pass
 
 
 class LarsServiceNotFound(LarsServiceError):
     """LARS service binary not found."""
+
     pass
 
 
 class LarsProcessingError(LarsServiceError):
     """Processing error during drum separation."""
+
     pass
 
 
 # ============================================================================
 # Binary Discovery
 # ============================================================================
+
 
 def _find_lars_service_binary() -> Optional[Path]:
     """
@@ -116,17 +126,19 @@ def _find_lars_service_binary() -> Optional[Path]:
     search_paths = []
 
     # 1. PyInstaller bundle (when running as packaged app)
-    if hasattr(sys, '_MEIPASS'):
+    if hasattr(sys, "_MEIPASS"):
         search_paths.append(Path(sys._MEIPASS) / binary_name)
         search_paths.append(Path(sys._MEIPASS) / "Frameworks" / binary_name)
 
     # 2. Development: relative to project root
     # Assuming this file is at utils/lars_service_client.py
     project_root = Path(__file__).parent.parent
-    search_paths.extend([
-        project_root / "packaging" / "lars_service" / "dist" / binary_name,
-        project_root / "resources" / "lars" / binary_name,
-    ])
+    search_paths.extend(
+        [
+            project_root / "packaging" / "lars_service" / "dist" / binary_name,
+            project_root / "resources" / "lars" / binary_name,
+        ]
+    )
 
     # 3. Check PATH
     path_dirs = os.environ.get("PATH", "").split(os.pathsep)
@@ -159,6 +171,7 @@ def is_lars_service_available() -> bool:
 # ============================================================================
 # Main API
 # ============================================================================
+
 
 def separate_drum_stems(
     input_path: Path,
@@ -220,8 +233,7 @@ def separate_drum_stems(
     invalid_stems = [s for s in stems if s not in SUPPORTED_STEMS]
     if invalid_stems:
         raise ValueError(
-            f"Invalid stem names: {invalid_stems}. "
-            f"Supported: {SUPPORTED_STEMS}"
+            f"Invalid stem names: {invalid_stems}. " f"Supported: {SUPPORTED_STEMS}"
         )
 
     # Find binary
@@ -239,12 +251,18 @@ def separate_drum_stems(
     cmd = [
         str(binary_path),
         "separate",
-        "--input", str(input_path.absolute()),
-        "--output-dir", str(output_dir.absolute()),
-        "--stems", ",".join(stems),
-        "--device", device,
-        "--format", output_format,
-        "--sample-rate", str(sample_rate),
+        "--input",
+        str(input_path.absolute()),
+        "--output-dir",
+        str(output_dir.absolute()),
+        "--stems",
+        ",".join(stems),
+        "--device",
+        device,
+        "--format",
+        output_format,
+        "--sample-rate",
+        str(sample_rate),
     ]
 
     if wiener_filter:
@@ -269,7 +287,7 @@ def separate_drum_stems(
 
         # Log stderr (for debugging/progress)
         if stderr:
-            for line in stderr.strip().split('\n'):
+            for line in stderr.strip().split("\n"):
                 if line:  # Skip empty lines
                     logger.debug(f"[lars-service] {line}")
 
@@ -298,10 +316,18 @@ def separate_drum_stems(
         stem_paths_dict = data.get("stems", {})
         stem_paths = DrumStemPaths(
             kick=Path(stem_paths_dict["kick"]) if "kick" in stem_paths_dict else None,
-            snare=Path(stem_paths_dict["snare"]) if "snare" in stem_paths_dict else None,
+            snare=(
+                Path(stem_paths_dict["snare"]) if "snare" in stem_paths_dict else None
+            ),
             toms=Path(stem_paths_dict["toms"]) if "toms" in stem_paths_dict else None,
-            hihat=Path(stem_paths_dict["hihat"]) if "hihat" in stem_paths_dict else None,
-            cymbals=Path(stem_paths_dict["cymbals"]) if "cymbals" in stem_paths_dict else None,
+            hihat=(
+                Path(stem_paths_dict["hihat"]) if "hihat" in stem_paths_dict else None
+            ),
+            cymbals=(
+                Path(stem_paths_dict["cymbals"])
+                if "cymbals" in stem_paths_dict
+                else None
+            ),
         )
 
         # Build result
@@ -327,9 +353,7 @@ def separate_drum_stems(
         # Kill process on timeout
         if process:
             _terminate_process(process)
-        raise LarsServiceTimeout(
-            f"Drum separation timed out after {timeout_seconds}s"
-        )
+        raise LarsServiceTimeout(f"Drum separation timed out after {timeout_seconds}s")
 
     except (LarsServiceError, LarsProcessingError):
         raise

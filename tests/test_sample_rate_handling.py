@@ -7,6 +7,7 @@ PURPOSE: Verify that all audio processing happens at 44100 Hz to prevent
 CONTEXT: Fixes critical bugs where ensemble mode combined stems at different
          sample rates, causing beats to shift backward from the grid over time.
 """
+
 import pytest
 import numpy as np
 import soundfile as sf
@@ -16,10 +17,14 @@ import shutil
 
 # Add project root to path
 import sys
+
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from core.separator import Separator, TARGET_SAMPLE_RATE
-from core.ensemble_separator import EnsembleSeparator, TARGET_SAMPLE_RATE as ENSEMBLE_TARGET_SR
+from core.ensemble_separator import (
+    EnsembleSeparator,
+    TARGET_SAMPLE_RATE as ENSEMBLE_TARGET_SR,
+)
 from config import DEFAULT_SAMPLE_RATE, EXPORT_SAMPLE_RATE, RECORDING_SAMPLE_RATE
 
 
@@ -29,7 +34,9 @@ class TestSampleRateConstants:
     def test_target_sample_rate_is_44100(self):
         """Verify TARGET_SAMPLE_RATE is 44100 Hz"""
         assert TARGET_SAMPLE_RATE == 44100, "TARGET_SAMPLE_RATE must be 44100 Hz"
-        assert ENSEMBLE_TARGET_SR == 44100, "Ensemble TARGET_SAMPLE_RATE must be 44100 Hz"
+        assert (
+            ENSEMBLE_TARGET_SR == 44100
+        ), "Ensemble TARGET_SAMPLE_RATE must be 44100 Hz"
 
     def test_config_sample_rates_are_44100(self):
         """Verify all config sample rates are 44100 Hz"""
@@ -39,7 +46,13 @@ class TestSampleRateConstants:
 
     def test_sample_rates_are_consistent(self):
         """Verify all sample rate constants match"""
-        assert TARGET_SAMPLE_RATE == DEFAULT_SAMPLE_RATE == EXPORT_SAMPLE_RATE == RECORDING_SAMPLE_RATE == 44100
+        assert (
+            TARGET_SAMPLE_RATE
+            == DEFAULT_SAMPLE_RATE
+            == EXPORT_SAMPLE_RATE
+            == RECORDING_SAMPLE_RATE
+            == 44100
+        )
 
 
 class TestAudioResampling:
@@ -52,7 +65,9 @@ class TestAudioResampling:
         yield temp_dir
         shutil.rmtree(temp_dir, ignore_errors=True)
 
-    def create_test_audio(self, sample_rate: int, duration: float, temp_dir: Path) -> Path:
+    def create_test_audio(
+        self, sample_rate: int, duration: float, temp_dir: Path
+    ) -> Path:
         """
         Create test audio file at specified sample rate
 
@@ -73,7 +88,7 @@ class TestAudioResampling:
 
         # Save to file
         audio_file = temp_dir / f"test_audio_{sample_rate}hz.wav"
-        sf.write(str(audio_file), audio_stereo, sample_rate, subtype='PCM_16')
+        sf.write(str(audio_file), audio_stereo, sample_rate, subtype="PCM_16")
 
         return audio_file
 
@@ -87,7 +102,9 @@ class TestAudioResampling:
         assert info.samplerate == 44100, "Test file should be 44100 Hz"
 
         # Verify no resampling needed
-        assert info.samplerate == TARGET_SAMPLE_RATE, "44100 Hz input should not need resampling"
+        assert (
+            info.samplerate == TARGET_SAMPLE_RATE
+        ), "44100 Hz input should not need resampling"
 
     def test_48000hz_input_needs_resampling(self, temp_dir):
         """Test that 48000 Hz input requires resampling"""
@@ -99,7 +116,9 @@ class TestAudioResampling:
         assert info.samplerate == 48000, "Test file should be 48000 Hz"
 
         # Verify resampling needed
-        assert info.samplerate != TARGET_SAMPLE_RATE, "48000 Hz input should need resampling"
+        assert (
+            info.samplerate != TARGET_SAMPLE_RATE
+        ), "48000 Hz input should need resampling"
 
     def test_resampling_preserves_duration(self, temp_dir):
         """Test that resampling preserves audio duration"""
@@ -110,17 +129,14 @@ class TestAudioResampling:
         audio_file = self.create_test_audio(48000, duration, temp_dir)
 
         # Load and resample
-        audio_48k, sr_48k = sf.read(str(audio_file), always_2d=True, dtype='float32')
+        audio_48k, sr_48k = sf.read(str(audio_file), always_2d=True, dtype="float32")
         audio_48k = audio_48k.T  # (samples, channels) -> (channels, samples)
 
         # Resample to 44100 Hz
         resampled_channels = []
         for channel in audio_48k:
             resampled = librosa.resample(
-                channel,
-                orig_sr=48000,
-                target_sr=44100,
-                res_type='soxr_hq'
+                channel, orig_sr=48000, target_sr=44100, res_type="soxr_hq"
             )
             resampled_channels.append(resampled)
 
@@ -133,10 +149,12 @@ class TestAudioResampling:
         # Verify durations match (within 2 samples worth of time at highest SR)
         # WHY: Resampling is sample-based, max error = 2 samples ≈ 0.04ms at 48kHz
         max_error = 2.0 / 48000  # ~0.042 ms
-        assert abs(duration_48k - duration_44k) < max_error, \
-            f"Resampling should preserve duration (error: {abs(duration_48k - duration_44k)*1000:.3f}ms > {max_error*1000:.3f}ms)"
-        assert abs(duration_44k - duration) < max_error, \
-            f"Resampled duration should match original (error: {abs(duration_44k - duration)*1000:.3f}ms > {max_error*1000:.3f}ms)"
+        assert (
+            abs(duration_48k - duration_44k) < max_error
+        ), f"Resampling should preserve duration (error: {abs(duration_48k - duration_44k)*1000:.3f}ms > {max_error*1000:.3f}ms)"
+        assert (
+            abs(duration_44k - duration) < max_error
+        ), f"Resampled duration should match original (error: {abs(duration_44k - duration)*1000:.3f}ms > {max_error*1000:.3f}ms)"
 
     def test_resampling_changes_sample_count(self, temp_dir):
         """Test that resampling changes sample count proportionally"""
@@ -146,15 +164,12 @@ class TestAudioResampling:
         audio_file = self.create_test_audio(48000, 2.0, temp_dir)
 
         # Load audio
-        audio_48k, _ = sf.read(str(audio_file), always_2d=True, dtype='float32')
+        audio_48k, _ = sf.read(str(audio_file), always_2d=True, dtype="float32")
         samples_48k = audio_48k.shape[0]
 
         # Resample to 44100 Hz
         audio_44k_ch0 = librosa.resample(
-            audio_48k[:, 0],
-            orig_sr=48000,
-            target_sr=44100,
-            res_type='soxr_hq'
+            audio_48k[:, 0], orig_sr=48000, target_sr=44100, res_type="soxr_hq"
         )
         samples_44k = len(audio_44k_ch0)
 
@@ -162,7 +177,9 @@ class TestAudioResampling:
         expected_samples = int(samples_48k * 44100 / 48000)
 
         # Verify sample count changed proportionally (within 1 sample tolerance)
-        assert abs(samples_44k - expected_samples) <= 1, "Sample count should change proportionally"
+        assert (
+            abs(samples_44k - expected_samples) <= 1
+        ), "Sample count should change proportionally"
         assert samples_44k < samples_48k, "Downsampling should reduce sample count"
 
 
@@ -176,22 +193,29 @@ class TestSeparatorInputResampling:
         yield temp_dir
         shutil.rmtree(temp_dir, ignore_errors=True)
 
-    def create_test_audio(self, sample_rate: int, duration: float, temp_dir: Path) -> Path:
+    def create_test_audio(
+        self, sample_rate: int, duration: float, temp_dir: Path
+    ) -> Path:
         """Create test audio file at specified sample rate"""
         t = np.linspace(0, duration, int(sample_rate * duration))
         audio = np.sin(2 * np.pi * 440 * t)
         audio_stereo = np.stack([audio, audio], axis=1)
 
         audio_file = temp_dir / f"test_{sample_rate}hz.wav"
-        sf.write(str(audio_file), audio_stereo, sample_rate, subtype='PCM_16')
+        sf.write(str(audio_file), audio_stereo, sample_rate, subtype="PCM_16")
 
         return audio_file
 
     def test_separator_creates_target_sample_rate_constant(self):
         """Test that Separator module has TARGET_SAMPLE_RATE constant"""
         from core import separator
-        assert hasattr(separator, 'TARGET_SAMPLE_RATE'), "Separator should define TARGET_SAMPLE_RATE"
-        assert separator.TARGET_SAMPLE_RATE == 44100, "TARGET_SAMPLE_RATE should be 44100"
+
+        assert hasattr(
+            separator, "TARGET_SAMPLE_RATE"
+        ), "Separator should define TARGET_SAMPLE_RATE"
+        assert (
+            separator.TARGET_SAMPLE_RATE == 44100
+        ), "TARGET_SAMPLE_RATE should be 44100"
 
     def test_separator_input_validation_accepts_44100hz(self, temp_dir):
         """Test that Separator accepts 44100 Hz input without errors"""
@@ -220,14 +244,21 @@ class TestEnsembleSampleRateValidation:
     def test_ensemble_has_target_sample_rate_constant(self):
         """Test that EnsembleSeparator has TARGET_SAMPLE_RATE constant"""
         from core import ensemble_separator
-        assert hasattr(ensemble_separator, 'TARGET_SAMPLE_RATE'), "EnsembleSeparator should define TARGET_SAMPLE_RATE"
-        assert ensemble_separator.TARGET_SAMPLE_RATE == 44100, "TARGET_SAMPLE_RATE should be 44100"
+
+        assert hasattr(
+            ensemble_separator, "TARGET_SAMPLE_RATE"
+        ), "EnsembleSeparator should define TARGET_SAMPLE_RATE"
+        assert (
+            ensemble_separator.TARGET_SAMPLE_RATE == 44100
+        ), "TARGET_SAMPLE_RATE should be 44100"
 
     def test_ensemble_separator_initialization(self):
         """Test that EnsembleSeparator initializes without errors"""
         ensemble_sep = EnsembleSeparator()
         assert ensemble_sep is not None, "EnsembleSeparator should initialize"
-        assert hasattr(ensemble_sep, 'separator'), "EnsembleSeparator should have separator attribute"
+        assert hasattr(
+            ensemble_sep, "separator"
+        ), "EnsembleSeparator should have separator attribute"
 
 
 class TestIntegrationSampleRateDrift:
@@ -240,7 +271,9 @@ class TestIntegrationSampleRateDrift:
         yield temp_dir
         shutil.rmtree(temp_dir, ignore_errors=True)
 
-    def create_test_audio_with_beats(self, sample_rate: int, bpm: int, bars: int, temp_dir: Path) -> Path:
+    def create_test_audio_with_beats(
+        self, sample_rate: int, bpm: int, bars: int, temp_dir: Path
+    ) -> Path:
         """
         Create test audio with clear beat markers for drift testing
 
@@ -273,14 +306,14 @@ class TestIntegrationSampleRateDrift:
             if downbeat_sample + click_samples < len(audio):
                 click_t = np.linspace(0, click_duration, click_samples)
                 click = np.sin(2 * np.pi * 1000 * click_t) * 0.5  # 1kHz click
-                audio[downbeat_sample:downbeat_sample + click_samples] = click
+                audio[downbeat_sample : downbeat_sample + click_samples] = click
 
         # Make stereo
         audio_stereo = np.stack([audio, audio], axis=1)
 
         # Save to file
         audio_file = temp_dir / f"test_beats_{bpm}bpm_{sample_rate}hz.wav"
-        sf.write(str(audio_file), audio_stereo, sample_rate, subtype='PCM_16')
+        sf.write(str(audio_file), audio_stereo, sample_rate, subtype="PCM_16")
 
         return audio_file
 
@@ -301,7 +334,7 @@ class TestIntegrationSampleRateDrift:
         expected_downbeats = [bar * bar_duration for bar in range(bars)]
 
         # Load audio and detect downbeats
-        audio, sr = sf.read(str(audio_file), always_2d=True, dtype='float32')
+        audio, sr = sf.read(str(audio_file), always_2d=True, dtype="float32")
         assert sr == 44100, "Loaded audio should be 44100 Hz"
 
         # Verify timing preserved (sample count matches expected)
@@ -310,7 +343,9 @@ class TestIntegrationSampleRateDrift:
 
         # Allow 0.1% tolerance for rounding
         tolerance = expected_samples * 0.001
-        assert abs(actual_samples - expected_samples) < tolerance, "Sample count should match expected duration"
+        assert (
+            abs(actual_samples - expected_samples) < tolerance
+        ), "Sample count should match expected duration"
 
     def test_timing_preserved_after_resampling(self, temp_dir):
         """Test that 48000 Hz input maintains timing after resampling to 44100 Hz"""
@@ -326,16 +361,13 @@ class TestIntegrationSampleRateDrift:
         assert info.samplerate == 48000, "Test input should be 48000 Hz"
 
         # Load and resample to 44100 Hz
-        audio_48k, _ = sf.read(str(audio_file), always_2d=True, dtype='float32')
+        audio_48k, _ = sf.read(str(audio_file), always_2d=True, dtype="float32")
         audio_48k = audio_48k.T
 
         resampled_channels = []
         for channel in audio_48k:
             resampled = librosa.resample(
-                channel,
-                orig_sr=48000,
-                target_sr=44100,
-                res_type='soxr_hq'
+                channel, orig_sr=48000, target_sr=44100, res_type="soxr_hq"
             )
             resampled_channels.append(resampled)
 
@@ -351,8 +383,9 @@ class TestIntegrationSampleRateDrift:
         # Verify timing preserved (within 2 samples at 48kHz ≈ 0.042ms)
         # WHY: Resampling can only be accurate to nearest sample
         max_error = 2.0 / 48000
-        assert abs(actual_duration_44k - expected_duration) < max_error, \
-            f"Resampling should preserve timing (error: {abs(actual_duration_44k - expected_duration)*1000:.3f}ms > {max_error*1000:.3f}ms)"
+        assert (
+            abs(actual_duration_44k - expected_duration) < max_error
+        ), f"Resampling should preserve timing (error: {abs(actual_duration_44k - expected_duration)*1000:.3f}ms > {max_error*1000:.3f}ms)"
 
     def test_progressive_drift_detection(self, temp_dir):
         """Test that we can detect progressive timing drift"""
@@ -364,8 +397,12 @@ class TestIntegrationSampleRateDrift:
         audio_48k_file = self.create_test_audio_with_beats(48000, bpm, bars, temp_dir)
 
         # Load both files
-        audio_44k, sr_44k = sf.read(str(audio_44k_file), always_2d=True, dtype='float32')
-        audio_48k, sr_48k = sf.read(str(audio_48k_file), always_2d=True, dtype='float32')
+        audio_44k, sr_44k = sf.read(
+            str(audio_44k_file), always_2d=True, dtype="float32"
+        )
+        audio_48k, sr_48k = sf.read(
+            str(audio_48k_file), always_2d=True, dtype="float32"
+        )
 
         # Calculate durations
         duration_44k = audio_44k.shape[0] / sr_44k
@@ -373,8 +410,9 @@ class TestIntegrationSampleRateDrift:
 
         # Both should have same musical duration (within 2 samples at highest SR)
         max_error = 2.0 / max(sr_44k, sr_48k)
-        assert abs(duration_44k - duration_48k) < max_error, \
-            f"Both files should have same duration (error: {abs(duration_44k - duration_48k)*1000:.3f}ms > {max_error*1000:.3f}ms)"
+        assert (
+            abs(duration_44k - duration_48k) < max_error
+        ), f"Both files should have same duration (error: {abs(duration_44k - duration_48k)*1000:.3f}ms > {max_error*1000:.3f}ms)"
 
         # But different sample counts
         assert audio_44k.shape[0] != audio_48k.shape[0], "Sample counts should differ"
@@ -384,7 +422,9 @@ class TestIntegrationSampleRateDrift:
         expected_ratio = 48000 / 44100
 
         # Verify ratio matches sample rate ratio
-        assert abs(ratio - expected_ratio) < 0.001, "Sample count ratio should match SR ratio"
+        assert (
+            abs(ratio - expected_ratio) < 0.001
+        ), "Sample count ratio should match SR ratio"
 
 
 class TestSampleRateConsistency:
@@ -395,14 +435,16 @@ class TestSampleRateConsistency:
         from core.separator import TARGET_SAMPLE_RATE as SEP_SR
         from core.ensemble_separator import TARGET_SAMPLE_RATE as ENS_SR
 
-        assert SEP_SR == ENS_SR == 44100, "All TARGET_SAMPLE_RATE constants must be 44100"
+        assert (
+            SEP_SR == ENS_SR == 44100
+        ), "All TARGET_SAMPLE_RATE constants must be 44100"
 
     def test_config_consistency(self):
         """Test that config sample rates are all consistent"""
         from config import (
             DEFAULT_SAMPLE_RATE,
             EXPORT_SAMPLE_RATE,
-            RECORDING_SAMPLE_RATE
+            RECORDING_SAMPLE_RATE,
         )
 
         assert DEFAULT_SAMPLE_RATE == 44100
@@ -412,5 +454,5 @@ class TestSampleRateConsistency:
         assert DEFAULT_SAMPLE_RATE == EXPORT_SAMPLE_RATE == RECORDING_SAMPLE_RATE
 
 
-if __name__ == '__main__':
-    pytest.main([__file__, '-v'])
+if __name__ == "__main__":
+    pytest.main([__file__, "-v"])

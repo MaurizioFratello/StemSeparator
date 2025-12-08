@@ -1,6 +1,7 @@
 """
 Model Manager für das Herunterladen und Verwalten von Separation-Modellen
 """
+
 import os
 from pathlib import Path
 from typing import Optional, Callable, Dict, List
@@ -16,6 +17,7 @@ logger = get_logger()
 @dataclass
 class ModelInfo:
     """Informationen über ein Modell"""
+
     name: str
     stems: int
     size_mb: int
@@ -24,7 +26,9 @@ class ModelInfo:
     backend: str = "auto"  # e.g. mdx, demucs, roformer
     downloaded: bool = False
     path: Optional[Path] = None
-    stem_names: Optional[List[str]] = None  # List of stem names (e.g., ['Vocals', 'Instrumental'])
+    stem_names: Optional[List[str]] = (
+        None  # List of stem names (e.g., ['Vocals', 'Instrumental'])
+    )
 
 
 class ModelManager:
@@ -41,13 +45,15 @@ class ModelManager:
         """Lädt Informationen über verfügbare Modelle"""
         for model_id, model_config in MODELS.items():
             model_info = ModelInfo(
-                name=model_config['name'],
-                stems=model_config['stems'],
-                size_mb=model_config['size_mb'],
-                description=model_config['description'],
-                model_filename=model_config['model_filename'],
-                backend=model_config.get('backend', 'auto'),
-                stem_names=model_config.get('stem_names')  # Optional: list of stem names
+                name=model_config["name"],
+                stems=model_config["stems"],
+                size_mb=model_config["size_mb"],
+                description=model_config["description"],
+                model_filename=model_config["model_filename"],
+                backend=model_config.get("backend", "auto"),
+                stem_names=model_config.get(
+                    "stem_names"
+                ),  # Optional: list of stem names
             )
 
             # Prüfe ob Modell bereits heruntergeladen ist
@@ -75,15 +81,16 @@ class ModelManager:
             return False
 
         # Für YAML-Dateien (Demucs-Modelle): Prüfe ob referenzierte .th-Dateien existieren
-        if model_filename.endswith('.yaml'):
+        if model_filename.endswith(".yaml"):
             try:
                 import yaml
-                with open(model_path, 'r') as f:
+
+                with open(model_path, "r") as f:
                     config = yaml.safe_load(f)
 
                 # Prüfe ob referenzierte Modell-IDs existieren
-                if 'models' in config:
-                    for model_id in config['models']:
+                if "models" in config:
+                    for model_id in config["models"]:
                         # Suche nach .th-Dateien die mit der model_id beginnen
                         matching_files = list(self.models_dir.glob(f"{model_id}*.th"))
                         if not matching_files:
@@ -101,7 +108,7 @@ class ModelManager:
 
         # Für andere Modelltypen (.ckpt, .pth, etc.): Prüfe Dateigröße
         else:
-            model_extensions = ['.pth', '.pt', '.ckpt', '.bin', '.safetensors', '.onnx']
+            model_extensions = [".pth", ".pt", ".ckpt", ".bin", ".safetensors", ".onnx"]
             if model_path.suffix.lower() in model_extensions:
                 # Modell sollte mindestens 10MB groß sein
                 return model_path.stat().st_size > 10 * 1024 * 1024
@@ -125,7 +132,7 @@ class ModelManager:
     def download_model(
         self,
         model_id: str,
-        progress_callback: Optional[Callable[[str, int], None]] = None
+        progress_callback: Optional[Callable[[str, int], None]] = None,
     ) -> bool:
         """
         Lädt ein Modell herunter durch audio-separator
@@ -149,7 +156,9 @@ class ModelManager:
         logger.info(f"Downloading model '{model_id}' ({model_info.size_mb}MB)...")
 
         if progress_callback:
-            progress_callback(f"Downloading {model_info.name}... This may take several minutes.", 10)
+            progress_callback(
+                f"Downloading {model_info.name}... This may take several minutes.", 10
+            )
 
         try:
             # Verwende audio-separator um das Modell herunterzuladen
@@ -162,7 +171,7 @@ class ModelManager:
             separator = AudioSeparator(
                 log_level=40,  # ERROR level to suppress verbose output
                 model_file_dir=str(self.models_dir),
-                output_dir=str(self.models_dir)
+                output_dir=str(self.models_dir),
             )
 
             if progress_callback:
@@ -181,13 +190,19 @@ class ModelManager:
                 logger.info(f"Model '{model_id}' successfully downloaded and verified")
 
                 if progress_callback:
-                    progress_callback(f"✓ {model_info.name} downloaded successfully!", 100)
+                    progress_callback(
+                        f"✓ {model_info.name} downloaded successfully!", 100
+                    )
 
                 return True
             else:
-                logger.warning(f"Model '{model_id}' download completed but verification failed")
+                logger.warning(
+                    f"Model '{model_id}' download completed but verification failed"
+                )
                 if progress_callback:
-                    progress_callback(f"Download completed but model files not found", -1)
+                    progress_callback(
+                        f"Download completed but model files not found", -1
+                    )
                 return False
 
         except ImportError as e:
@@ -204,8 +219,7 @@ class ModelManager:
             return False
 
     def download_all_models(
-        self,
-        progress_callback: Optional[Callable[[str, int], None]] = None
+        self, progress_callback: Optional[Callable[[str, int], None]] = None
     ) -> Dict[str, bool]:
         """
         Lädt alle konfigurierten Modelle herunter
@@ -219,11 +233,16 @@ class ModelManager:
         results = {}
 
         for i, model_id in enumerate(self.available_models.keys()):
-            logger.info(f"Downloading model {i+1}/{len(self.available_models)}: {model_id}")
+            logger.info(
+                f"Downloading model {i+1}/{len(self.available_models)}: {model_id}"
+            )
 
             if progress_callback:
                 overall_progress = int((i / len(self.available_models)) * 100)
-                progress_callback(f"Preparing models ({i+1}/{len(self.available_models)})", overall_progress)
+                progress_callback(
+                    f"Preparing models ({i+1}/{len(self.available_models)})",
+                    overall_progress,
+                )
 
             success = self.download_model(model_id, progress_callback)
             results[model_id] = success
@@ -261,6 +280,7 @@ class ModelManager:
 
         try:
             import os
+
             model_path = self.models_dir / model_info.model_filename
 
             # Lösche die Modelldatei
@@ -268,14 +288,15 @@ class ModelManager:
                 os.remove(model_path)
 
             # Für YAML-Modelle: Lösche auch die referenzierten .th-Dateien
-            if model_info.model_filename.endswith('.yaml'):
+            if model_info.model_filename.endswith(".yaml"):
                 try:
                     import yaml
-                    with open(model_path, 'r') as f:
+
+                    with open(model_path, "r") as f:
                         config = yaml.safe_load(f)
 
-                    if 'models' in config:
-                        for model_id_ref in config['models']:
+                    if "models" in config:
+                        for model_id_ref in config["models"]:
                             for th_file in self.models_dir.glob(f"{model_id_ref}*.th"):
                                 if th_file.exists():
                                     os.remove(th_file)
@@ -324,7 +345,9 @@ if __name__ == "__main__":
 
     print("Available models:")
     for model_id, model_info in manager.available_models.items():
-        print(f"  {model_id}: {model_info.name} ({model_info.stems} stems, {model_info.size_mb}MB)")
+        print(
+            f"  {model_id}: {model_info.name} ({model_info.stems} stems, {model_info.size_mb}MB)"
+        )
         print(f"    Downloaded: {model_info.downloaded}")
 
     print(f"\nDefault model: {manager.get_default_model()}")

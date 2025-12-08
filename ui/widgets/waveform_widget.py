@@ -4,14 +4,13 @@ Waveform Widget - Audio visualization with trim controls
 PURPOSE: Display audio waveform with draggable trim markers for start/end positions.
 CONTEXT: Used in Upload tab to allow users to trim audio before stem separation.
 """
+
 from pathlib import Path
 from typing import Optional, Tuple
 import numpy as np
 import soundfile as sf
 
-from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFrame
-)
+from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFrame
 from PySide6.QtCore import Qt, Signal, QPointF, QRectF
 from PySide6.QtGui import QPainter, QPen, QColor, QPainterPath, QLinearGradient, QPixmap
 
@@ -34,7 +33,7 @@ class WaveformDisplay(QWidget):
         self.waveform_data: Optional[np.ndarray] = None
         self.duration: float = 0.0
         self.trim_start: float = 0.0  # in seconds
-        self.trim_end: float = 0.0    # in seconds (0 means end of file)
+        self.trim_end: float = 0.0  # in seconds (0 means end of file)
         self.setMinimumHeight(120)
         self.setMaximumHeight(150)  # Reduced max height to prevent overlap issues
 
@@ -98,7 +97,9 @@ class WaveformDisplay(QWidget):
         if self.waveform_data is None or len(self.waveform_data) == 0:
             # Show placeholder text with modern styling
             painter.setPen(QColor(ColorPalette.TEXT_SECONDARY))
-            painter.drawText(self.rect(), Qt.AlignCenter, "Select a file to view waveform")
+            painter.drawText(
+                self.rect(), Qt.AlignCenter, "Select a file to view waveform"
+            )
             return
 
         # Use cached waveform if available and size hasn't changed
@@ -119,15 +120,19 @@ class WaveformDisplay(QWidget):
 
             if self.trim_start > 0:
                 painter.fillRect(
-                    0, 0,
-                    int(width * (self.trim_start / self.duration)), height,
-                    overlay_color
+                    0,
+                    0,
+                    int(width * (self.trim_start / self.duration)),
+                    height,
+                    overlay_color,
                 )
             if self.trim_end < self.duration:
                 painter.fillRect(
-                    int(width * (self.trim_end / self.duration)), 0,
-                    width, height,
-                    overlay_color
+                    int(width * (self.trim_end / self.duration)),
+                    0,
+                    width,
+                    height,
+                    overlay_color,
                 )
 
         # Draw trim markers with modern accent colors
@@ -296,7 +301,7 @@ class WaveformWidget(QWidget):
             self.ctx.logger().info(f"Loading waveform for: {file_path.name}")
 
             # Read audio file
-            audio_data, sample_rate = sf.read(file_path, dtype='float32')
+            audio_data, sample_rate = sf.read(file_path, dtype="float32")
 
             self.current_file = file_path
             self.audio_data = audio_data

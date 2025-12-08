@@ -1,6 +1,7 @@
 """
 BlackHole Auto-Installer für macOS System Audio Recording
 """
+
 import subprocess
 import platform
 from pathlib import Path
@@ -16,6 +17,7 @@ logger = get_logger()
 @dataclass
 class BlackHoleStatus:
     """Status von BlackHole Installation"""
+
     installed: bool
     version: Optional[str] = None
     device_found: bool = False
@@ -38,7 +40,7 @@ class BlackHoleInstaller:
         Returns:
             True wenn macOS
         """
-        return platform.system() == 'Darwin'
+        return platform.system() == "Darwin"
 
     def check_homebrew_installed(self) -> bool:
         """
@@ -49,10 +51,7 @@ class BlackHoleInstaller:
         """
         try:
             result = subprocess.run(
-                ['brew', '--version'],
-                capture_output=True,
-                text=True,
-                timeout=5
+                ["brew", "--version"], capture_output=True, text=True, timeout=5
             )
             return result.returncode == 0
         except (subprocess.TimeoutExpired, FileNotFoundError):
@@ -71,10 +70,10 @@ class BlackHoleInstaller:
         try:
             # Check for cask installation
             result = subprocess.run(
-                ['brew', 'list', '--cask', '--versions', self.formula],
+                ["brew", "list", "--cask", "--versions", self.formula],
                 capture_output=True,
                 text=True,
-                timeout=10
+                timeout=10,
             )
 
             if result.returncode == 0 and result.stdout.strip():
@@ -82,33 +81,30 @@ class BlackHoleInstaller:
                 version = result.stdout.strip().split()[-1]
                 self.logger.info(f"BlackHole cask installed: {version}")
                 return True, version
-            
+
             # Fallback: check via pkgutil (system packages)
             pkg_result = subprocess.run(
-                ['pkgutil', '--pkgs'],
-                capture_output=True,
-                text=True,
-                timeout=10
+                ["pkgutil", "--pkgs"], capture_output=True, text=True, timeout=10
             )
-            
-            if 'BlackHole' in pkg_result.stdout:
+
+            if "BlackHole" in pkg_result.stdout:
                 self.logger.info("BlackHole found via pkgutil")
                 # Try to get version from brew cask info
                 info_result = subprocess.run(
-                    ['brew', 'info', '--cask', self.formula],
+                    ["brew", "info", "--cask", self.formula],
                     capture_output=True,
                     text=True,
-                    timeout=10
+                    timeout=10,
                 )
                 # Extract version from output
-                for line in info_result.stdout.split('\n'):
-                    if self.formula in line and ':' in line:
+                for line in info_result.stdout.split("\n"):
+                    if self.formula in line and ":" in line:
                         parts = line.split()
                         if len(parts) >= 2:
                             version = parts[1]
                             return True, version
                 return True, "installed"
-            
+
             return False, None
 
         except (subprocess.TimeoutExpired, FileNotFoundError) as e:
@@ -146,7 +142,7 @@ class BlackHoleInstaller:
             return BlackHoleStatus(
                 installed=False,
                 homebrew_available=False,
-                error_message="Not running on macOS"
+                error_message="Not running on macOS",
             )
 
         homebrew_available = self.check_homebrew_installed()
@@ -155,7 +151,7 @@ class BlackHoleInstaller:
             return BlackHoleStatus(
                 installed=False,
                 homebrew_available=False,
-                error_message="Homebrew not installed"
+                error_message="Homebrew not installed",
             )
 
         installed, version = self.check_blackhole_installed()
@@ -165,12 +161,11 @@ class BlackHoleInstaller:
             installed=installed,
             version=version,
             device_found=device_found,
-            homebrew_available=homebrew_available
+            homebrew_available=homebrew_available,
         )
 
     def install_blackhole(
-        self,
-        progress_callback: Optional[callable] = None
+        self, progress_callback: Optional[callable] = None
     ) -> Tuple[bool, Optional[str]]:
         """
         Installiert BlackHole via Homebrew
@@ -201,31 +196,34 @@ class BlackHoleInstaller:
         try:
             # brew install blackhole-2ch
             result = subprocess.run(
-                ['brew', 'install', self.formula],
+                ["brew", "install", self.formula],
                 capture_output=True,
                 text=True,
-                timeout=300  # 5 Minuten Timeout
+                timeout=300,  # 5 Minuten Timeout
             )
 
             if result.returncode == 0:
                 self.logger.info("BlackHole installed successfully")
 
                 if progress_callback:
-                    progress_callback("BlackHole installed, restarting audio service...")
+                    progress_callback(
+                        "BlackHole installed, restarting audio service..."
+                    )
 
                 # Restart CoreAudio service to load new driver
                 try:
                     subprocess.run(
-                        ['sudo', 'killall', 'coreaudiod'],
+                        ["sudo", "killall", "coreaudiod"],
                         capture_output=True,
-                        timeout=10
+                        timeout=10,
                     )
                     self.logger.info("CoreAudio service restarted")
                 except Exception as e:
                     self.logger.warning(f"Could not restart CoreAudio: {e}")
-                
+
                 # Wait a moment for audio service to restart
                 import time
+
                 time.sleep(2)
 
                 if progress_callback:
@@ -235,7 +233,9 @@ class BlackHoleInstaller:
                 installed, version = self.check_blackhole_installed()
                 if installed:
                     if progress_callback:
-                        progress_callback(f"✓ BlackHole {version} installed successfully")
+                        progress_callback(
+                            f"✓ BlackHole {version} installed successfully"
+                        )
                     return True, None
                 else:
                     # Installation war erfolgreich, aber Device noch nicht erkannt
@@ -274,10 +274,10 @@ class BlackHoleInstaller:
 
         try:
             result = subprocess.run(
-                ['brew', 'uninstall', self.formula],
+                ["brew", "uninstall", self.formula],
                 capture_output=True,
                 text=True,
-                timeout=60
+                timeout=60,
             )
 
             if result.returncode == 0:
@@ -333,7 +333,9 @@ Weitere Infos: https://github.com/ExistentialAudio/BlackHole/wiki/Multi-Output-D
             return False
 
         try:
-            subprocess.Popen(['open', '/System/Applications/Utilities/Audio MIDI Setup.app'])
+            subprocess.Popen(
+                ["open", "/System/Applications/Utilities/Audio MIDI Setup.app"]
+            )
             self.logger.info("Opened Audio MIDI Setup")
             return True
         except Exception as e:

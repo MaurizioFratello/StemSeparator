@@ -22,9 +22,9 @@ import librosa
 
 # CRITICAL: Disable multiprocessing for PyInstaller compatibility
 # This prevents the "resource_tracker" errors when running in bundled binary
-os.environ['OMP_NUM_THREADS'] = '1'
-os.environ['MKL_NUM_THREADS'] = '1'
-os.environ['NUMEXPR_NUM_THREADS'] = '1'
+os.environ["OMP_NUM_THREADS"] = "1"
+os.environ["MKL_NUM_THREADS"] = "1"
+os.environ["NUMEXPR_NUM_THREADS"] = "1"
 
 # Add larsnet directory to Python path
 LARSNET_DIR = Path(__file__).parent.parent / "larsnet"
@@ -41,11 +41,7 @@ class LarsProcessorLarsNet:
 
     SUPPORTED_STEMS = ["kick", "snare", "toms", "hihat", "cymbals"]
 
-    def __init__(
-        self,
-        device: str = "cpu",
-        verbose: bool = False
-    ):
+    def __init__(self, device: str = "cpu", verbose: bool = False):
         """
         Initialize LarsNet processor.
 
@@ -64,6 +60,7 @@ class LarsProcessorLarsNet:
         # Check if LarsNet is available
         try:
             from larsnet import LarsNet
+
             self.LarsNet = LarsNet
         except ImportError as e:
             raise ImportError(
@@ -128,7 +125,9 @@ class LarsProcessorLarsNet:
         if self.verbose:
             print(f"[LarsNet] {message}", file=sys.stderr, flush=True)
 
-    def _load_model(self, wiener_filter: bool = False, wiener_exponent: float = 1.0) -> None:
+    def _load_model(
+        self, wiener_filter: bool = False, wiener_exponent: float = 1.0
+    ) -> None:
         """
         Load LarsNet model with specified configuration.
 
@@ -151,6 +150,7 @@ class LarsProcessorLarsNet:
 
         # Disable PyTorch multiprocessing for PyInstaller compatibility
         import torch
+
         torch.set_num_threads(1)
         torch.set_num_interop_threads(1)
 
@@ -165,7 +165,7 @@ class LarsProcessorLarsNet:
                 wiener_exponent=wiener_exponent if wiener_filter else 1.0,
                 config=str(config_path),
                 return_stft=False,
-                device=self.device
+                device=self.device,
             )
 
         finally:
@@ -180,7 +180,7 @@ class LarsProcessorLarsNet:
         stems: Optional[List[str]] = None,
         wiener_filter: bool = False,
         output_format: str = "wav",
-        sample_rate: int = 44100
+        sample_rate: int = 44100,
     ) -> Dict[str, Path]:
         """
         Separate drum stems from audio file using LarsNet.
@@ -253,14 +253,16 @@ class LarsProcessorLarsNet:
 
             # Resample if needed
             if sample_rate != larsnet_sr:
-                self._log(f"Resampling {stem_name}: {larsnet_sr} Hz -> {sample_rate} Hz")
+                self._log(
+                    f"Resampling {stem_name}: {larsnet_sr} Hz -> {sample_rate} Hz"
+                )
                 # Transpose back for librosa: [channels, samples]
                 waveform = waveform.T if waveform.ndim == 2 else waveform
                 waveform = librosa.resample(
                     waveform,
                     orig_sr=larsnet_sr,
                     target_sr=sample_rate,
-                    res_type='kaiser_best'
+                    res_type="kaiser_best",
                 )
                 # Transpose back for soundfile: [samples, channels]
                 waveform = waveform.T if waveform.ndim == 2 else waveform
@@ -270,12 +272,7 @@ class LarsProcessorLarsNet:
             output_path = output_dir / stem_filename
 
             # Save audio file
-            sf.write(
-                output_path,
-                waveform,
-                sample_rate,
-                format=output_format.upper()
-            )
+            sf.write(output_path, waveform, sample_rate, format=output_format.upper())
 
             stem_paths[stem_name] = output_path
             self._log(f"  {stem_name}: {output_path.name}")

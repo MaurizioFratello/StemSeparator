@@ -1,6 +1,7 @@
 """
 Chunk Processor für das Zerlegen und Zusammenfügen von Audio-Dateien
 """
+
 from pathlib import Path
 from typing import List, Tuple, Optional, Callable
 from dataclasses import dataclass
@@ -11,7 +12,7 @@ from config import (
     CHUNK_LENGTH_SECONDS,
     CHUNK_OVERLAP_SECONDS,
     MIN_CHUNK_LENGTH,
-    TEMP_DIR
+    TEMP_DIR,
 )
 from utils.logger import get_logger
 from utils.file_manager import get_file_manager
@@ -21,11 +22,13 @@ def _get_chunk_length_from_settings():
     """Hole chunk_length aus settings_manager falls verfügbar, sonst aus config"""
     try:
         from ui.settings_manager import get_settings_manager
+
         settings_mgr = get_settings_manager()
         return settings_mgr.get_chunk_length()
     except (ImportError, Exception):
         # Fallback auf config falls settings_manager nicht verfügbar
         return CHUNK_LENGTH_SECONDS
+
 
 logger = get_logger()
 
@@ -33,6 +36,7 @@ logger = get_logger()
 @dataclass
 class AudioChunk:
     """Represents a chunk of audio data"""
+
     index: int  # Chunk number (0-indexed)
     start_sample: int  # Start position in original audio
     end_sample: int  # End position in original audio
@@ -47,7 +51,7 @@ class ChunkProcessor:
     def __init__(
         self,
         chunk_length_seconds: int = CHUNK_LENGTH_SECONDS,
-        overlap_seconds: int = CHUNK_OVERLAP_SECONDS
+        overlap_seconds: int = CHUNK_OVERLAP_SECONDS,
     ):
         self.chunk_length_seconds = chunk_length_seconds
         self.overlap_seconds = overlap_seconds
@@ -93,7 +97,7 @@ class ChunkProcessor:
     def chunk_audio(
         self,
         audio_file: Path,
-        progress_callback: Optional[Callable[[int, int], None]] = None
+        progress_callback: Optional[Callable[[int, int], None]] = None,
     ) -> List[AudioChunk]:
         """
         Zerlegt Audio-Datei in Chunks
@@ -149,7 +153,7 @@ class ChunkProcessor:
                 end_sample=end,
                 audio_data=chunk_data,
                 sample_rate=sample_rate,
-                has_overlap=(i > 0)  # Alle außer erstem Chunk haben Overlap
+                has_overlap=(i > 0),  # Alle außer erstem Chunk haben Overlap
             )
 
             chunks.append(chunk)
@@ -169,7 +173,7 @@ class ChunkProcessor:
         self,
         chunks: List[Tuple[AudioChunk, np.ndarray]],
         output_file: Optional[Path] = None,
-        progress_callback: Optional[Callable[[int, int], None]] = None
+        progress_callback: Optional[Callable[[int, int], None]] = None,
     ) -> np.ndarray:
         """
         Fügt verarbeitete Chunks zusammen mit Crossfade im Overlap-Bereich
@@ -238,18 +242,25 @@ class ChunkProcessor:
                 fade_in = np.linspace(0.0, 1.0, actual_overlap)
 
                 # Apply Fades
-                overlap_existing = merged_audio[:, current_pos:current_pos + actual_overlap]
-                crossfaded = (overlap_existing * fade_out + overlap_data * fade_in)
+                overlap_existing = merged_audio[
+                    :, current_pos : current_pos + actual_overlap
+                ]
+                crossfaded = overlap_existing * fade_out + overlap_data * fade_in
 
                 # Schreibe crossfaded Overlap
-                merged_audio[:, current_pos:current_pos + actual_overlap] = crossfaded
+                merged_audio[:, current_pos : current_pos + actual_overlap] = crossfaded
 
                 # Rest des Chunks (nach Overlap) - falls vorhanden
                 rest_start = actual_overlap
                 rest_length = chunk_length - actual_overlap
                 if rest_length > 0:
-                    merged_audio[:, current_pos + actual_overlap:current_pos + actual_overlap + rest_length] = \
-                        chunk_data[:, rest_start:]
+                    merged_audio[
+                        :,
+                        current_pos
+                        + actual_overlap : current_pos
+                        + actual_overlap
+                        + rest_length,
+                    ] = chunk_data[:, rest_start:]
 
                 current_pos += rest_length
 
@@ -326,6 +337,7 @@ class ChunkProcessor:
         """Löscht temporäre Chunk-Dateien"""
         try:
             import shutil
+
             if self.chunks_dir.exists():
                 shutil.rmtree(self.chunks_dir)
                 self.chunks_dir.mkdir(parents=True, exist_ok=True)
@@ -363,7 +375,7 @@ if __name__ == "__main__":
     stereo_data = np.column_stack([audio_data, audio_data])
 
     # Speichere als WAV
-    with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as f:
+    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
         test_file = Path(f.name)
         sf.write(str(test_file), stereo_data, sample_rate)
 

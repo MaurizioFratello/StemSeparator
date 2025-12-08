@@ -5,6 +5,7 @@ PURPOSE: Replace placeholder logic with actual drum separation
 CONTEXT: Uses Demucs htdemucs_6s model for real 6-stem separation
 NOTE: This provides real separation instead of placeholder gains
 """
+
 import sys
 import time
 from pathlib import Path
@@ -52,7 +53,7 @@ class LarsProcessorDemucs:
             print("[LarsProcessor] Loading Demucs htdemucs model...", file=sys.stderr)
 
         # Load htdemucs model (6-stem: drums, bass, other, vocals, guitar, piano)
-        self.model = get_model('htdemucs')
+        self.model = get_model("htdemucs")
         self.model.to(self.device)
         self.model.eval()
 
@@ -66,7 +67,7 @@ class LarsProcessorDemucs:
         stems: List[str],
         wiener_filter: bool = False,
         output_format: str = "wav",
-        sample_rate: int = 44100
+        sample_rate: int = 44100,
     ) -> Dict[str, Path]:
         """
         Separate drum stems using Demucs + spectral analysis.
@@ -98,7 +99,10 @@ class LarsProcessorDemucs:
         # Resample to model's sample rate if needed
         if sr != self.model.samplerate:
             if self.verbose:
-                print(f"[LarsProcessor] Resampling from {sr} Hz to {self.model.samplerate} Hz", file=sys.stderr)
+                print(
+                    f"[LarsProcessor] Resampling from {sr} Hz to {self.model.samplerate} Hz",
+                    file=sys.stderr,
+                )
             resampler = torchaudio.transforms.Resample(sr, self.model.samplerate)
             waveform = resampler(waveform)
             sr = self.model.samplerate
@@ -123,26 +127,27 @@ class LarsProcessorDemucs:
                 shifts=1,  # Use shift trick for better quality
                 split=True,  # Split to save memory
                 overlap=0.25,
-                progress=self.verbose
-            )[0]  # Remove batch dimension
+                progress=self.verbose,
+            )[
+                0
+            ]  # Remove batch dimension
 
         # Get drums stem (index varies by model, usually 0 for htdemucs)
         # htdemucs sources order: drums, bass, other, vocals
         drums_audio = sources[0].cpu()  # drums is first
 
         if self.verbose:
-            print(f"[LarsProcessor] Extracted drums, now separating components...", file=sys.stderr)
+            print(
+                f"[LarsProcessor] Extracted drums, now separating components...",
+                file=sys.stderr,
+            )
 
         # Now separate drum components using frequency analysis
         stem_paths = {}
 
         for stem_name in stems:
             # Generate component-separated audio
-            stem_audio = self._separate_drum_component(
-                drums_audio,
-                stem_name,
-                sr
-            )
+            stem_audio = self._separate_drum_component(drums_audio, stem_name, sr)
 
             # Resample to target sample rate if needed
             if sr != sample_rate:
@@ -158,17 +163,21 @@ class LarsProcessorDemucs:
 
             # Write stem to file
             import soundfile as sf
+
             sf.write(
                 str(output_path),
                 stem_data,
                 sample_rate,
-                subtype='PCM_24' if output_format == 'wav' else None
+                subtype="PCM_24" if output_format == "wav" else None,
             )
 
             stem_paths[stem_name] = output_path
 
             if self.verbose:
-                print(f"[LarsProcessor] Written {stem_name}: {output_path}", file=sys.stderr)
+                print(
+                    f"[LarsProcessor] Written {stem_name}: {output_path}",
+                    file=sys.stderr,
+                )
 
         if self.verbose:
             print(f"[LarsProcessor] Separation complete", file=sys.stderr)
@@ -176,10 +185,7 @@ class LarsProcessorDemucs:
         return stem_paths
 
     def _separate_drum_component(
-        self,
-        drums_audio: torch.Tensor,
-        component: str,
-        sample_rate: int
+        self, drums_audio: torch.Tensor, component: str, sample_rate: int
     ) -> torch.Tensor:
         """
         Separate individual drum component using frequency-based filtering.
@@ -226,11 +232,7 @@ class LarsProcessorDemucs:
             return drums_audio
 
     def _bandpass_filter(
-        self,
-        audio: torch.Tensor,
-        low_freq: float,
-        high_freq: float,
-        sample_rate: int
+        self, audio: torch.Tensor, low_freq: float, high_freq: float, sample_rate: int
     ) -> torch.Tensor:
         """
         Apply band-pass filter to isolate frequency range.
@@ -246,7 +248,7 @@ class LarsProcessorDemucs:
         """
         # Convert to frequency domain
         audio_fft = torch.fft.rfft(audio, dim=1)
-        freqs = torch.fft.rfftfreq(audio.shape[1], 1/sample_rate)
+        freqs = torch.fft.rfftfreq(audio.shape[1], 1 / sample_rate)
 
         # Create band-pass mask
         mask = (freqs >= low_freq) & (freqs <= high_freq)

@@ -16,27 +16,27 @@ class Spacing:
 
     # Base spacing units (8px grid)
     NONE = 0
-    XXS = 2      # Micro spacing
-    XS = 4       # Extra small
-    SM = 8       # Small
-    MD = 16      # Medium (base unit)
-    LG = 24      # Large
-    XL = 32      # Extra large
-    XXL = 48     # 2x large
-    XXXL = 64    # 3x large
+    XXS = 2  # Micro spacing
+    XS = 4  # Extra small
+    SM = 8  # Small
+    MD = 16  # Medium (base unit)
+    LG = 24  # Large
+    XL = 32  # Extra large
+    XXL = 48  # 2x large
+    XXXL = 64  # 3x large
 
     # Component-specific spacing
-    BUTTON_PADDING_V = 12    # Vertical padding for buttons
-    BUTTON_PADDING_H = 24    # Horizontal padding for buttons
-    INPUT_PADDING = 10       # Padding for text inputs
-    GROUP_PADDING = 20       # Padding inside group boxes
-    CARD_PADDING = 16        # Padding for card-like components
+    BUTTON_PADDING_V = 12  # Vertical padding for buttons
+    BUTTON_PADDING_H = 24  # Horizontal padding for buttons
+    INPUT_PADDING = 10  # Padding for text inputs
+    GROUP_PADDING = 20  # Padding inside group boxes
+    CARD_PADDING = 16  # Padding for card-like components
 
     # Border radius
-    RADIUS_SM = 4       # Small radius (checkboxes, small elements)
-    RADIUS_MD = 8       # Medium radius (buttons, inputs)
-    RADIUS_LG = 12      # Large radius (cards, group boxes)
-    RADIUS_XL = 16      # Extra large radius
+    RADIUS_SM = 4  # Small radius (checkboxes, small elements)
+    RADIUS_MD = 8  # Medium radius (buttons, inputs)
+    RADIUS_LG = 12  # Large radius (cards, group boxes)
+    RADIUS_XL = 16  # Extra large radius
     RADIUS_FULL = 9999  # Fully rounded (pills, circles)
 
     # Icon sizes

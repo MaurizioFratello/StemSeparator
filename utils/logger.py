@@ -1,6 +1,7 @@
 """
 Detailliertes Logging-System mit File Rotation und farbiger Konsolen-Ausgabe
 """
+
 import logging
 import sys
 from logging.handlers import RotatingFileHandler
@@ -9,6 +10,7 @@ from typing import Optional
 
 try:
     import colorlog
+
     COLORLOG_AVAILABLE = True
 except ImportError:
     COLORLOG_AVAILABLE = False
@@ -19,7 +21,7 @@ from config import LOG_FILE, LOG_MAX_BYTES, LOG_BACKUP_COUNT, LOG_LEVEL
 class AppLogger:
     """Singleton Logger für die gesamte Anwendung"""
 
-    _instance: Optional['AppLogger'] = None
+    _instance: Optional["AppLogger"] = None
     _logger: Optional[logging.Logger] = None
 
     def __new__(cls):
@@ -31,7 +33,7 @@ class AppLogger:
         if self._logger is not None:
             return
 
-        self._logger = logging.getLogger('StemSeparator')
+        self._logger = logging.getLogger("StemSeparator")
         self._logger.setLevel(getattr(logging, LOG_LEVEL))
 
         # Verhindere doppelte Handler
@@ -52,15 +54,15 @@ class AppLogger:
             LOG_FILE,
             maxBytes=LOG_MAX_BYTES,
             backupCount=LOG_BACKUP_COUNT,
-            encoding='utf-8'
+            encoding="utf-8",
         )
         file_handler.setLevel(logging.DEBUG)  # File bekommt alles
 
         # Detailliertes Format für File
         file_formatter = logging.Formatter(
-            '%(asctime)s - %(name)s - %(levelname)s - '
-            '%(filename)s:%(lineno)d - %(funcName)s() - %(message)s',
-            datefmt='%Y-%m-%d %H:%M:%S'
+            "%(asctime)s - %(name)s - %(levelname)s - "
+            "%(filename)s:%(lineno)d - %(funcName)s() - %(message)s",
+            datefmt="%Y-%m-%d %H:%M:%S",
         )
         file_handler.setFormatter(file_formatter)
         self._logger.addHandler(file_handler)
@@ -73,21 +75,19 @@ class AppLogger:
         if COLORLOG_AVAILABLE:
             # Farbige Ausgabe mit colorlog
             console_formatter = colorlog.ColoredFormatter(
-                '%(log_color)s%(levelname)-8s%(reset)s %(blue)s%(message)s',
-                datefmt='%H:%M:%S',
+                "%(log_color)s%(levelname)-8s%(reset)s %(blue)s%(message)s",
+                datefmt="%H:%M:%S",
                 log_colors={
-                    'DEBUG': 'cyan',
-                    'INFO': 'green',
-                    'WARNING': 'yellow',
-                    'ERROR': 'red',
-                    'CRITICAL': 'red,bg_white',
-                }
+                    "DEBUG": "cyan",
+                    "INFO": "green",
+                    "WARNING": "yellow",
+                    "ERROR": "red",
+                    "CRITICAL": "red,bg_white",
+                },
             )
         else:
             # Einfaches Format ohne Farben
-            console_formatter = logging.Formatter(
-                '%(levelname)-8s %(message)s'
-            )
+            console_formatter = logging.Formatter("%(levelname)-8s %(message)s")
 
         console_handler.setFormatter(console_formatter)
         self._logger.addHandler(console_handler)
@@ -178,4 +178,4 @@ if __name__ == "__main__":
     try:
         raise ValueError("Test exception")
     except Exception as e:
-        logger.log_error_with_context(e, {'test': 'context'})
+        logger.log_error_with_context(e, {"test": "context"})

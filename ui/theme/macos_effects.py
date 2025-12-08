@@ -5,6 +5,7 @@ PURPOSE: Provides macOS-specific visual effects that create depth and hierarchy.
 CONTEXT: Native macOS apps use translucent "frosted glass" backgrounds (Safari sidebar,
          Music, Finder, etc.). This module enables similar effects in Qt.
 """
+
 from __future__ import annotations
 
 import platform
@@ -29,9 +30,7 @@ class MacOSEffects:
 
     @staticmethod
     def apply_vibrancy(
-        widget: QWidget,
-        material: str = "dark",
-        blend_mode: str = "behind-window"
+        widget: QWidget, material: str = "dark", blend_mode: str = "behind-window"
     ) -> None:
         """
         Apply vibrancy/translucency effect to widget
@@ -65,11 +64,13 @@ class MacOSEffects:
 
             # Apply stylesheet with transparency
             # Note: backdrop-filter is not supported in Qt, this is aspirational
-            widget.setStyleSheet(f"""
+            widget.setStyleSheet(
+                f"""
                 QWidget {{
                     background-color: {bg_color};
                 }}
-            """)
+            """
+            )
 
         except Exception:
             # Gracefully degrade if effect can't be applied
@@ -100,12 +101,14 @@ class MacOSEffects:
                 bg_color = "rgba(235, 235, 235, 0.92)"
                 border_color = "rgba(0, 0, 0, 0.08)"
 
-            widget.setStyleSheet(f"""
+            widget.setStyleSheet(
+                f"""
                 QWidget {{
                     background-color: {bg_color};
                     border-right: 1px solid {border_color};
                 }}
-            """)
+            """
+            )
 
         except Exception:
             pass
@@ -133,20 +136,21 @@ class MacOSEffects:
                 bg_color = "rgba(250, 250, 250, 0.95)"
                 border_color = "rgba(0, 0, 0, 0.1)"
 
-            widget.setStyleSheet(f"""
+            widget.setStyleSheet(
+                f"""
                 QWidget {{
                     background-color: {bg_color};
                     border-bottom: 0.5px solid {border_color};
                 }}
-            """)
+            """
+            )
 
         except Exception:
             pass
 
     @staticmethod
     def apply_blur_effect(
-        widget: QWidget,
-        blur_radius: float = 10.0
+        widget: QWidget, blur_radius: float = 10.0
     ) -> Optional[QGraphicsEffect]:
         """
         Apply Gaussian blur effect
@@ -219,11 +223,13 @@ class MacOSEffects:
             radius: Corner radius in pixels
         """
         try:
-            widget.setStyleSheet(f"""
+            widget.setStyleSheet(
+                f"""
                 QWidget {{
                     border-radius: {radius}px;
                 }}
-            """)
+            """
+            )
         except Exception:
             pass
 
@@ -233,7 +239,7 @@ class MacOSEffects:
         color: str = "rgba(0, 0, 0, 0.3)",
         offset_x: int = 0,
         offset_y: int = 2,
-        blur_radius: int = 8
+        blur_radius: int = 8,
     ) -> None:
         """
         Apply drop shadow to widget

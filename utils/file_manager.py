@@ -1,6 +1,7 @@
 """
 File Manager für Audio-Datei Operationen
 """
+
 import os
 from pathlib import Path
 from typing import Optional, List
@@ -33,12 +34,12 @@ class FileManager:
         try:
             info = sf.info(str(file_path))
             return {
-                'duration': info.duration,
-                'sample_rate': info.samplerate,
-                'channels': info.channels,
-                'format': info.format,
-                'subtype': info.subtype,
-                'frames': info.frames
+                "duration": info.duration,
+                "sample_rate": info.samplerate,
+                "channels": info.channels,
+                "format": info.format,
+                "subtype": info.subtype,
+                "frames": info.frames,
             }
         except Exception as e:
             logger.error(f"Error reading audio info from {file_path}: {e}")
@@ -78,6 +79,7 @@ class FileManager:
         """Löscht temporäre Dateien"""
         try:
             import shutil
+
             if self.temp_dir.exists():
                 shutil.rmtree(self.temp_dir)
                 self.temp_dir.mkdir(parents=True, exist_ok=True)

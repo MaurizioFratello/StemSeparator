@@ -4,15 +4,26 @@ Queue Widget - Task queue management for batch separation
 PURPOSE: Allow users to queue multiple files for sequential processing.
 CONTEXT: Manages separation tasks and shows progress for each queued item.
 """
+
 from pathlib import Path
 from typing import Optional, List
 from dataclasses import dataclass
 from enum import Enum
 from collections import deque
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
-    QTableWidget, QTableWidgetItem, QHeaderView, QGroupBox,
-    QProgressBar, QMessageBox, QScrollArea, QFrame
+    QWidget,
+    QVBoxLayout,
+    QHBoxLayout,
+    QPushButton,
+    QLabel,
+    QTableWidget,
+    QTableWidgetItem,
+    QHeaderView,
+    QGroupBox,
+    QProgressBar,
+    QMessageBox,
+    QScrollArea,
+    QFrame,
 )
 from PySide6.QtCore import Qt, Signal, Slot, QRunnable, QThreadPool, QObject
 
@@ -23,6 +34,7 @@ from ui.theme import ThemeManager
 
 class TaskStatus(Enum):
     """Status of a queued task"""
+
     PENDING = "Pending"
     PROCESSING = "Processing"
     COMPLETED = "Completed"
@@ -33,6 +45,7 @@ class TaskStatus(Enum):
 @dataclass
 class QueueTask:
     """Represents a task in the queue"""
+
     file_path: Path
     model_id: str
     output_dir: Optional[Path] = None
@@ -47,6 +60,7 @@ class QueueTask:
 
 class QueueSignals(QObject):
     """Signals for queue worker"""
+
     task_started = Signal(int)  # task_index
     task_progress = Signal(int, str, int)  # (task_index, message, percent)
     task_finished = Signal(int, object)  # (task_index, SeparationResult)
@@ -57,30 +71,30 @@ class QueueSignals(QObject):
 class QueueWorker(QRunnable):
     """
     Worker for processing queue in background
-    
+
     WHY: Queue processing is long-running and must not block GUI
     """
-    
+
     def __init__(self, tasks: List[QueueTask]):
         super().__init__()
         self.tasks = tasks
         self.signals = QueueSignals()
         self.ctx = AppContext()
         self.should_stop = False
-    
+
     def run(self):
         """Process all tasks in queue"""
         separator = self.ctx.separator()
-        
+
         for index, task in enumerate(self.tasks):
             if self.should_stop:
                 break
-            
+
             if task.status != TaskStatus.PENDING:
                 continue
-            
+
             self.signals.task_started.emit(index)
-            
+
             try:
                 # Progress callback for this task
                 def progress_callback(message: str, percent: int):
@@ -94,14 +108,15 @@ class QueueWorker(QRunnable):
                 if task.use_ensemble:
                     # Use ensemble separator
                     from core.ensemble_separator import get_ensemble_separator
+
                     ensemble_separator = get_ensemble_separator()
 
                     result = ensemble_separator.separate_ensemble(
                         audio_file=task.file_path,
-                        ensemble_config=task.ensemble_config or 'balanced',
+                        ensemble_config=task.ensemble_config or "balanced",
                         output_dir=task.output_dir,
                         quality_preset=quality_preset,
-                        progress_callback=progress_callback
+                        progress_callback=progress_callback,
                     )
                 else:
                     # Use single model separator
@@ -110,17 +125,17 @@ class QueueWorker(QRunnable):
                         model_id=task.model_id,
                         output_dir=task.output_dir,
                         quality_preset=quality_preset,
-                        progress_callback=progress_callback
+                        progress_callback=progress_callback,
                     )
 
                 self.signals.task_finished.emit(index, result)
-                
+
             except Exception as e:
                 self.ctx.logger().error(f"Queue task {index} error: {e}", exc_info=True)
                 self.signals.task_error.emit(index, str(e))
-        
+
         self.signals.queue_finished.emit()
-    
+
     def stop(self):
         """Request worker to stop"""
         self.should_stop = True
@@ -129,7 +144,7 @@ class QueueWorker(QRunnable):
 class QueueWidget(QWidget):
     """
     Widget for managing separation task queue
-    
+
     Features:
     - Add files to queue (from signals)
     - View queue with status
@@ -138,7 +153,7 @@ class QueueWidget(QWidget):
     - View individual task progress
     - Reorder tasks (future)
     """
-    
+
     # Signals for external components (e.g., QueueDrawer)
     status_updated = Signal(str, int)  # message, progress_percent
     queue_started = Signal()
@@ -151,42 +166,42 @@ class QueueWidget(QWidget):
         self.thread_pool = QThreadPool()
         self.current_worker: Optional[QueueWorker] = None
         self.is_processing = False
-        
+
         self._setup_ui()
         self._connect_signals()
         self.apply_translations()
-        
+
         self.ctx.logger().info("QueueWidget initialized")
 
     def start_processing(self):
         """Public method to start queue processing"""
         self._on_start_queue()
-    
+
     def _create_card(self, title: str) -> tuple[QFrame, QVBoxLayout]:
         """Create a styled card frame with header"""
         card = QFrame()
         card.setObjectName("card")
-        
+
         layout = QVBoxLayout(card)
         layout.setContentsMargins(10, 10, 10, 10)  # Reduced margins for drawer
         layout.setSpacing(10)
-        
+
         header = QLabel(title)
         header.setObjectName("card_header")
         layout.addWidget(header)
-        
+
         return card, layout
 
     def _setup_ui(self):
         """Setup widget layout and components"""
         # Create main layout for the widget
         main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(10, 10, 10, 10) # Reduced margins
+        main_layout.setContentsMargins(10, 10, 10, 10)  # Reduced margins
         main_layout.setSpacing(10)
 
         # Queue Table Card
         table_card, table_layout = self._create_card("Task Queue")
-        
+
         self.queue_table = QTableWidget()
         self.queue_table.setColumnCount(5)
         self.queue_table.setHorizontalHeaderLabels(
@@ -196,7 +211,7 @@ class QueueWidget(QWidget):
         self.queue_table.setSelectionBehavior(QTableWidget.SelectRows)
         self.queue_table.setSelectionMode(QTableWidget.SingleSelection)
         self.queue_table.setAlternatingRowColors(True)  # Modern alternating rows
-        
+
         # Set column widths
         header = self.queue_table.horizontalHeader()
         header.setSectionResizeMode(0, QHeaderView.Stretch)
@@ -205,23 +220,25 @@ class QueueWidget(QWidget):
         header.setSectionResizeMode(3, QHeaderView.Fixed)
         header.setSectionResizeMode(4, QHeaderView.ResizeToContents)
         self.queue_table.setColumnWidth(3, 150)
-        
+
         table_layout.addWidget(self.queue_table)
-        main_layout.addWidget(table_card, stretch=1) # Allow table to expand
-        
+        main_layout.addWidget(table_card, stretch=1)  # Allow table to expand
+
         # Controls Card
         controls_card, controls_layout = self._create_card("Controls")
-        
+
         # Status label
         self.status_label = QLabel("Queue empty")
         controls_layout.addWidget(self.status_label)
-        
+
         # Buttons
         buttons_layout = QHBoxLayout()
         self.btn_start = QPushButton("▶ Start Queue")
         self.btn_start.setEnabled(False)
         ThemeManager.set_widget_property(self.btn_start, "buttonStyle", "success")
-        self.btn_start.setToolTip("Start processing queued tasks (available when queue has pending tasks)")
+        self.btn_start.setToolTip(
+            "Start processing queued tasks (available when queue has pending tasks)"
+        )
 
         self.btn_stop = QPushButton("⏹ Stop Queue")
         self.btn_stop.setEnabled(False)
@@ -230,11 +247,15 @@ class QueueWidget(QWidget):
 
         self.btn_clear = QPushButton("🗑️ Clear Queue")
         ThemeManager.set_widget_property(self.btn_clear, "buttonStyle", "secondary")
-        self.btn_clear.setToolTip("Clear all tasks from queue (available when queue has tasks)")
+        self.btn_clear.setToolTip(
+            "Clear all tasks from queue (available when queue has tasks)"
+        )
 
         self.btn_remove = QPushButton("➖ Remove Selected")
         ThemeManager.set_widget_property(self.btn_remove, "buttonStyle", "secondary")
-        self.btn_remove.setToolTip("Remove selected task from queue (available when task is selected)")
+        self.btn_remove.setToolTip(
+            "Remove selected task from queue (available when task is selected)"
+        )
 
         buttons_layout.addWidget(self.btn_start)
         buttons_layout.addWidget(self.btn_stop)
@@ -242,7 +263,7 @@ class QueueWidget(QWidget):
         buttons_layout.addWidget(self.btn_remove)
         buttons_layout.addStretch()
         controls_layout.addLayout(buttons_layout)
-        
+
         main_layout.addWidget(controls_card)
 
         # Removed scroll area logic
@@ -253,9 +274,15 @@ class QueueWidget(QWidget):
         self.btn_stop.clicked.connect(self._on_stop_queue)
         self.btn_clear.clicked.connect(self._on_clear_queue)
         self.btn_remove.clicked.connect(self._on_remove_selected)
-    
-    def add_task(self, file_path: Path, model_id: str, use_ensemble: bool = False,
-                 ensemble_config: Optional[str] = None, output_dir: Optional[Path] = None):
+
+    def add_task(
+        self,
+        file_path: Path,
+        model_id: str,
+        use_ensemble: bool = False,
+        ensemble_config: Optional[str] = None,
+        output_dir: Optional[Path] = None,
+    ):
         """
         Add task to queue
 
@@ -266,16 +293,18 @@ class QueueWidget(QWidget):
             model_id=model_id,
             output_dir=output_dir,
             use_ensemble=use_ensemble,
-            ensemble_config=ensemble_config
+            ensemble_config=ensemble_config,
         )
 
         self.tasks.append(task)
         self._add_table_row(task)
         self._update_status()
 
-        mode = f"ensemble ({ensemble_config})" if use_ensemble else f"model ({model_id})"
+        mode = (
+            f"ensemble ({ensemble_config})" if use_ensemble else f"model ({model_id})"
+        )
         self.ctx.logger().info(f"Task added to queue: {file_path.name} with {mode}")
-    
+
     def _add_table_row(self, task: QueueTask):
         """Add task to table"""
         row = self.queue_table.rowCount()
@@ -287,7 +316,10 @@ class QueueWidget(QWidget):
         # Model or Ensemble
         if task.use_ensemble:
             from config import ENSEMBLE_CONFIGS
-            ensemble_name = ENSEMBLE_CONFIGS.get(task.ensemble_config, {}).get('name', task.ensemble_config)
+
+            ensemble_name = ENSEMBLE_CONFIGS.get(task.ensemble_config, {}).get(
+                "name", task.ensemble_config
+            )
             model_display = f"🎭 Ensemble: {ensemble_name}"
         else:
             model_manager = self.ctx.model_manager()
@@ -309,19 +341,19 @@ class QueueWidget(QWidget):
 
         # Result
         self.queue_table.setItem(row, 4, QTableWidgetItem(""))
-    
+
     def _update_table_row(self, index: int):
         """Update table row for task"""
         if index >= len(self.tasks):
             return
-        
+
         task = self.tasks[index]
-        
+
         # Status
         status_item = self.queue_table.item(index, 2)
         if status_item:
             status_item.setText(task.status.value)
-        
+
         # Progress
         progress_bar = self.queue_table.cellWidget(index, 3)
         if isinstance(progress_bar, QProgressBar):
@@ -331,44 +363,40 @@ class QueueWidget(QWidget):
                 progress_bar.setFormat(f"%p% - {task.progress_message}")
             else:
                 progress_bar.setFormat("%p%")
-        
+
         # Result
         result_text = ""
         if task.status == TaskStatus.COMPLETED and task.result:
             result_text = f"✓ {len(task.result.stems)} stems ({task.result.duration_seconds:.1f}s)"
         elif task.status == TaskStatus.FAILED:
             result_text = f"✗ {task.error_message or 'Error'}"
-        
+
         result_item = self.queue_table.item(index, 4)
         if result_item:
             result_item.setText(result_text)
-    
+
     @Slot()
     def _on_start_queue(self):
         """
         Start processing queue
-        
+
         WHY: Processes all pending tasks sequentially in background thread
         """
         if self.is_processing:
             return
-        
+
         # Get pending tasks
         pending_tasks = [t for t in self.tasks if t.status == TaskStatus.PENDING]
-        
+
         if not pending_tasks:
-            QMessageBox.information(
-                self,
-                "No Tasks",
-                "No pending tasks in queue"
-            )
+            QMessageBox.information(self, "No Tasks", "No pending tasks in queue")
             return
-        
+
         self.is_processing = True
         self.btn_start.setEnabled(False)
         self.btn_stop.setEnabled(True)
         self.btn_clear.setEnabled(False)
-        
+
         self.queue_started.emit()
 
         # Create worker
@@ -378,62 +406,62 @@ class QueueWidget(QWidget):
         worker.signals.task_finished.connect(self._on_task_finished)
         worker.signals.task_error.connect(self._on_task_error)
         worker.signals.queue_finished.connect(self._on_queue_finished)
-        
+
         self.current_worker = worker
         self.thread_pool.start(worker)
-        
+
         self.ctx.logger().info(f"Queue processing started: {len(pending_tasks)} tasks")
-    
+
     @Slot()
     def _on_stop_queue(self):
         """Stop queue processing"""
         if self.current_worker:
             self.current_worker.stop()
             self.status_label.setText("Stopping queue...")
-    
+
     @Slot()
     def _on_clear_queue(self):
         """Clear all tasks from queue"""
         if not self.tasks:
             return
-        
+
         reply = QMessageBox.question(
             self,
             "Clear Queue",
             f"Remove all {len(self.tasks)} tasks from queue?",
-            QMessageBox.Yes | QMessageBox.No
+            QMessageBox.Yes | QMessageBox.No,
         )
-        
+
         if reply == QMessageBox.Yes:
             self.tasks.clear()
             self.queue_table.setRowCount(0)
             self._update_status()
-    
+
     @Slot()
     def _on_remove_selected(self):
         """Remove selected task from queue"""
         selected_rows = self.queue_table.selectedIndexes()
         if not selected_rows:
             return
-        
+
         row = selected_rows[0].row()
-        
+
         if 0 <= row < len(self.tasks):
             task = self.tasks[row]
-            
+
             # Don't allow removing currently processing task
             if task.status == TaskStatus.PROCESSING:
                 QMessageBox.warning(
                     self,
                     "Cannot Remove",
-                    "Cannot remove task that is currently processing"
+                    "Cannot remove task that is currently processing",
                 )
                 return
-            
+
             self.tasks.pop(row)
             self.queue_table.removeRow(row)
             self._update_status()
-    
+
     @Slot(int)
     def _on_task_started(self, index: int):
         """Handle task start"""
@@ -441,7 +469,7 @@ class QueueWidget(QWidget):
             self.tasks[index].status = TaskStatus.PROCESSING
             self._update_table_row(index)
             self._update_status()
-    
+
     @Slot(int, str, int)
     def _on_task_progress(self, index: int, message: str, percent: int):
         """Handle task progress update"""
@@ -449,8 +477,10 @@ class QueueWidget(QWidget):
             self.tasks[index].progress = percent
             self.tasks[index].progress_message = message
             self._update_table_row(index)
-            self.status_label.setText(f"Processing {index + 1}/{len(self.tasks)}: {message}")
-    
+            self.status_label.setText(
+                f"Processing {index + 1}/{len(self.tasks)}: {message}"
+            )
+
     @Slot(int, object)
     def _on_task_finished(self, index: int, result: SeparationResult):
         """Handle task completion"""
@@ -469,7 +499,7 @@ class QueueWidget(QWidget):
 
             self._update_table_row(index)
             self._update_status()
-    
+
     @Slot(int, str)
     def _on_task_error(self, index: int, error_message: str):
         """Handle task error"""
@@ -479,7 +509,7 @@ class QueueWidget(QWidget):
             self.tasks[index].progress_message = ""  # Clear progress message on error
             self._update_table_row(index)
             self._update_status()
-    
+
     @Slot()
     def _on_queue_finished(self):
         """Handle queue completion"""
@@ -488,28 +518,30 @@ class QueueWidget(QWidget):
         self.btn_stop.setEnabled(False)
         self.btn_clear.setEnabled(True)
         self.current_worker = None
-        
+
         # Count results
         completed = sum(1 for t in self.tasks if t.status == TaskStatus.COMPLETED)
         failed = sum(1 for t in self.tasks if t.status == TaskStatus.FAILED)
-        
+
         status_msg = f"Queue finished: {completed} completed, {failed} failed"
         self.status_label.setText(status_msg)
         self.queue_finished.emit()
-        
+
         # We emit status updated with 100% to indicate completion
         self.status_updated.emit(status_msg, 100)
-        
+
         QMessageBox.information(
             self,
             "Queue Complete",
             f"Queue processing finished!\n\n"
             f"Completed: {completed}\n"
-            f"Failed: {failed}"
+            f"Failed: {failed}",
         )
-        
-        self.ctx.logger().info(f"Queue finished: {completed} completed, {failed} failed")
-    
+
+        self.ctx.logger().info(
+            f"Queue finished: {completed} completed, {failed} failed"
+        )
+
     def _update_status(self):
         """Update status label and button states"""
         if not self.tasks:
@@ -518,17 +550,17 @@ class QueueWidget(QWidget):
             self.btn_clear.setEnabled(False)
             self.status_updated.emit("Queue empty", 0)
             return
-        
+
         pending = sum(1 for t in self.tasks if t.status == TaskStatus.PENDING)
         processing = sum(1 for t in self.tasks if t.status == TaskStatus.PROCESSING)
         completed = sum(1 for t in self.tasks if t.status == TaskStatus.COMPLETED)
         failed = sum(1 for t in self.tasks if t.status == TaskStatus.FAILED)
         total = len(self.tasks)
-        
+
         status_text = f"{total} tasks: {pending} pending, {processing} processing, {completed} completed"
-        
+
         self.status_label.setText(status_text)
-        
+
         # Calculate overall progress roughly
         total_progress = 0
         if total > 0:
@@ -537,18 +569,17 @@ class QueueWidget(QWidget):
                     total_progress += 100
                 elif t.status == TaskStatus.PROCESSING:
                     total_progress += t.progress
-            
+
             overall_percent = int(total_progress / total)
         else:
             overall_percent = 0
-            
+
         self.status_updated.emit(status_text, overall_percent)
-        
+
         self.btn_start.setEnabled(pending > 0 and not self.is_processing)
         self.btn_clear.setEnabled(not self.is_processing)
-    
+
     def apply_translations(self):
         """Apply current language translations"""
         # Translation keys would be defined in resources/translations/*.json
         pass
-

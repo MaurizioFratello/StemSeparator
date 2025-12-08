@@ -4,6 +4,7 @@ Tests for Scroll Area Implementation in UI Widgets
 PURPOSE: Verify that all main widgets have scroll areas and can handle content overflow.
 CONTEXT: Ensures widgets remain usable when content exceeds viewport height.
 """
+
 import pytest
 from unittest.mock import patch, Mock
 from PySide6.QtWidgets import QScrollArea
@@ -21,7 +22,7 @@ class TestUploadWidgetScrolling:
     @pytest.fixture
     def upload_widget(self, qtbot):
         """Create upload widget"""
-        with patch('ui.widgets.upload_widget.AppContext'):
+        with patch("ui.widgets.upload_widget.AppContext"):
             widget = UploadWidget()
             qtbot.addWidget(widget)
             return widget
@@ -74,7 +75,7 @@ class TestRecordingWidgetScrolling:
     @pytest.fixture
     def recording_widget(self, qtbot):
         """Create recording widget"""
-        with patch('ui.widgets.recording_widget.AppContext'):
+        with patch("ui.widgets.recording_widget.AppContext"):
             widget = RecordingWidget()
             qtbot.addWidget(widget)
             return widget
@@ -100,8 +101,8 @@ class TestPlayerWidgetScrolling:
     @pytest.fixture
     def player_widget(self, qtbot):
         """Create player widget"""
-        with patch('ui.widgets.player_widget.AppContext'):
-            with patch('ui.widgets.player_widget.get_player'):
+        with patch("ui.widgets.player_widget.AppContext"):
+            with patch("ui.widgets.player_widget.get_player"):
                 widget = PlayerWidget()
                 qtbot.addWidget(widget)
                 return widget
@@ -134,7 +135,7 @@ class TestQueueWidgetScrolling:
     @pytest.fixture
     def queue_widget(self, qtbot):
         """Create queue widget"""
-        with patch('ui.widgets.queue_widget.AppContext'):
+        with patch("ui.widgets.queue_widget.AppContext"):
             widget = QueueWidget()
             qtbot.addWidget(widget)
             return widget
@@ -165,23 +166,23 @@ class TestScrollingConsistency:
         widgets = []
 
         # Create all widgets
-        with patch('ui.widgets.upload_widget.AppContext'):
+        with patch("ui.widgets.upload_widget.AppContext"):
             upload = UploadWidget()
             qtbot.addWidget(upload)
             widgets.append(upload)
 
-        with patch('ui.widgets.recording_widget.AppContext'):
+        with patch("ui.widgets.recording_widget.AppContext"):
             recording = RecordingWidget()
             qtbot.addWidget(recording)
             widgets.append(recording)
 
-        with patch('ui.widgets.player_widget.AppContext'):
-            with patch('ui.widgets.player_widget.get_player'):
+        with patch("ui.widgets.player_widget.AppContext"):
+            with patch("ui.widgets.player_widget.get_player"):
                 player = PlayerWidget()
                 qtbot.addWidget(player)
                 widgets.append(player)
 
-        with patch('ui.widgets.queue_widget.AppContext'):
+        with patch("ui.widgets.queue_widget.AppContext"):
             queue = QueueWidget()
             qtbot.addWidget(queue)
             widgets.append(queue)
@@ -204,7 +205,7 @@ class TestScrollbarTheming:
         from ui.theme import ThemeManager
         from ui.widgets.upload_widget import UploadWidget
 
-        with patch('ui.widgets.upload_widget.AppContext'):
+        with patch("ui.widgets.upload_widget.AppContext"):
             widget = UploadWidget()
             qtbot.addWidget(widget)
 
@@ -225,7 +226,7 @@ class TestScrollAreaMargins:
         """Test that main layout has zero margins for full width"""
         from ui.widgets.upload_widget import UploadWidget
 
-        with patch('ui.widgets.upload_widget.AppContext'):
+        with patch("ui.widgets.upload_widget.AppContext"):
             widget = UploadWidget()
             qtbot.addWidget(widget)
 
@@ -245,7 +246,7 @@ class TestContentOverflow:
         """Test that upload widget handles waveform display without cutting off content"""
         from ui.widgets.upload_widget import UploadWidget
 
-        with patch('ui.widgets.upload_widget.AppContext'):
+        with patch("ui.widgets.upload_widget.AppContext"):
             widget = UploadWidget()
             qtbot.addWidget(widget)
 
@@ -264,8 +265,8 @@ class TestContentOverflow:
         """Test that player widget can handle multiple stem controls"""
         from ui.widgets.player_widget import PlayerWidget
 
-        with patch('ui.widgets.player_widget.AppContext'):
-            with patch('ui.widgets.player_widget.get_player'):
+        with patch("ui.widgets.player_widget.AppContext"):
+            with patch("ui.widgets.player_widget.get_player"):
                 widget = PlayerWidget()
                 qtbot.addWidget(widget)
 
@@ -282,7 +283,7 @@ class TestContentOverflow:
         from ui.widgets.queue_widget import QueueWidget
         from pathlib import Path
 
-        with patch('ui.widgets.queue_widget.AppContext'):
+        with patch("ui.widgets.queue_widget.AppContext"):
             widget = QueueWidget()
             qtbot.addWidget(widget)
 

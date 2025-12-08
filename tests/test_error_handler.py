@@ -1,6 +1,7 @@
 """
 Unit Tests für Error Handler
 """
+
 import pytest
 from utils.error_handler import (
     ErrorHandler,
@@ -9,7 +10,7 @@ from utils.error_handler import (
     GPUMemoryError,
     CPUMemoryError,
     ModelLoadingError,
-    retry_on_error
+    retry_on_error,
 )
 
 
@@ -74,6 +75,7 @@ class TestErrorHandler:
 
     def test_retry_decorator_failure(self):
         """Teste retry Decorator mit dauerhaftem Fehler"""
+
         @retry_on_error(max_retries=3, delay=0.1)
         def always_failing():
             raise ValueError("Permanent error")
@@ -86,21 +88,21 @@ class TestErrorHandler:
         error = SeparationError(
             "Test error",
             error_type=ErrorType.AUDIO_PROCESSING,
-            context={'file': 'test.mp3'}
+            context={"file": "test.mp3"},
         )
         assert error.error_type == ErrorType.AUDIO_PROCESSING
-        assert error.context['file'] == 'test.mp3'
+        assert error.context["file"] == "test.mp3"
 
     def test_gpu_memory_error(self):
         """Teste GPUMemoryError"""
-        error = GPUMemoryError("GPU OOM", context={'size': '4GB'})
+        error = GPUMemoryError("GPU OOM", context={"size": "4GB"})
         assert error.error_type == ErrorType.GPU_MEMORY
 
     def test_retry_with_fallback_success_first_try(self):
         """Teste retry_with_fallback mit Erfolg beim ersten Versuch"""
         handler = ErrorHandler()
 
-        def successful_func(device='cpu', chunk_length=300):
+        def successful_func(device="cpu", chunk_length=300):
             return f"success-{device}-{chunk_length}"
 
         result = handler.retry_with_fallback(successful_func)
@@ -111,7 +113,7 @@ class TestErrorHandler:
         handler = ErrorHandler()
         call_count = 0
 
-        def flaky_func(device='cpu', chunk_length=300):
+        def flaky_func(device="cpu", chunk_length=300):
             nonlocal call_count
             call_count += 1
             if call_count == 1:
@@ -126,12 +128,12 @@ class TestErrorHandler:
         """Teste retry_with_fallback wenn alle Versuche fehlschlagen"""
         handler = ErrorHandler(max_retries=2)
 
-        def always_fail(device='cpu', chunk_length=300):
+        def always_fail(device="cpu", chunk_length=300):
             raise ValueError("Always fails")
 
         strategies = [
-            {'device': 'gpu', 'chunk_length': 300},
-            {'device': 'cpu', 'chunk_length': 300}
+            {"device": "gpu", "chunk_length": 300},
+            {"device": "cpu", "chunk_length": 300},
         ]
 
         with pytest.raises(SeparationError):
@@ -178,7 +180,7 @@ class TestErrorHandler:
         error = ValueError("Test error")
 
         # Sollte nicht crashen
-        handler.log_error(error, context={'test': 'context'})
+        handler.log_error(error, context={"test": "context"})
 
     def test_log_error_without_context(self):
         """Teste log_error ohne Context"""
@@ -224,6 +226,7 @@ class TestErrorHandler:
 
     def test_retry_decorator_wrong_exception_no_retry(self):
         """Teste retry Decorator mit nicht-gelisteter Exception"""
+
         @retry_on_error(max_retries=3, delay=0.05, exceptions=(ValueError,))
         def func_with_runtime_error():
             raise RuntimeError("Don't retry me")
@@ -233,14 +236,16 @@ class TestErrorHandler:
 
     def test_cpu_memory_error(self):
         """Teste CPUMemoryError Exception"""
-        error = CPUMemoryError("Out of RAM", context={'available': '2GB'})
+        error = CPUMemoryError("Out of RAM", context={"available": "2GB"})
         assert error.error_type == ErrorType.CPU_MEMORY
         assert str(error) == "Out of RAM"
-        assert error.context == {'available': '2GB'}
+        assert error.context == {"available": "2GB"}
 
     def test_model_loading_error(self):
         """Teste ModelLoadingError Exception"""
-        error = ModelLoadingError("Failed to load model weights", context={'model': 'demucs'})
+        error = ModelLoadingError(
+            "Failed to load model weights", context={"model": "demucs"}
+        )
         assert error.error_type == ErrorType.MODEL_LOADING
         assert str(error) == "Failed to load model weights"
-        assert error.context == {'model': 'demucs'}
+        assert error.context == {"model": "demucs"}

@@ -3,7 +3,8 @@
 Test the integrated recorder with ScreenCaptureKit support
 """
 import sys
-sys.path.insert(0, '.')
+
+sys.path.insert(0, ".")
 
 from core.recorder import Recorder, RecordingBackend
 
@@ -28,7 +29,7 @@ for device in devices:
 print()
 
 # Check if we can record
-if backend_info['backend'] is None:
+if backend_info["backend"] is None:
     print("❌ No recording backend available")
     print("\nPlease either:")
     print("  1. Grant Screen Recording permission for ScreenCaptureKit (macOS 13+)")
@@ -41,4 +42,3 @@ print("NOTE: To actually test recording, you would need to:")
 print("  1. Grant Screen Recording permission if using ScreenCaptureKit")
 print("  2. Play some audio while recording")
 print("  3. Call recorder.start_recording() and recorder.stop_recording()")
-

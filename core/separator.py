@@ -1,6 +1,7 @@
 """
 Core Separator - Haupt-Logik für Audio Stem Separation
 """
+
 from pathlib import Path
 from typing import Optional, Dict, Callable, List
 from dataclasses import dataclass
@@ -23,7 +24,7 @@ from config import (
     EXPORT_SAMPLE_RATE,
     EXPORT_BIT_DEPTH,
     QUALITY_PRESETS,
-    DEFAULT_QUALITY_PRESET
+    DEFAULT_QUALITY_PRESET,
 )
 from core.model_manager import get_model_manager
 from core.device_manager import get_device_manager
@@ -43,6 +44,7 @@ TARGET_SAMPLE_RATE = 44100
 @dataclass
 class SeparationResult:
     """Ergebnis einer Stem-Separation"""
+
     success: bool
     input_file: Path
     output_dir: Path
@@ -75,7 +77,7 @@ class Separator:
         model_id: Optional[str] = None,
         output_dir: Optional[Path] = None,
         quality_preset: Optional[str] = None,
-        progress_callback: Optional[Callable[[str, int], None]] = None
+        progress_callback: Optional[Callable[[str, int], None]] = None,
     ) -> SeparationResult:
         """
         Führt Stem-Separation durch
@@ -103,7 +105,7 @@ class Separator:
                 model_used="",
                 device_used="",
                 duration_seconds=0,
-                error_message=error
+                error_message=error,
             )
 
         # CRITICAL: Ensure input audio is at TARGET_SAMPLE_RATE (44100 Hz)
@@ -122,7 +124,9 @@ class Separator:
                 )
 
                 # Load audio
-                audio_data, _ = sf.read(str(audio_file), always_2d=True, dtype='float32')
+                audio_data, _ = sf.read(
+                    str(audio_file), always_2d=True, dtype="float32"
+                )
                 audio_data = audio_data.T  # (samples, channels) -> (channels, samples)
 
                 # Resample each channel
@@ -132,20 +136,22 @@ class Separator:
                         channel,
                         orig_sr=current_sr,
                         target_sr=TARGET_SAMPLE_RATE,
-                        res_type='soxr_hq'  # High-quality resampling
+                        res_type="soxr_hq",  # High-quality resampling
                     )
                     resampled_channels.append(resampled)
 
                 resampled_audio = np.array(resampled_channels)
 
                 # Save resampled audio to temp file
-                temp_resampled_file = TEMP_DIR / f"{audio_file.stem}_resampled_44100.wav"
+                temp_resampled_file = (
+                    TEMP_DIR / f"{audio_file.stem}_resampled_44100.wav"
+                )
                 TEMP_DIR.mkdir(parents=True, exist_ok=True)
                 sf.write(
                     str(temp_resampled_file),
                     resampled_audio.T,  # (channels, samples) -> (samples, channels)
                     TARGET_SAMPLE_RATE,
-                    subtype='PCM_16'
+                    subtype="PCM_16",
                 )
 
                 # Use resampled file for separation
@@ -153,7 +159,9 @@ class Separator:
                 self.logger.debug(f"Created resampled temp file: {temp_resampled_file}")
 
         except Exception as e:
-            self.logger.warning(f"Could not check/resample input audio: {e}. Proceeding with original file.")
+            self.logger.warning(
+                f"Could not check/resample input audio: {e}. Proceeding with original file."
+            )
             audio_file = original_audio_file
 
         # Wähle Model
@@ -163,8 +171,10 @@ class Separator:
         # Wähle Quality Preset
         quality_preset = quality_preset or DEFAULT_QUALITY_PRESET
         if quality_preset not in QUALITY_PRESETS:
-            self.logger.warning(f"Unknown quality preset '{quality_preset}', using 'balanced'")
-            quality_preset = 'balanced'
+            self.logger.warning(
+                f"Unknown quality preset '{quality_preset}', using 'balanced'"
+            )
+            quality_preset = "balanced"
 
         if not model_info:
             error_msg = f"Unknown model: {model_id}"
@@ -199,7 +209,7 @@ class Separator:
                     model_info,
                     output_dir,
                     quality_preset,
-                    progress_callback
+                    progress_callback,
                 )
             else:
                 result = self._separate_single(
@@ -208,7 +218,7 @@ class Separator:
                     model_info,
                     output_dir,
                     quality_preset,
-                    progress_callback
+                    progress_callback,
                 )
 
             duration = time.time() - start_time
@@ -229,11 +239,7 @@ class Separator:
             self.logger.error(f"Separation failed: {e}", exc_info=True)
 
             return self._create_error_result(
-                audio_file,
-                output_dir,
-                str(e),
-                duration,
-                model_id
+                audio_file, output_dir, str(e), duration, model_id
             )
 
     def _separate_single(
@@ -243,7 +249,7 @@ class Separator:
         model_info,
         output_dir: Path,
         quality_preset: str,
-        progress_callback: Optional[Callable[[str, int], None]] = None
+        progress_callback: Optional[Callable[[str, int], None]] = None,
     ) -> SeparationResult:
         """Separiert Audio-Datei ohne Chunking"""
 
@@ -251,14 +257,14 @@ class Separator:
             progress_callback("Loading model...", 10)
 
         # Nutze Error Handler mit Retry-Logik
-        def separation_func(device='cpu', chunk_length=None):
+        def separation_func(device="cpu", chunk_length=None):
             return self._run_separation(
                 audio_file,
                 model_id,
                 output_dir,
                 quality_preset,
                 device=device,
-                progress_callback=progress_callback
+                progress_callback=progress_callback,
             )
 
         stems = error_handler.retry_with_fallback(separation_func)
@@ -269,17 +275,17 @@ class Separator:
         for stem_name, stem_path in stems.items():
             # Create unified filename: {audio_file.stem}_({stem_name}).wav
             new_path = output_dir / f"{audio_file.stem}_({stem_name}).wav"
-            
+
             # Only rename if different
             if stem_path != new_path:
                 if new_path.exists():
                     # Remove old file if exists (shouldn't happen, but be safe)
                     new_path.unlink()
-                
+
                 # Rename file
                 stem_path.rename(new_path)
                 self.logger.debug(f"Renamed {stem_path.name} -> {new_path.name}")
-            
+
             renamed_stems[stem_name] = new_path
 
         return SeparationResult(
@@ -289,7 +295,7 @@ class Separator:
             stems=renamed_stems,
             model_used=model_id,
             device_used=self.device_manager.get_device(),
-            duration_seconds=0  # Wird später gesetzt
+            duration_seconds=0,  # Wird später gesetzt
         )
 
     def _separate_with_chunking(
@@ -299,7 +305,7 @@ class Separator:
         model_info,
         output_dir: Path,
         quality_preset: str,
-        progress_callback: Optional[Callable[[str, int], None]] = None
+        progress_callback: Optional[Callable[[str, int], None]] = None,
     ) -> SeparationResult:
         """Separiert Audio-Datei mit Chunking"""
 
@@ -313,10 +319,11 @@ class Separator:
             audio_file,
             progress_callback=lambda curr, total: (
                 progress_callback(
-                    f"Creating chunk {curr}/{total}",
-                    10 + int(10 * curr / total)
-                ) if progress_callback else None
-            )
+                    f"Creating chunk {curr}/{total}", 10 + int(10 * curr / total)
+                )
+                if progress_callback
+                else None
+            ),
         )
 
         self.logger.info(f"Created {len(chunks)} chunks")
@@ -329,25 +336,26 @@ class Separator:
 
             if progress_callback:
                 progress_callback(
-                    f"Processing chunk {i+1}/{len(chunks)}",
-                    chunk_progress_base
+                    f"Processing chunk {i+1}/{len(chunks)}", chunk_progress_base
                 )
 
             self.logger.log_chunk_progress(i + 1, len(chunks), audio_file.name)
 
             # Speichere Chunk als temporäre Datei
             temp_chunk_file = self.chunk_processor.chunks_dir / f"chunk_{i}.wav"
-            audio_data_transposed = chunk.audio_data.T  # (channels, samples) -> (samples, channels)
+            audio_data_transposed = (
+                chunk.audio_data.T
+            )  # (channels, samples) -> (samples, channels)
             sf.write(str(temp_chunk_file), audio_data_transposed, chunk.sample_rate)
 
             # Separiere Chunk mit Retry
-            def chunk_sep_func(device='cpu', chunk_length=None):
+            def chunk_sep_func(device="cpu", chunk_length=None):
                 return self._run_separation(
                     temp_chunk_file,
                     model_id,
                     self.chunk_processor.chunks_dir,
                     quality_preset,
-                    device=device
+                    device=device,
                 )
 
             chunk_stems = error_handler.retry_with_fallback(chunk_sep_func)
@@ -379,8 +387,7 @@ class Separator:
             output_file = output_dir / f"{audio_file.stem}_({stem_name}).wav"
 
             merged_audio = self.chunk_processor.merge_chunks(
-                chunk_tuples,
-                output_file=output_file
+                chunk_tuples, output_file=output_file
             )
 
             final_stems[stem_name] = output_file
@@ -398,7 +405,7 @@ class Separator:
             stems=final_stems,
             model_used=model_id,
             device_used=self.device_manager.get_device(),
-            duration_seconds=0  # Wird später gesetzt
+            duration_seconds=0,  # Wird später gesetzt
         )
 
     def _run_separation(
@@ -407,8 +414,8 @@ class Separator:
         model_id: str,
         output_dir: Path,
         quality_preset: str,
-        device: str = 'cpu',
-        progress_callback: Optional[Callable[[str, int], None]] = None
+        device: str = "cpu",
+        progress_callback: Optional[Callable[[str, int], None]] = None,
     ) -> Dict[str, Path]:
         """
         Führt die eigentliche Separation mit audio-separator aus
@@ -432,7 +439,9 @@ class Separator:
         Raises:
             SeparationError: Bei Fehlern
         """
-        self.logger.info(f"Running separation on device: {device} with preset: {quality_preset}")
+        self.logger.info(
+            f"Running separation on device: {device} with preset: {quality_preset}"
+        )
 
         # Setze Device
         if not self.device_manager.set_device(device):
@@ -452,7 +461,9 @@ class Separator:
                 if not stop_progress.is_set():
                     current_progress[0] = min(80, current_progress[0] + 1)
                     if progress_callback:
-                        progress_callback(f"Processing audio with {model_id}", current_progress[0])
+                        progress_callback(
+                            f"Processing audio with {model_id}", current_progress[0]
+                        )
 
         # Start progress simulation thread
         progress_thread = None
@@ -462,21 +473,21 @@ class Separator:
 
         try:
             # Prepare parameters for subprocess
-            model_filename = MODELS[model_id]['model_filename']
+            model_filename = MODELS[model_id]["model_filename"]
             preset_config = QUALITY_PRESETS[quality_preset]
-            preset_params = preset_config.get('params', {}).copy()
-            preset_attributes = preset_config.get('attributes', {})
+            preset_params = preset_config.get("params", {}).copy()
+            preset_attributes = preset_config.get("attributes", {})
 
             # Build subprocess parameters
             subprocess_params = {
-                'audio_file': str(audio_file),
-                'model_id': model_id,
-                'output_dir': str(output_dir),
-                'model_filename': model_filename,
-                'models_dir': str(self.model_manager.models_dir),
-                'preset_params': preset_params,
-                'preset_attributes': preset_attributes,
-                'device': device
+                "audio_file": str(audio_file),
+                "model_id": model_id,
+                "output_dir": str(output_dir),
+                "model_filename": model_filename,
+                "models_dir": str(self.model_manager.models_dir),
+                "preset_params": preset_params,
+                "preset_attributes": preset_attributes,
+                "device": device,
             }
 
             self.logger.info(f"Launching separation subprocess for {model_id}")
@@ -484,47 +495,47 @@ class Separator:
             # Prepare environment with OpenMP fix
             # Allow multiple OpenMP runtimes (needed for subprocess isolation)
             env = os.environ.copy()
-            env['KMP_DUPLICATE_LIB_OK'] = 'TRUE'
+            env["KMP_DUPLICATE_LIB_OK"] = "TRUE"
             # Ensure ffmpeg is discoverable when launched from bundled app (PATH is often minimal)
             extra_paths = [
-                "/opt/homebrew/bin",   # Homebrew on Apple Silicon
-                "/usr/local/bin",      # Homebrew on Intel/macOS
+                "/opt/homebrew/bin",  # Homebrew on Apple Silicon
+                "/usr/local/bin",  # Homebrew on Intel/macOS
                 "/usr/bin",
             ]
-            if getattr(sys, 'frozen', False):
+            if getattr(sys, "frozen", False):
                 # Add bundled Frameworks folder where ffmpeg is placed
-                meipass = Path(sys._MEIPASS) if hasattr(sys, '_MEIPASS') else None  # type: ignore
+                meipass = Path(sys._MEIPASS) if hasattr(sys, "_MEIPASS") else None  # type: ignore
                 if meipass:
                     extra_paths.insert(0, str(meipass / "Frameworks"))
-            env['PATH'] = os.pathsep.join(extra_paths + [env.get('PATH', '')])
+            env["PATH"] = os.pathsep.join(extra_paths + [env.get("PATH", "")])
 
             # Launch subprocess
             # Use a dedicated flag when frozen so the bundled binary runs the worker path,
             # otherwise fall back to running the module directly in dev mode.
             cmd = (
-                [sys.executable, '--separation-subprocess']
-                if getattr(sys, 'frozen', False)
-                else [sys.executable, '-m', 'core.separation_subprocess']
+                [sys.executable, "--separation-subprocess"]
+                if getattr(sys, "frozen", False)
+                else [sys.executable, "-m", "core.separation_subprocess"]
             )
 
             # On macOS, prevent subprocess from appearing as separate app in Dock
             # by starting in a new session and using creation flags
             subprocess_kwargs = {
-                'stdin': subprocess.PIPE,
-                'stdout': subprocess.PIPE,
-                'stderr': subprocess.PIPE,
-                'text': True,
-                'env': env,
+                "stdin": subprocess.PIPE,
+                "stdout": subprocess.PIPE,
+                "stderr": subprocess.PIPE,
+                "text": True,
+                "env": env,
             }
 
             # Set environment variable to signal subprocess mode (prevents GUI init)
-            env['STEMSEPARATOR_SUBPROCESS'] = '1'
+            env["STEMSEPARATOR_SUBPROCESS"] = "1"
 
             # Start new session to prevent subprocess from inheriting parent's terminal/GUI
-            if sys.platform == 'darwin' and getattr(sys, 'frozen', False):
-                subprocess_kwargs['start_new_session'] = True
+            if sys.platform == "darwin" and getattr(sys, "frozen", False):
+                subprocess_kwargs["start_new_session"] = True
                 # Set LSUIElement to hide from Dock (background app)
-                env['LSUIElement'] = '1'
+                env["LSUIElement"] = "1"
 
             process = subprocess.Popen(cmd, **subprocess_kwargs)
 
@@ -556,18 +567,18 @@ class Separator:
             try:
                 # Try parsing as a single JSON object first (most common case)
                 result = json.loads(stdout)
-                if result['success']:
+                if result["success"]:
                     successful_results.append(result)
             except json.JSONDecodeError:
                 # If single parse fails, try parsing line-by-line
                 # WHY: Subprocess may output multiple JSON objects on separate lines
-                for line in stdout.strip().split('\n'):
+                for line in stdout.strip().split("\n"):
                     line = line.strip()
                     if not line:
                         continue
                     try:
                         line_result = json.loads(line)
-                        if line_result.get('success'):
+                        if line_result.get("success"):
                             successful_results.append(line_result)
                     except json.JSONDecodeError:
                         # Skip unparseable lines
@@ -576,14 +587,16 @@ class Separator:
             # Use the first successful result if available
             if successful_results:
                 result = successful_results[0]
-                self.logger.info(f"Found {len(successful_results)} successful result(s) in subprocess output")
+                self.logger.info(
+                    f"Found {len(successful_results)} successful result(s) in subprocess output"
+                )
             elif result is None:
                 error_msg = f"Failed to parse any valid JSON from subprocess output.\nOutput: {stdout}"
                 self.logger.error(error_msg)
                 raise SeparationError(error_msg)
 
             # Check if result indicates failure
-            if not result.get('success'):
+            if not result.get("success"):
                 error_msg = f"Separation failed: {result.get('error', 'Unknown error')}"
                 self.logger.error(error_msg)
                 raise SeparationError(error_msg)
@@ -592,9 +605,11 @@ class Separator:
                 progress_callback("Finalizing separation", 85)
 
             # Convert string paths back to Path objects
-            stems = {name: Path(path) for name, path in result['stems'].items()}
+            stems = {name: Path(path) for name, path in result["stems"].items()}
 
-            self.logger.info(f"Subprocess separation complete: {len(stems)} stems created")
+            self.logger.info(
+                f"Subprocess separation complete: {len(stems)} stems created"
+            )
 
             return stems
 
@@ -621,7 +636,7 @@ class Separator:
         output_dir: Optional[Path],
         error_message: str,
         duration: float,
-        model_id: str = ""
+        model_id: str = "",
     ) -> SeparationResult:
         """Erstellt ein SeparationResult für Fehler"""
         return SeparationResult(
@@ -632,7 +647,7 @@ class Separator:
             model_used=model_id,
             device_used=self.device_manager.get_device(),
             duration_seconds=duration,
-            error_message=error_message
+            error_message=error_message,
         )
 
 

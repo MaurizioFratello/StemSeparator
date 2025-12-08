@@ -5,6 +5,7 @@ PURPOSE: Provide reusable animation utilities for polished UI interactions
 CONTEXT: macOS apps use subtle, fast animations (typically 250ms ease-in-out)
          This module standardizes animation behavior across the app
 """
+
 from __future__ import annotations
 
 from typing import Optional, Callable
@@ -17,7 +18,7 @@ from PySide6.QtCore import (
     QRect,
     QSize,
     Property,
-    Signal
+    Signal,
 )
 from PySide6.QtWidgets import QWidget, QGraphicsOpacityEffect
 from PySide6.QtGui import QColor
@@ -32,21 +33,21 @@ class Animations:
     """
 
     # macOS animation timing standards
-    DURATION_FAST = 150      # Quick feedback (button presses, hovers)
-    DURATION_NORMAL = 250    # Standard transitions (most UI changes)
-    DURATION_SLOW = 350      # Deliberate transitions (sheet appearances)
+    DURATION_FAST = 150  # Quick feedback (button presses, hovers)
+    DURATION_NORMAL = 250  # Standard transitions (most UI changes)
+    DURATION_SLOW = 350  # Deliberate transitions (sheet appearances)
 
     # Easing curves (macOS uses ease-in-out for most animations)
-    EASING_DEFAULT = QEasingCurve.InOutQuad      # Smooth start and end
-    EASING_SHARP = QEasingCurve.InOutCubic       # More pronounced curve
-    EASING_SMOOTH = QEasingCurve.InOutSine       # Very gentle
+    EASING_DEFAULT = QEasingCurve.InOutQuad  # Smooth start and end
+    EASING_SHARP = QEasingCurve.InOutCubic  # More pronounced curve
+    EASING_SMOOTH = QEasingCurve.InOutSine  # Very gentle
 
     @classmethod
     def fade_in(
         cls,
         widget: QWidget,
         duration: int = DURATION_NORMAL,
-        on_finished: Optional[Callable] = None
+        on_finished: Optional[Callable] = None,
     ) -> QPropertyAnimation:
         """
         Fade in a widget from transparent to opaque
@@ -84,7 +85,7 @@ class Animations:
         widget: QWidget,
         duration: int = DURATION_NORMAL,
         on_finished: Optional[Callable] = None,
-        hide_when_done: bool = True
+        hide_when_done: bool = True,
     ) -> QPropertyAnimation:
         """
         Fade out a widget from opaque to transparent
@@ -128,7 +129,7 @@ class Animations:
         direction: str = "bottom",
         distance: int = 20,
         duration: int = DURATION_NORMAL,
-        on_finished: Optional[Callable] = None
+        on_finished: Optional[Callable] = None,
     ) -> QPropertyAnimation:
         """
         Slide widget in from specified direction
@@ -180,7 +181,7 @@ class Animations:
         distance: int = 20,
         duration: int = DURATION_NORMAL,
         on_finished: Optional[Callable] = None,
-        hide_when_done: bool = True
+        hide_when_done: bool = True,
     ) -> QPropertyAnimation:
         """
         Slide widget out in specified direction
@@ -232,7 +233,7 @@ class Animations:
         cls,
         widget: QWidget,
         duration: int = DURATION_FAST,
-        on_finished: Optional[Callable] = None
+        on_finished: Optional[Callable] = None,
     ) -> QPropertyAnimation:
         """
         Scale widget in from 90% to 100% (subtle pop-in effect)
@@ -249,8 +250,7 @@ class Animations:
         """
         current_size = widget.size()
         start_size = QSize(
-            int(current_size.width() * 0.9),
-            int(current_size.height() * 0.9)
+            int(current_size.width() * 0.9), int(current_size.height() * 0.9)
         )
 
         animation = QPropertyAnimation(widget, b"size")
@@ -272,7 +272,7 @@ class Animations:
         widget: QWidget,
         duration: int = DURATION_FAST,
         scale_factor: float = 1.05,
-        on_finished: Optional[Callable] = None
+        on_finished: Optional[Callable] = None,
     ) -> QPropertyAnimation:
         """
         Pulse widget slightly larger and back (for button feedback)
@@ -291,7 +291,7 @@ class Animations:
         current_size = widget.size()
         scaled_size = QSize(
             int(current_size.width() * scale_factor),
-            int(current_size.height() * scale_factor)
+            int(current_size.height() * scale_factor),
         )
 
         # Scale up
@@ -324,7 +324,7 @@ class Animations:
         scroll_widget,
         target_value: int,
         duration: int = DURATION_NORMAL,
-        orientation: str = "vertical"
+        orientation: str = "vertical",
     ) -> QPropertyAnimation:
         """
         Smoothly animate scrollbar to target position
@@ -341,9 +341,12 @@ class Animations:
         WHY: Smooth scrolling feels more natural than instant jumps
         """
         # Get the appropriate scroll bar
-        if hasattr(scroll_widget, 'verticalScrollBar'):
-            scrollbar = (scroll_widget.verticalScrollBar() if orientation == "vertical"
-                        else scroll_widget.horizontalScrollBar())
+        if hasattr(scroll_widget, "verticalScrollBar"):
+            scrollbar = (
+                scroll_widget.verticalScrollBar()
+                if orientation == "vertical"
+                else scroll_widget.horizontalScrollBar()
+            )
         else:
             scrollbar = scroll_widget
 

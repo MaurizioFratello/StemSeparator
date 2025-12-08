@@ -4,6 +4,7 @@ ScreenCaptureKit Audio Recorder Python Wrapper
 This module provides a Python interface to the Swift ScreenCaptureKit tool
 for recording system audio on macOS 13.0+ without requiring BlackHole.
 """
+
 import subprocess
 import platform
 import sys
@@ -23,6 +24,7 @@ logger = get_logger()
 @dataclass
 class ScreenCaptureInfo:
     """Information about ScreenCaptureKit availability"""
+
     available: bool
     version: str
     error: Optional[str] = None
@@ -57,70 +59,90 @@ class ScreenCaptureRecorder:
         """
         # Try multiple possible locations
         possible_paths = []
-        
+
         # Development build locations
-        possible_paths.extend([
-            Path(__file__).parent.parent / "packaging/screencapture_tool/.build/release/screencapture-recorder",
-            Path(__file__).parent.parent / "packaging/screencapture_tool/.build/arm64-apple-macosx/release/screencapture-recorder",
-            Path(__file__).parent.parent / "packaging/screencapture_tool/.build/x86_64-apple-macosx/release/screencapture-recorder",
-        ])
-        
+        possible_paths.extend(
+            [
+                Path(__file__).parent.parent
+                / "packaging/screencapture_tool/.build/release/screencapture-recorder",
+                Path(__file__).parent.parent
+                / "packaging/screencapture_tool/.build/arm64-apple-macosx/release/screencapture-recorder",
+                Path(__file__).parent.parent
+                / "packaging/screencapture_tool/.build/x86_64-apple-macosx/release/screencapture-recorder",
+            ]
+        )
+
         # Packaged application locations (when using PyInstaller)
-        if getattr(sys, 'frozen', False):
+        if getattr(sys, "frozen", False):
             # PyInstaller bundle structure on macOS:
             # App.app/Contents/
             #   MacOS/StemSeparator (sys.executable)
             #   Frameworks/screencapture-recorder (our binary)
             #   Resources/ (sys._MEIPASS points here or to a temp extract dir)
-            
+
             # Try relative to executable first (most reliable)
-            if hasattr(sys, 'executable') and sys.executable:
+            if hasattr(sys, "executable") and sys.executable:
                 exe_path = Path(sys.executable)
                 if exe_path.exists():
                     # From MacOS/StemSeparator -> Contents/Frameworks/
-                    bundle_frameworks = exe_path.parent.parent / "Frameworks" / "screencapture-recorder"
+                    bundle_frameworks = (
+                        exe_path.parent.parent / "Frameworks" / "screencapture-recorder"
+                    )
                     possible_paths.append(bundle_frameworks)
-            
+
             # Try via sys._MEIPASS (extracted temp directory)
-            if hasattr(sys, '_MEIPASS'):
+            if hasattr(sys, "_MEIPASS"):
                 meipass = Path(sys._MEIPASS)
                 # Check if MEIPASS is in the bundle or temp directory
-                possible_paths.extend([
-                    meipass / "screencapture-recorder",
-                    meipass.parent / "Frameworks" / "screencapture-recorder",
-                ])
-                
+                possible_paths.extend(
+                    [
+                        meipass / "screencapture-recorder",
+                        meipass.parent / "Frameworks" / "screencapture-recorder",
+                    ]
+                )
+
                 # If MEIPASS is a temp directory, try to find the bundle
                 # by going up to find the app bundle structure
                 current = meipass
                 for _ in range(5):  # Limit search depth
                     parent = current.parent
-                    if parent.name.endswith('.app') or (parent / 'Contents' / 'Frameworks').exists():
-                        possible_paths.append(parent / "Contents" / "Frameworks" / "screencapture-recorder")
+                    if (
+                        parent.name.endswith(".app")
+                        or (parent / "Contents" / "Frameworks").exists()
+                    ):
+                        possible_paths.append(
+                            parent
+                            / "Contents"
+                            / "Frameworks"
+                            / "screencapture-recorder"
+                        )
                         break
                     current = parent
-        
+
         # System-wide installation
         possible_paths.append(Path("/usr/local/bin/screencapture-recorder"))
-        
+
         # Try all paths
         for path in possible_paths:
             if path and path.exists() and path.is_file():
                 # Verify it's actually executable
                 import os
+
                 if os.access(path, os.X_OK):
                     self._binary_path = path
                     self.logger.info(f"Found screencapture-recorder at: {path}")
                     return True
                 else:
-                    self.logger.warning(f"Found screencapture-recorder but not executable: {path}")
+                    self.logger.warning(
+                        f"Found screencapture-recorder but not executable: {path}"
+                    )
 
         # Log all attempted paths for debugging
         self.logger.warning("screencapture-recorder binary not found. Searched paths:")
         for path in possible_paths:
             if path:
                 self.logger.warning(f"  - {path} (exists: {path.exists()})")
-        
+
         return False
 
     def is_available(self) -> ScreenCaptureInfo:
@@ -131,28 +153,28 @@ class ScreenCaptureRecorder:
             ScreenCaptureInfo with availability status
         """
         # Check macOS version first
-        if platform.system() != 'Darwin':
+        if platform.system() != "Darwin":
             return ScreenCaptureInfo(
                 available=False,
                 version="N/A",
-                error="ScreenCaptureKit only available on macOS"
+                error="ScreenCaptureKit only available on macOS",
             )
 
         # Parse macOS version
         macos_version = platform.mac_ver()[0]
         try:
-            major, minor = map(int, macos_version.split('.')[:2])
+            major, minor = map(int, macos_version.split(".")[:2])
             if major < 13:  # macOS 13.0 (Ventura) required
                 return ScreenCaptureInfo(
                     available=False,
                     version=macos_version,
-                    error=f"macOS 13.0+ required (found {macos_version})"
+                    error=f"macOS 13.0+ required (found {macos_version})",
                 )
         except (ValueError, IndexError):
             return ScreenCaptureInfo(
                 available=False,
                 version=macos_version,
-                error="Could not parse macOS version"
+                error="Could not parse macOS version",
             )
 
         # Check if binary exists
@@ -160,42 +182,49 @@ class ScreenCaptureRecorder:
             return ScreenCaptureInfo(
                 available=False,
                 version=macos_version,
-                error="screencapture-recorder binary not found"
+                error="screencapture-recorder binary not found",
             )
 
         # Optional: Check permission directly via Quartz (if available)
         # This helps diagnose permission issues before testing the binary
         try:
             from Quartz import CGPreflightScreenCaptureAccess
+
             has_permission = CGPreflightScreenCaptureAccess()
             if not has_permission:
                 self.logger.warning("Screen Recording permission not granted to app")
                 return ScreenCaptureInfo(
                     available=False,
                     version=macos_version,
-                    error="Screen Recording permission not granted. Please enable it in System Settings → Privacy & Security → Screen Recording"
+                    error="Screen Recording permission not granted. Please enable it in System Settings → Privacy & Security → Screen Recording",
                 )
             else:
                 self.logger.info("Screen Recording permission confirmed via Quartz")
         except ImportError:
             # Quartz not available - continue with binary test
-            self.logger.debug("Quartz not available for permission check, continuing with binary test")
+            self.logger.debug(
+                "Quartz not available for permission check, continuing with binary test"
+            )
         except Exception as e:
-            self.logger.debug(f"Permission check via Quartz failed: {e}, continuing with binary test")
+            self.logger.debug(
+                f"Permission check via Quartz failed: {e}, continuing with binary test"
+            )
 
         # Test if ScreenCaptureKit actually works (permissions, etc.)
         try:
-            self.logger.info(f"Testing ScreenCaptureKit with binary: {self._binary_path}")
-            
+            self.logger.info(
+                f"Testing ScreenCaptureKit with binary: {self._binary_path}"
+            )
+
             # Use Popen instead of run() to properly handle timeout and kill
             # WHY: subprocess.run() with timeout leaves zombie processes if it times out
             process = subprocess.Popen(
                 [str(self._binary_path), "test"],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
-                text=True
+                text=True,
             )
-            
+
             try:
                 stdout, stderr = process.communicate(timeout=10)
                 returncode = process.returncode
@@ -207,7 +236,7 @@ class ScreenCaptureRecorder:
                 return ScreenCaptureInfo(
                     available=False,
                     version=macos_version,
-                    error="Test command timed out (permissions may not be granted)"
+                    error="Test command timed out (permissions may not be granted)",
                 )
 
             # Log full output - use INFO level so it's visible
@@ -222,51 +251,49 @@ class ScreenCaptureRecorder:
             if returncode == 0:
                 self.logger.info("ScreenCaptureKit test passed - available for use")
                 return ScreenCaptureInfo(
-                    available=True,
-                    version=macos_version,
-                    error=None
+                    available=True, version=macos_version, error=None
                 )
             else:
                 # Combine stdout and stderr for error message
                 # Swift prints errors to stdout, not stderr
                 output = (stdout or "").strip()
                 error_output = (stderr or "").strip()
-                
+
                 # Prefer stdout for error messages (Swift prints there)
                 if error_output:
-                    error_msg = f"{output}\n{error_output}".strip() if output else error_output
+                    error_msg = (
+                        f"{output}\n{error_output}".strip() if output else error_output
+                    )
                 else:
                     error_msg = output if output else "Unknown error (no output)"
-                
-                self.logger.warning(f"ScreenCaptureKit test failed (exit {returncode}): {error_msg}")
+
+                self.logger.warning(
+                    f"ScreenCaptureKit test failed (exit {returncode}): {error_msg}"
+                )
                 return ScreenCaptureInfo(
                     available=False,
                     version=macos_version,
-                    error=f"Test failed (exit {returncode}): {error_msg}"
+                    error=f"Test failed (exit {returncode}): {error_msg}",
                 )
         except FileNotFoundError:
             error_msg = f"Binary not found or not executable: {self._binary_path}"
             self.logger.error(error_msg)
             return ScreenCaptureInfo(
-                available=False,
-                version=macos_version,
-                error=error_msg
+                available=False, version=macos_version, error=error_msg
             )
         except PermissionError:
             error_msg = f"Permission denied executing binary: {self._binary_path}"
             self.logger.error(error_msg)
             return ScreenCaptureInfo(
-                available=False,
-                version=macos_version,
-                error=error_msg
+                available=False, version=macos_version, error=error_msg
             )
         except Exception as e:
             error_msg = f"Test error: {str(e)}"
-            self.logger.error(f"ScreenCaptureKit test exception: {error_msg}", exc_info=True)
+            self.logger.error(
+                f"ScreenCaptureKit test exception: {error_msg}", exc_info=True
+            )
             return ScreenCaptureInfo(
-                available=False,
-                version=macos_version,
-                error=error_msg
+                available=False, version=macos_version, error=error_msg
             )
 
     def list_displays(self) -> list[dict]:
@@ -284,26 +311,28 @@ class ScreenCaptureRecorder:
                 [str(self._binary_path), "list-devices"],
                 capture_output=True,
                 text=True,
-                timeout=5
+                timeout=5,
             )
 
             if result.returncode == 0:
                 # Parse output to extract display information
                 displays = []
-                lines = result.stdout.split('\n')
+                lines = result.stdout.split("\n")
                 for line in lines:
-                    if line.strip().startswith('[') and 'x' in line:
+                    if line.strip().startswith("[") and "x" in line:
                         # Parse: "  [0] 12345 - 1920x1080"
                         try:
                             parts = line.strip().split()
-                            index = parts[0].strip('[]')
+                            index = parts[0].strip("[]")
                             display_id = parts[1]
                             resolution = parts[3]
-                            displays.append({
-                                'index': int(index),
-                                'id': display_id,
-                                'resolution': resolution
-                            })
+                            displays.append(
+                                {
+                                    "index": int(index),
+                                    "id": display_id,
+                                    "resolution": resolution,
+                                }
+                            )
                         except (IndexError, ValueError):
                             continue
 
@@ -318,7 +347,7 @@ class ScreenCaptureRecorder:
         self,
         output_path: Path,
         duration: Optional[float] = None,
-        display_id: Optional[str] = None
+        display_id: Optional[str] = None,
     ) -> bool:
         """
         Start recording system audio
@@ -340,11 +369,7 @@ class ScreenCaptureRecorder:
             return False
 
         # Build command
-        cmd = [
-            str(self._binary_path),
-            "record",
-            "--output", str(output_path)
-        ]
+        cmd = [str(self._binary_path), "record", "--output", str(output_path)]
 
         if duration is not None:
             cmd.extend(["--duration", str(duration)])
@@ -359,10 +384,7 @@ class ScreenCaptureRecorder:
         try:
             # Start the recording process
             self._recording_process = subprocess.Popen(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True
+                cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
             )
 
             self._current_output_path = output_path
@@ -371,8 +393,7 @@ class ScreenCaptureRecorder:
 
             # Start monitor thread to check process status
             self._monitor_thread = threading.Thread(
-                target=self._monitor_recording,
-                daemon=True
+                target=self._monitor_recording, daemon=True
             )
             self._monitor_thread.start()
 
@@ -384,7 +405,10 @@ class ScreenCaptureRecorder:
                 stdout, stderr = self._recording_process.communicate()
 
                 # Check if it's a permission issue
-                if "Start stream failed" in stderr or "Operation not permitted" in stderr:
+                if (
+                    "Start stream failed" in stderr
+                    or "Operation not permitted" in stderr
+                ):
                     self.logger.error(
                         "Screen Recording permission required. "
                         "Please grant permission in: "
@@ -433,6 +457,7 @@ class ScreenCaptureRecorder:
             # Send SIGINT (like Ctrl+C) for graceful shutdown
             # This should trigger the signal handler in the Swift binary
             import signal as sig
+
             self._recording_process.send_signal(sig.SIGINT)
 
             # Wait longer for graceful shutdown (10 seconds)
@@ -486,7 +511,10 @@ class ScreenCaptureRecorder:
         Returns:
             True if recording is in progress
         """
-        return self._recording_process is not None and self._recording_process.poll() is None
+        return (
+            self._recording_process is not None
+            and self._recording_process.poll() is None
+        )
 
 
 def test_screencapture():
@@ -521,7 +549,7 @@ def test_screencapture():
         # Monitor duration
         while recorder.is_recording():
             duration = recorder.get_recording_duration()
-            print(f"Recording: {duration:.1f}s", end='\r')
+            print(f"Recording: {duration:.1f}s", end="\r")
             time.sleep(0.1)
 
         print(f"\n✓ Recording complete: {test_file}")

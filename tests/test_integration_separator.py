@@ -2,6 +2,7 @@
 Integration Tests für Separator
 Testet den kompletten Workflow mit realistischen Bedingungen
 """
+
 import pytest
 import numpy as np
 import soundfile as sf
@@ -58,9 +59,11 @@ def long_audio_file():
 class TestSeparatorIntegration:
     """Integration Tests für den kompletten Separation-Workflow"""
 
-    @patch('audio_separator.separator.Separator')
-    @patch('core.separator.get_chunk_processor')
-    def test_separate_with_chunking_workflow(self, mock_get_cp, mock_audio_sep, long_audio_file):
+    @patch("audio_separator.separator.Separator")
+    @patch("core.separator.get_chunk_processor")
+    def test_separate_with_chunking_workflow(
+        self, mock_get_cp, mock_audio_sep, long_audio_file
+    ):
         """
         Integration Test: Kompletter Workflow für große Datei mit Chunking
 
@@ -73,6 +76,7 @@ class TestSeparatorIntegration:
         """
         # Erstelle ChunkProcessor mit kleineren Chunks für Tests
         from core.chunk_processor import ChunkProcessor
+
         test_cp = ChunkProcessor(chunk_length_seconds=4, overlap_seconds=1)
         mock_get_cp.return_value = test_cp
 
@@ -90,11 +94,13 @@ class TestSeparatorIntegration:
 
             # Erstelle Mock-Stems (einfach: Original Audio + leichte Variation)
             stems = {}
-            for stem_name in ['vocals', 'drums', 'bass', 'other']:
+            for stem_name in ["vocals", "drums", "bass", "other"]:
                 stem_file = output_dir / f"{audio_file.stem}_{stem_name}.wav"
 
                 # Einfache Variation: Stem = Original * Faktor
-                factor = {'vocals': 0.8, 'drums': 0.6, 'bass': 0.4, 'other': 0.2}[stem_name]
+                factor = {"vocals": 0.8, "drums": 0.6, "bass": 0.4, "other": 0.2}[
+                    stem_name
+                ]
                 stem_data = audio_data * factor
 
                 sf.write(str(stem_file), stem_data, sr)
@@ -111,14 +117,13 @@ class TestSeparatorIntegration:
 
         # Progress Tracking
         progress_calls = []
+
         def progress_callback(message, percent):
             progress_calls.append((message, percent))
 
         # Führe Separation durch
         result = sep.separate(
-            long_audio_file,
-            model_id='demucs_6s',
-            progress_callback=progress_callback
+            long_audio_file, model_id="demucs_6s", progress_callback=progress_callback
         )
 
         # Assertions
@@ -138,22 +143,26 @@ class TestSeparatorIntegration:
 
         # Check dass "Chunking" oder "Merging" in Messages vorkommt
         messages = [msg for msg, _ in progress_calls]
-        assert any('chunk' in msg.lower() or 'merg' in msg.lower() for msg in messages), \
-            "No chunking/merging mentioned in progress"
+        assert any(
+            "chunk" in msg.lower() or "merg" in msg.lower() for msg in messages
+        ), "No chunking/merging mentioned in progress"
 
         # Check dass AudioSeparator mehrmals aufgerufen wurde (für jeden Chunk)
         # Bei 12s Audio mit 5s Chunks + 1s Overlap = ~3-4 Chunks
-        assert mock_instance.separate.call_count >= 3, \
-            f"Expected at least 3 chunks, got {mock_instance.separate.call_count}"
+        assert (
+            mock_instance.separate.call_count >= 3
+        ), f"Expected at least 3 chunks, got {mock_instance.separate.call_count}"
 
         print(f"\n✓ Chunking workflow successful:")
         print(f"  - Chunks processed: {mock_instance.separate.call_count}")
         print(f"  - Stems created: {len(result.stems)}")
         print(f"  - Progress updates: {len(progress_calls)}")
 
-    @patch('audio_separator.separator.Separator')
-    @patch('core.separator.get_chunk_processor')
-    def test_chunking_maintains_audio_length(self, mock_get_cp, mock_audio_sep, long_audio_file):
+    @patch("audio_separator.separator.Separator")
+    @patch("core.separator.get_chunk_processor")
+    def test_chunking_maintains_audio_length(
+        self, mock_get_cp, mock_audio_sep, long_audio_file
+    ):
         """
         Test dass Chunking die Audio-Länge erhält
 
@@ -161,6 +170,7 @@ class TestSeparatorIntegration:
         """
         # Erstelle ChunkProcessor mit kleineren Chunks für Tests
         from core.chunk_processor import ChunkProcessor
+
         test_cp = ChunkProcessor(chunk_length_seconds=4, overlap_seconds=1)
         mock_get_cp.return_value = test_cp
 
@@ -200,18 +210,23 @@ class TestSeparatorIntegration:
         max_diff_samples = int(0.5 * original_sr)
         length_diff = abs(original_length - stem_length)
 
-        assert length_diff < max_diff_samples, \
-            f"Audio length changed significantly: {original_length} -> {stem_length} " \
+        assert length_diff < max_diff_samples, (
+            f"Audio length changed significantly: {original_length} -> {stem_length} "
             f"(diff: {length_diff} samples = {length_diff/original_sr:.2f}s)"
+        )
 
         print(f"\n✓ Audio length preserved:")
-        print(f"  - Original: {original_length} samples ({original_length/original_sr:.2f}s)")
+        print(
+            f"  - Original: {original_length} samples ({original_length/original_sr:.2f}s)"
+        )
         print(f"  - Merged:   {stem_length} samples ({stem_length/stem_sr:.2f}s)")
         print(f"  - Diff:     {length_diff} samples ({length_diff/original_sr:.3f}s)")
 
-    @patch('audio_separator.separator.Separator')
-    @patch('core.separator.get_chunk_processor')
-    def test_chunking_progress_tracking(self, mock_get_cp, mock_audio_sep, long_audio_file):
+    @patch("audio_separator.separator.Separator")
+    @patch("core.separator.get_chunk_processor")
+    def test_chunking_progress_tracking(
+        self, mock_get_cp, mock_audio_sep, long_audio_file
+    ):
         """
         Test dass Progress korrekt getrackt wird bei Chunking
 
@@ -219,6 +234,7 @@ class TestSeparatorIntegration:
         """
         # Erstelle ChunkProcessor mit kleineren Chunks für Tests
         from core.chunk_processor import ChunkProcessor
+
         test_cp = ChunkProcessor(chunk_length_seconds=4, overlap_seconds=1)
         mock_get_cp.return_value = test_cp
 
@@ -229,6 +245,7 @@ class TestSeparatorIntegration:
         sep = Separator()
 
         progress_calls = []
+
         def callback(msg, pct):
             progress_calls.append((msg, pct))
             print(f"  [{pct:3d}%] {msg}")
@@ -250,8 +267,8 @@ class TestSeparatorIntegration:
         # Check dass Chunking-relevante Messages vorhanden sind
         messages = [msg.lower() for msg, _ in progress_calls]
 
-        has_chunking_msg = any('chunk' in msg for msg in messages)
-        has_merging_msg = any('merg' in msg for msg in messages)
+        has_chunking_msg = any("chunk" in msg for msg in messages)
+        has_merging_msg = any("merg" in msg for msg in messages)
 
         assert has_chunking_msg, "No chunking progress messages"
         assert has_merging_msg, "No merging progress messages"
@@ -260,9 +277,11 @@ class TestSeparatorIntegration:
         print(f"  - Total updates: {len(progress_calls)}")
         print(f"  - Progress range: {percentages[0]}% -> {percentages[-1]}%")
 
-    @patch('audio_separator.separator.Separator')
-    @patch('core.separator.get_chunk_processor')
-    def test_error_in_chunk_processing(self, mock_get_cp, mock_audio_sep, long_audio_file):
+    @patch("audio_separator.separator.Separator")
+    @patch("core.separator.get_chunk_processor")
+    def test_error_in_chunk_processing(
+        self, mock_get_cp, mock_audio_sep, long_audio_file
+    ):
         """
         Test Error Handling während Chunk-Processing
 
@@ -270,6 +289,7 @@ class TestSeparatorIntegration:
         """
         # Erstelle ChunkProcessor mit kleineren Chunks für Tests
         from core.chunk_processor import ChunkProcessor
+
         test_cp = ChunkProcessor(chunk_length_seconds=4, overlap_seconds=1)
         mock_get_cp.return_value = test_cp
 
@@ -319,6 +339,7 @@ class TestSeparatorIntegration:
         """
         # Erstelle ChunkProcessor mit kleinerer Chunk-Länge für Tests
         from core.chunk_processor import ChunkProcessor
+
         cp = ChunkProcessor(chunk_length_seconds=4, overlap_seconds=1)
 
         # Check ob Chunking erkannt wird (12s > 4s)
@@ -346,8 +367,9 @@ class TestSeparatorIntegration:
 
         # Max 0.5s difference
         max_diff = int(0.5 * sr)
-        assert abs(original_length - merged_length) < max_diff, \
-            f"Merged length differs: {original_length} vs {merged_length}"
+        assert (
+            abs(original_length - merged_length) < max_diff
+        ), f"Merged length differs: {original_length} vs {merged_length}"
 
         print(f"\n✓ ChunkProcessor working correctly:")
         print(f"  - Chunks created: {len(chunks)}")

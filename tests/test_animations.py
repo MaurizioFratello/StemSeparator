@@ -4,6 +4,7 @@ Unit tests for animation helpers
 PURPOSE: Test animation utility functions for smooth transitions
 CONTEXT: Ensures animations work correctly and don't cause crashes
 """
+
 import pytest
 from unittest.mock import Mock, patch, MagicMock
 
@@ -134,7 +135,9 @@ class TestAnimations:
         original_pos = QPoint(100, 100)
         widget.move(original_pos)
 
-        animation = Animations.slide_in(widget, direction="bottom", distance=20, duration=100)
+        animation = Animations.slide_in(
+            widget, direction="bottom", distance=20, duration=100
+        )
 
         # Animation should be created
         assert animation is not None
@@ -153,7 +156,9 @@ class TestAnimations:
         original_pos = QPoint(100, 100)
         widget.move(original_pos)
 
-        animation = Animations.slide_in(widget, direction="top", distance=20, duration=100)
+        animation = Animations.slide_in(
+            widget, direction="top", distance=20, duration=100
+        )
         assert animation is not None
 
     def test_slide_in_from_left(self, qtbot):
@@ -161,7 +166,9 @@ class TestAnimations:
         widget = QWidget()
         qtbot.addWidget(widget)
 
-        animation = Animations.slide_in(widget, direction="left", distance=20, duration=100)
+        animation = Animations.slide_in(
+            widget, direction="left", distance=20, duration=100
+        )
         assert animation is not None
 
     def test_slide_in_from_right(self, qtbot):
@@ -169,7 +176,9 @@ class TestAnimations:
         widget = QWidget()
         qtbot.addWidget(widget)
 
-        animation = Animations.slide_in(widget, direction="right", distance=20, duration=100)
+        animation = Animations.slide_in(
+            widget, direction="right", distance=20, duration=100
+        )
         assert animation is not None
 
     def test_slide_out_to_bottom(self, qtbot):
@@ -177,7 +186,9 @@ class TestAnimations:
         widget = QWidget()
         qtbot.addWidget(widget)
 
-        animation = Animations.slide_out(widget, direction="bottom", distance=20, duration=100)
+        animation = Animations.slide_out(
+            widget, direction="bottom", distance=20, duration=100
+        )
         assert animation is not None
 
     def test_slide_out_hides_when_done(self, qtbot):
@@ -186,7 +197,9 @@ class TestAnimations:
         widget.show()
         qtbot.addWidget(widget)
 
-        Animations.slide_out(widget, direction="bottom", distance=20, duration=50, hide_when_done=True)
+        Animations.slide_out(
+            widget, direction="bottom", distance=20, duration=50, hide_when_done=True
+        )
 
         # Wait for animation to complete
         qtbot.wait(100)
@@ -269,10 +282,7 @@ class TestAnimations:
         scroll_area.setWidget(content)
 
         animation = Animations.smooth_scroll(
-            scroll_area,
-            target_value=100,
-            duration=100,
-            orientation="vertical"
+            scroll_area, target_value=100, duration=100, orientation="vertical"
         )
 
         # Animation should be created
@@ -289,10 +299,7 @@ class TestAnimations:
         scroll_area.setWidget(content)
 
         animation = Animations.smooth_scroll(
-            scroll_area,
-            target_value=100,
-            duration=100,
-            orientation="horizontal"
+            scroll_area, target_value=100, duration=100, orientation="horizontal"
         )
 
         # Animation should be created
@@ -304,11 +311,7 @@ class TestAnimations:
         scrollbar.setRange(0, 1000)
         qtbot.addWidget(scrollbar)
 
-        animation = Animations.smooth_scroll(
-            scrollbar,
-            target_value=500,
-            duration=100
-        )
+        animation = Animations.smooth_scroll(scrollbar, target_value=500, duration=100)
 
         # Animation should be created
         assert animation is not None
@@ -316,6 +319,7 @@ class TestAnimations:
     def test_get_animations_returns_class(self):
         """Test convenience function returns Animations class"""
         from ui.theme.animations import get_animations
+
         result = get_animations()
         assert result is Animations
 

@@ -4,12 +4,22 @@ Recording Widget - System audio recording controls with level metering
 PURPOSE: Enable users to record system audio via BlackHole and control recording state.
 CONTEXT: Integrates core.recorder.Recorder with thread-safe GUI updates.
 """
+
 from pathlib import Path
 from typing import Optional
 import math
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
-    QComboBox, QProgressBar, QGroupBox, QMessageBox, QScrollArea, QFrame
+    QWidget,
+    QVBoxLayout,
+    QHBoxLayout,
+    QPushButton,
+    QLabel,
+    QComboBox,
+    QProgressBar,
+    QGroupBox,
+    QMessageBox,
+    QScrollArea,
+    QFrame,
 )
 from PySide6.QtCore import Qt, Signal, Slot, QTimer
 from PySide6.QtGui import QPalette, QColor
@@ -29,13 +39,13 @@ class RecordingWidget(QWidget):
     - Real-time audio level meter
     - Duration display
     """
-    
+
     # Signal emitted when recording is saved
     recording_saved = Signal(Path)  # file_path
-    
+
     # Signal emitted when audio level updates (from recorder thread)
     level_updated = Signal(float)  # level (0.0-1.0)
-    
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.ctx = AppContext()
@@ -56,20 +66,20 @@ class RecordingWidget(QWidget):
         self.apply_translations()
 
         self.ctx.logger().info("RecordingWidget initialized")
-    
+
     def _create_card(self, title: str) -> tuple[QFrame, QVBoxLayout]:
         """Create a styled card frame with header"""
         card = QFrame()
         card.setObjectName("card")
-        
+
         layout = QVBoxLayout(card)
         layout.setContentsMargins(20, 20, 20, 20)
         layout.setSpacing(15)
-        
+
         header = QLabel(title)
         header.setObjectName("card_header")
         layout.addWidget(header)
-        
+
         return card, layout
 
     def _setup_ui(self):
@@ -81,21 +91,23 @@ class RecordingWidget(QWidget):
 
         # Device Selection Card
         device_card, device_layout = self._create_card("Recording Device")
-        
+
         device_select = QHBoxLayout()
         device_select.addWidget(QLabel("Device:"))
         self.device_combo = QComboBox()
         device_select.addWidget(self.device_combo, stretch=1)
         self.btn_refresh_devices = QPushButton("🔄 Refresh")
-        ThemeManager.set_widget_property(self.btn_refresh_devices, "buttonStyle", "secondary")
+        ThemeManager.set_widget_property(
+            self.btn_refresh_devices, "buttonStyle", "secondary"
+        )
         device_select.addWidget(self.btn_refresh_devices)
         device_layout.addLayout(device_select)
-        
+
         main_layout.addWidget(device_card)
-        
+
         # Recording Controls Card
         controls_card, controls_layout = self._create_card("Recording")
-        
+
         # Level meter (RMS with ballistics)
         meter_layout = QHBoxLayout()
         meter_label = QLabel("Level (RMS):")
@@ -115,7 +127,7 @@ class RecordingWidget(QWidget):
         self.level_meter.setFormat("Silence")
         meter_layout.addWidget(self.level_meter)
         controls_layout.addLayout(meter_layout)
-        
+
         # Duration display (monospace for better readability)
         self.duration_label = QLabel("Duration: 00:00.0")
         self.duration_label.setAlignment(Qt.AlignCenter)
@@ -125,12 +137,12 @@ class RecordingWidget(QWidget):
         font.setBold(True)
         self.duration_label.setFont(font)
         controls_layout.addWidget(self.duration_label)
-        
+
         # State label
         self.state_label = QLabel("Ready")
         self.state_label.setAlignment(Qt.AlignCenter)
         controls_layout.addWidget(self.state_label)
-        
+
         # Control buttons
         buttons_layout = QHBoxLayout()
         self.btn_start = QPushButton("🔴 Start Recording")
@@ -145,19 +157,23 @@ class RecordingWidget(QWidget):
         self.btn_stop = QPushButton("💾 Stop & Save")
         self.btn_stop.setEnabled(False)
         # Stop uses primary style (default)
-        self.btn_stop.setToolTip("Stop recording and save file (available during recording)")
+        self.btn_stop.setToolTip(
+            "Stop recording and save file (available during recording)"
+        )
 
         self.btn_cancel = QPushButton("❌ Cancel")
         self.btn_cancel.setEnabled(False)
         ThemeManager.set_widget_property(self.btn_cancel, "buttonStyle", "danger")
-        self.btn_cancel.setToolTip("Cancel recording without saving (available during recording)")
+        self.btn_cancel.setToolTip(
+            "Cancel recording without saving (available during recording)"
+        )
 
         buttons_layout.addWidget(self.btn_start)
         buttons_layout.addWidget(self.btn_pause)
         buttons_layout.addWidget(self.btn_stop)
         buttons_layout.addWidget(self.btn_cancel)
         controls_layout.addLayout(buttons_layout)
-        
+
         main_layout.addWidget(controls_card)
 
         main_layout.addStretch()
@@ -175,7 +191,7 @@ class RecordingWidget(QWidget):
 
         # Connect internal signal for thread-safe level updates
         self.level_updated.connect(self._update_level_meter)
-    
+
     def _refresh_devices(self):
         """
         Refresh available audio devices
@@ -186,14 +202,11 @@ class RecordingWidget(QWidget):
 
         # Check if ScreenCaptureKit is available
         backend_info = self.recorder.get_backend_info()
-        screencapture_available = backend_info.get('screencapture_available', False)
+        screencapture_available = backend_info.get("screencapture_available", False)
 
         # Add ScreenCaptureKit as first option if available (macOS 13+)
         if screencapture_available:
-            self.device_combo.addItem(
-                "System Audio",
-                userData="__screencapture__"
-            )
+            self.device_combo.addItem("System Audio", userData="__screencapture__")
 
         devices = self.recorder.get_available_devices()
 
@@ -212,13 +225,15 @@ class RecordingWidget(QWidget):
         # 3. First device otherwise
         if screencapture_available:
             self.device_combo.setCurrentIndex(0)  # ScreenCaptureKit
-            self.ctx.logger().info("Auto-selected ScreenCaptureKit for system audio recording")
+            self.ctx.logger().info(
+                "Auto-selected ScreenCaptureKit for system audio recording"
+            )
         else:
             # Try to select BlackHole
             blackhole_device = self.recorder.find_blackhole_device()
             if blackhole_device:
                 for i in range(self.device_combo.count()):
-                    if 'blackhole' in self.device_combo.itemText(i).lower():
+                    if "blackhole" in self.device_combo.itemText(i).lower():
                         self.device_combo.setCurrentIndex(i)
                         break
 
@@ -261,14 +276,15 @@ class RecordingWidget(QWidget):
         # Note: ScreenCaptureKit doesn't support pre-recording monitoring yet,
         # so we skip monitoring for ScreenCaptureKit devices
         if device_data == "__screencapture__":
-            self.ctx.logger().info("ScreenCaptureKit selected - monitoring will start during recording")
+            self.ctx.logger().info(
+                "ScreenCaptureKit selected - monitoring will start during recording"
+            )
             self.state_label.setText("Ready (ScreenCaptureKit)")
             return
 
         # Start monitoring with level callback for physical devices
         success = self.recorder.start_monitoring(
-            device_name=device_data,
-            level_callback=self._on_level_update
+            device_name=device_data, level_callback=self._on_level_update
         )
 
         if success:
@@ -281,17 +297,13 @@ class RecordingWidget(QWidget):
     def _on_start_clicked(self):
         """
         Start recording
-        
+
         WHY: Initiates recording in background thread with level callback
         """
         device_data = self.device_combo.currentData()
 
         if device_data is None:
-            QMessageBox.warning(
-                self,
-                "No Device",
-                "Please select a recording device"
-            )
+            QMessageBox.warning(self, "No Device", "Please select a recording device")
             return
 
         # Check if ScreenCaptureKit is selected
@@ -306,13 +318,12 @@ class RecordingWidget(QWidget):
 
         # Reset Level Meter before starting
         self.level_meter.setValue(0)
-        
+
         # Start recording with level callback
         # IMPORTANT: We pass self._on_level_update which emits the signal to the GUI thread
         # self.ctx.logger().info(f"Starting recording with callback: {self._on_level_update}")
         success = self.recorder.start_recording(
-            device_name=device_name,
-            level_callback=self._on_level_update
+            device_name=device_name, level_callback=self._on_level_update
         )
 
         if success:
@@ -338,17 +349,13 @@ class RecordingWidget(QWidget):
                 "If using BlackHole:\n"
                 "• Check that BlackHole is configured correctly"
             )
-            QMessageBox.critical(
-                self,
-                "Recording Failed",
-                error_msg
-            )
-    
+            QMessageBox.critical(self, "Recording Failed", error_msg)
+
     @Slot()
     def _on_pause_clicked(self):
         """Pause or resume recording"""
         state = self.recorder.get_state()
-        
+
         if state == RecordingState.RECORDING:
             if self.recorder.pause_recording():
                 self.btn_pause.setText("Resume")
@@ -357,40 +364,40 @@ class RecordingWidget(QWidget):
             if self.recorder.resume_recording():
                 self.btn_pause.setText("Pause")
                 self.ctx.logger().info("Recording resumed")
-    
+
     def _peak_to_dbfs(self, peak_level: float) -> float:
         """
         Convert peak level (0.0-1.0) to dBFS (decibels relative to full scale)
-        
+
         WHY: Professional audio meters use dBFS scale where:
              - 0 dBFS = maximum possible digital level (clipping)
              - -∞ dBFS = digital silence
              - Peak values are converted directly: dBFS = 20 * log10(peak)
-        
+
         Args:
             peak_level: Peak audio level (0.0-1.0)
-        
+
         Returns:
             dBFS value (typically -∞ to 0 dBFS)
         """
         if peak_level <= 1e-10:  # Avoid log(0) which would be -infinity
             return -100.0  # Very quiet, below useful display range
-        
+
         # Convert peak to dBFS: dBFS = 20 * log10(peak)
         dbfs = 20.0 * math.log10(peak_level)
         return float(dbfs)
-    
+
     @Slot()
     def _on_stop_clicked(self):
         """
         Stop recording and save
-        
+
         WHY: Finalizes recording and emits signal for downstream processing
         """
         self.update_timer.stop()
-        
+
         info = self.recorder.stop_recording()
-        
+
         if info:
             log_msg = (
                 f"Recording saved: {info.file_path} "
@@ -400,7 +407,7 @@ class RecordingWidget(QWidget):
                 log_msg += f", trimmed: {info.trimmed_silence_duration:.1f}s"
             log_msg += ")"
             self.ctx.logger().info(log_msg)
-            
+
             # Convert peak level to dBFS for display
             peak_dbfs = self._peak_to_dbfs(info.peak_level)
             if peak_dbfs <= -100.0:
@@ -425,23 +432,19 @@ class RecordingWidget(QWidget):
 
             message += f"\nFile: {info.file_path.name}"
 
-            QMessageBox.information(
-                self,
-                "Recording Saved",
-                message
-            )
-            
+            QMessageBox.information(self, "Recording Saved", message)
+
             # Emit signal for potential downstream processing
             self.recording_saved.emit(info.file_path)
         else:
             QMessageBox.warning(
                 self,
                 "Recording Failed",
-                "Failed to save recording. No audio was recorded."
+                "Failed to save recording. No audio was recorded.",
             )
-        
+
         self._reset_controls()
-    
+
     @Slot()
     def _on_cancel_clicked(self):
         """Cancel recording without saving"""
@@ -449,15 +452,15 @@ class RecordingWidget(QWidget):
             self,
             "Cancel Recording",
             "Are you sure you want to cancel?\n\nRecording will be discarded.",
-            QMessageBox.Yes | QMessageBox.No
+            QMessageBox.Yes | QMessageBox.No,
         )
-        
+
         if reply == QMessageBox.Yes:
             self.update_timer.stop()
             self.recorder.cancel_recording()
             self._reset_controls()
             self.ctx.logger().info("Recording cancelled")
-    
+
     def _reset_controls(self):
         """Reset UI controls to initial state"""
         self.btn_start.setEnabled(True)
@@ -471,7 +474,10 @@ class RecordingWidget(QWidget):
         self.level_meter.setValue(0)
         self.level_meter.setFormat("Silence")
         from ui.theme import ThemeManager
-        ThemeManager.set_widget_property(self.level_meter, "meterLevel", "safe")  # Reset to default
+
+        ThemeManager.set_widget_property(
+            self.level_meter, "meterLevel", "safe"
+        )  # Reset to default
         self.duration_label.setText("Duration: 00:00.0")
         self.state_label.setText("Ready")
 
@@ -483,22 +489,24 @@ class RecordingWidget(QWidget):
             else:
                 success = self.recorder.start_monitoring(
                     device_name=self._last_selected_device,
-                    level_callback=self._on_level_update
+                    level_callback=self._on_level_update,
                 )
                 if success:
-                    self.ctx.logger().info(f"Restarted monitoring after recording: {self._last_selected_device}")
+                    self.ctx.logger().info(
+                        f"Restarted monitoring after recording: {self._last_selected_device}"
+                    )
                     self.state_label.setText("Monitoring...")
-    
+
     def _on_level_update(self, level: float):
         """
         Handle audio level update from recorder thread
-        
+
         WHY: Called from recorder thread, must emit signal for thread-safety
         IMPORTANT: Do NOT update GUI directly from here - use signal instead!
         """
         # Emit signal - Qt will marshal this to the GUI thread safely
         self.level_updated.emit(float(level))
-    
+
     @Slot(float)
     def _update_level_meter(self, level: float):
         """
@@ -507,7 +515,7 @@ class RecordingWidget(QWidget):
         WHY: Receives level_updated signal and safely updates GUI
         """
         # print(f"DEBUG GUI: Updating meter to {level:.3f}")
-        
+
         # Convert level (0.0-1.0) to percentage for display
         level_percent = int(level * 100)
         self.level_meter.setValue(level_percent)
@@ -541,30 +549,30 @@ class RecordingWidget(QWidget):
         else:  # Below -12 dBFS
             # GREEN: Normal operating range
             ThemeManager.set_widget_property(self.level_meter, "meterLevel", "safe")
-    
+
     @Slot()
     def _update_display(self):
         """
         Update duration display, state label, and level meter (polling)
-        
+
         WHY: Called by timer every 100ms. Handles both duration and level updates.
              Polling is more robust than signals for cross-thread updates from ScreenCaptureKit.
         """
         # Update Duration
         duration = self.recorder.get_recording_duration()
-        
+
         # Format duration as MM:SS.d
         minutes = int(duration // 60)
         seconds = duration % 60
         self.duration_label.setText(f"Duration: {minutes:02d}:{seconds:04.1f}")
-        
+
         # Update State Label
         state = self.recorder.get_state()
         state_text = {
             RecordingState.IDLE: "Ready",
             RecordingState.RECORDING: "● Recording",
             RecordingState.PAUSED: "⏸ Paused",
-            RecordingState.STOPPED: "Stopped"
+            RecordingState.STOPPED: "Stopped",
         }.get(state, "Unknown")
 
         self.state_label.setText(state_text)
@@ -580,7 +588,7 @@ class RecordingWidget(QWidget):
         if state == RecordingState.RECORDING or self.recorder.is_monitoring():
             level = self.recorder.get_current_level()
             self._update_level_meter(level)
-    
+
     def apply_translations(self):
         """
         Apply current language translations
@@ -611,7 +619,7 @@ class RecordingWidget(QWidget):
             if not self.recorder.is_monitoring():
                 success = self.recorder.start_monitoring(
                     device_name=self._last_selected_device,
-                    level_callback=self._on_level_update
+                    level_callback=self._on_level_update,
                 )
                 if success:
                     self.ctx.logger().info(
@@ -642,4 +650,3 @@ class RecordingWidget(QWidget):
         if self.recorder.is_monitoring():
             self.recorder.stop_monitoring()
         super().closeEvent(event)
-

@@ -1,6 +1,7 @@
 """
 Unit Tests für Chunk Processor
 """
+
 import pytest
 import numpy as np
 import soundfile as sf
@@ -68,7 +69,7 @@ class TestAudioChunk:
             end_sample=44100,
             audio_data=audio_data,
             sample_rate=44100,
-            has_overlap=False
+            has_overlap=False,
         )
 
         assert chunk.index == 0
@@ -155,7 +156,9 @@ class TestChunkProcessor:
         chunks = cp.chunk_audio(test_audio_file, progress_callback=callback)
 
         assert len(progress_calls) == len(chunks)
-        assert progress_calls[-1][0] == progress_calls[-1][1]  # Last call: current == total
+        assert (
+            progress_calls[-1][0] == progress_calls[-1][1]
+        )  # Last call: current == total
 
     def test_estimate_num_chunks(self, test_audio_file):
         """Teste estimate_num_chunks()"""
@@ -195,7 +198,9 @@ class TestChunkProcessor:
         original_length = original_audio.shape[1]
         merged_length = merged.shape[1]
 
-        assert abs(original_length - merged_length) < sample_rate * 0.1  # <0.1s Differenz
+        assert (
+            abs(original_length - merged_length) < sample_rate * 0.1
+        )  # <0.1s Differenz
 
     def test_merge_chunks_with_output_file(self, test_audio_file):
         """Teste merge_chunks() mit Output-File"""
@@ -325,6 +330,7 @@ class TestChunkProcessor:
 
         # Mische Chunks durcheinander
         import random
+
         chunk_tuples = [(chunk, chunk.audio_data) for chunk in chunks]
         random.shuffle(chunk_tuples)
 

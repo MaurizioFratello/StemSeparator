@@ -6,6 +6,7 @@ PURPOSE: Provides macOS system colors that automatically adapt to Light/Dark mod
 CONTEXT: Enables the app to feel native by using system-defined colors instead of
          hardcoded values, matching macOS design language.
 """
+
 from __future__ import annotations
 
 from typing import Optional
@@ -154,38 +155,38 @@ class MacOSColors:
 
     # macOS-specific color constants (Big Sur/Monterey/Ventura/Sonoma palette)
     # These match the official Apple Design Resources
-    MACOS_BLUE = "#007AFF"           # macOS system blue
-    MACOS_PURPLE = "#AF52DE"         # macOS system purple
-    MACOS_PINK = "#FF2D55"           # macOS system pink
-    MACOS_RED = "#FF3B30"            # macOS system red
-    MACOS_ORANGE = "#FF9500"         # macOS system orange
-    MACOS_YELLOW = "#FFCC00"         # macOS system yellow
-    MACOS_GREEN = "#34C759"          # macOS system green
-    MACOS_TEAL = "#5AC8FA"           # macOS system teal
-    MACOS_INDIGO = "#5856D6"         # macOS system indigo
+    MACOS_BLUE = "#007AFF"  # macOS system blue
+    MACOS_PURPLE = "#AF52DE"  # macOS system purple
+    MACOS_PINK = "#FF2D55"  # macOS system pink
+    MACOS_RED = "#FF3B30"  # macOS system red
+    MACOS_ORANGE = "#FF9500"  # macOS system orange
+    MACOS_YELLOW = "#FFCC00"  # macOS system yellow
+    MACOS_GREEN = "#34C759"  # macOS system green
+    MACOS_TEAL = "#5AC8FA"  # macOS system teal
+    MACOS_INDIGO = "#5856D6"  # macOS system indigo
 
     # macOS label colors (text)
-    MACOS_LABEL_PRIMARY = "#000000"      # Light mode primary
-    MACOS_LABEL_PRIMARY_DARK = "#FFFFFF" # Dark mode primary
-    MACOS_LABEL_SECONDARY = "#3C3C43"    # Light mode secondary (60% opacity)
-    MACOS_LABEL_SECONDARY_DARK = "#EBEBF5" # Dark mode secondary (60% opacity)
-    MACOS_LABEL_TERTIARY = "#3C3C43"     # Light mode tertiary (30% opacity)
+    MACOS_LABEL_PRIMARY = "#000000"  # Light mode primary
+    MACOS_LABEL_PRIMARY_DARK = "#FFFFFF"  # Dark mode primary
+    MACOS_LABEL_SECONDARY = "#3C3C43"  # Light mode secondary (60% opacity)
+    MACOS_LABEL_SECONDARY_DARK = "#EBEBF5"  # Dark mode secondary (60% opacity)
+    MACOS_LABEL_TERTIARY = "#3C3C43"  # Light mode tertiary (30% opacity)
     MACOS_LABEL_TERTIARY_DARK = "#EBEBF5"  # Dark mode tertiary (30% opacity)
 
     # macOS system gray colors
-    MACOS_GRAY = "#8E8E93"           # Standard gray
-    MACOS_GRAY_2 = "#AEAEB2"         # Lighter gray
-    MACOS_GRAY_3 = "#C7C7CC"         # Even lighter
-    MACOS_GRAY_4 = "#D1D1D6"         # Very light
-    MACOS_GRAY_5 = "#E5E5EA"         # Nearly white (light mode)
-    MACOS_GRAY_6 = "#F2F2F7"         # Grouped background (light mode)
+    MACOS_GRAY = "#8E8E93"  # Standard gray
+    MACOS_GRAY_2 = "#AEAEB2"  # Lighter gray
+    MACOS_GRAY_3 = "#C7C7CC"  # Even lighter
+    MACOS_GRAY_4 = "#D1D1D6"  # Very light
+    MACOS_GRAY_5 = "#E5E5EA"  # Nearly white (light mode)
+    MACOS_GRAY_6 = "#F2F2F7"  # Grouped background (light mode)
 
-    MACOS_GRAY_DARK = "#8E8E93"      # Standard gray (dark mode)
-    MACOS_GRAY_2_DARK = "#636366"    # Darker gray
-    MACOS_GRAY_3_DARK = "#48484A"    # Even darker
-    MACOS_GRAY_4_DARK = "#3A3A3C"    # Very dark
-    MACOS_GRAY_5_DARK = "#2C2C2E"    # Nearly black (dark mode)
-    MACOS_GRAY_6_DARK = "#1C1C1E"    # Grouped background (dark mode)
+    MACOS_GRAY_DARK = "#8E8E93"  # Standard gray (dark mode)
+    MACOS_GRAY_2_DARK = "#636366"  # Darker gray
+    MACOS_GRAY_3_DARK = "#48484A"  # Even darker
+    MACOS_GRAY_4_DARK = "#3A3A3C"  # Very dark
+    MACOS_GRAY_5_DARK = "#2C2C2E"  # Nearly black (dark mode)
+    MACOS_GRAY_6_DARK = "#1C1C1E"  # Grouped background (dark mode)
 
 
 def get_macos_colors() -> MacOSColors:

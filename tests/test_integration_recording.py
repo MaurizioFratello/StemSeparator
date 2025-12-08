@@ -6,6 +6,7 @@ Testet den kompletten User-Workflow:
 2. Recording separieren
 3. Stems validieren
 """
+
 import pytest
 import time
 import numpy as np
@@ -23,7 +24,7 @@ from core.blackhole_installer import get_blackhole_installer
 @pytest.fixture
 def mock_blackhole_available():
     """Mock BlackHole als verfügbar"""
-    with patch('core.recorder.Recorder.find_blackhole_device') as mock_find:
+    with patch("core.recorder.Recorder.find_blackhole_device") as mock_find:
         mock_device = Mock()
         mock_device.name = "BlackHole 2ch"
 
@@ -96,6 +97,7 @@ class TestRecordingToSeparationWorkflow:
 
         # Level Callback für Test
         level_callbacks = []
+
         def level_callback(level):
             level_callbacks.append(level)
 
@@ -117,7 +119,9 @@ class TestRecordingToSeparationWorkflow:
 
         assert info is not None, "Recording sollte Info zurückgeben"
         assert info.file_path.exists(), "Recording-Datei sollte existieren"
-        assert info.duration_seconds > 0.4, f"Duration zu kurz: {info.duration_seconds}s"
+        assert (
+            info.duration_seconds > 0.4
+        ), f"Duration zu kurz: {info.duration_seconds}s"
         assert info.sample_rate == 44100
         assert info.channels == 2
 
@@ -154,8 +158,9 @@ class TestRecordingToSeparationWorkflow:
 
         chunks_after_pause = len(recorder.recorded_chunks)
         time.sleep(0.2)  # Während Pause sollten keine neuen Chunks kommen
-        assert len(recorder.recorded_chunks) == chunks_after_pause, \
-            "Während Pause sollten keine Chunks aufgenommen werden"
+        assert (
+            len(recorder.recorded_chunks) == chunks_after_pause
+        ), "Während Pause sollten keine Chunks aufgenommen werden"
 
         # 3. Fortsetzen
         resumed = recorder.resume_recording()
@@ -164,8 +169,9 @@ class TestRecordingToSeparationWorkflow:
         time.sleep(0.2)
 
         # Neue Chunks sollten jetzt kommen
-        assert len(recorder.recorded_chunks) > chunks_after_pause, \
-            "Nach Resume sollten neue Chunks kommen"
+        assert (
+            len(recorder.recorded_chunks) > chunks_after_pause
+        ), "Nach Resume sollten neue Chunks kommen"
 
         # 4. Stoppen
         temp_dir = Path(tempfile.mkdtemp())
@@ -195,7 +201,9 @@ class TestRecordingToSeparationWorkflow:
 
         # Check dass Chunks aufgenommen wurden (mindestens 1)
         chunks_before_cancel = len(recorder.recorded_chunks)
-        assert chunks_before_cancel > 0, f"Sollte Chunks haben, hat aber {chunks_before_cancel}"
+        assert (
+            chunks_before_cancel > 0
+        ), f"Sollte Chunks haben, hat aber {chunks_before_cancel}"
 
         # 2. Cancel
         recorder.cancel_recording()
@@ -213,7 +221,7 @@ class TestRecordingToSeparationWorkflow:
         Testet Recording wenn BlackHole nicht verfügbar
         """
         # Mock: BlackHole nicht gefunden
-        with patch('core.recorder.Recorder.find_blackhole_device', return_value=None):
+        with patch("core.recorder.Recorder.find_blackhole_device", return_value=None):
             recorder = get_recorder()
 
             success = recorder.start_recording()
@@ -293,8 +301,9 @@ class TestRecordingToSeparationWorkflow:
 
         # Validiere Peak Level
         assert info is not None
-        assert 0.0 <= info.peak_level <= 1.0, \
-            f"Peak Level außerhalb Bereich: {info.peak_level}"
+        assert (
+            0.0 <= info.peak_level <= 1.0
+        ), f"Peak Level außerhalb Bereich: {info.peak_level}"
 
         # Bei Test-Rauschen sollte Peak > 0 sein
         assert info.peak_level > 0.0, "Peak Level sollte > 0 sein bei Audio"
@@ -404,7 +413,10 @@ class TestRecordingToSeparationWorkflow:
 class TestRecordingToSeparationEndToEnd:
     """End-to-End Tests: Recording → Separation"""
 
-    @pytest.mark.xfail(strict=False, reason="Test isolation issue: fails when run with full suite, passes when isolated")
+    @pytest.mark.xfail(
+        strict=False,
+        reason="Test isolation issue: fails when run with full suite, passes when isolated",
+    )
     def test_record_and_separate_workflow(self, mock_blackhole_available):
         """
         End-to-End Test: Kompletter Workflow Recording → Separation
@@ -439,22 +451,23 @@ class TestRecordingToSeparationEndToEnd:
         def mock_run_separation(audio_file, model_id, output_dir, **kwargs):
             """Mock für _run_separation - erstellt Dummy-Stems"""
             stems = {}
-            for stem_name in ['vocals', 'drums', 'bass', 'other']:
+            for stem_name in ["vocals", "drums", "bass", "other"]:
                 stem_file = output_dir / f"{audio_file.stem}_{stem_name}.wav"
                 # Kopiere Original als Mock-Stem
                 shutil.copy(str(audio_file), str(stem_file))
                 stems[stem_name] = stem_file  # Return Path not str
             return stems
 
-        with patch('core.separator.Separator._run_separation', side_effect=mock_run_separation):
+        with patch(
+            "core.separator.Separator._run_separation", side_effect=mock_run_separation
+        ):
             # Rufe Separation auf
-            result = separator.separate(
-                audio_file=info.file_path,
-                model_id='demucs_4s'
-            )
+            result = separator.separate(audio_file=info.file_path, model_id="demucs_4s")
 
             # 3. Validierung
-            assert result.success is True, f"Separation fehlgeschlagen: {result.error_message}"
+            assert (
+                result.success is True
+            ), f"Separation fehlgeschlagen: {result.error_message}"
             assert len(result.stems) >= 4, f"Zu wenige Stems: {len(result.stems)}"
 
             # Prüfe dass alle Stems existieren
@@ -490,7 +503,7 @@ class TestRecordingToSeparationEndToEnd:
         # 2. Separation mit Error
         separator = Separator()
 
-        with patch('core.separator.Separator._run_separation') as mock_run_sep:
+        with patch("core.separator.Separator._run_separation") as mock_run_sep:
             # Mock wirft Error
             mock_run_sep.side_effect = RuntimeError("Simulated separation error")
 
@@ -500,7 +513,10 @@ class TestRecordingToSeparationEndToEnd:
             # Sollte als fehlgeschlagen markiert sein
             assert result.success is False
             assert result.error_message is not None
-            assert "failed" in result.error_message.lower() or "error" in result.error_message.lower()
+            assert (
+                "failed" in result.error_message.lower()
+                or "error" in result.error_message.lower()
+            )
 
         # Cleanup
         shutil.rmtree(temp_dir)
@@ -514,7 +530,10 @@ class TestRecordingToSeparationEndToEnd:
 class TestRecordingPerformance:
     """Performance-Tests für Recording"""
 
-    @pytest.mark.xfail(strict=False, reason="Test isolation issue: mock recorder threads accumulate from previous tests (1449s instead of 2s)")
+    @pytest.mark.xfail(
+        strict=False,
+        reason="Test isolation issue: mock recorder threads accumulate from previous tests (1449s instead of 2s)",
+    )
     def test_recording_memory_usage(self, mock_blackhole_available):
         """
         Testet dass Memory Usage während Recording kontrolliert bleibt
@@ -550,8 +569,7 @@ class TestRecordingPerformance:
 
         # Bei 2s Recording @ 44.1kHz stereo: ~350KB Audio-Daten
         # Memory-Anstieg sollte < 50 MB sein
-        assert mem_increase < 50, \
-            f"Memory-Anstieg zu hoch: {mem_increase:.1f} MB"
+        assert mem_increase < 50, f"Memory-Anstieg zu hoch: {mem_increase:.1f} MB"
 
         # Cleanup
         shutil.rmtree(temp_dir)

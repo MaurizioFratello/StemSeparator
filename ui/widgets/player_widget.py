@@ -4,16 +4,29 @@ Player Widget - Stem playback and mixing
 PURPOSE: Allow users to play back separated stems with individual volume/mute/solo controls.
 CONTEXT: Provides mixing interface for separated audio stems with real-time playback.
 """
+
 from pathlib import Path
 from typing import Optional, Dict, List, Tuple
 import numpy as np
 import soundfile as sf
 
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
-    QSlider, QGroupBox, QFileDialog, QMessageBox, QListWidget,
-    QListWidgetItem, QScrollArea, QProgressBar, QFrame, QStackedWidget,
-    QSpinBox
+    QWidget,
+    QVBoxLayout,
+    QHBoxLayout,
+    QPushButton,
+    QLabel,
+    QSlider,
+    QGroupBox,
+    QFileDialog,
+    QMessageBox,
+    QListWidget,
+    QListWidgetItem,
+    QScrollArea,
+    QProgressBar,
+    QFrame,
+    QStackedWidget,
+    QSpinBox,
 )
 from PySide6.QtCore import Qt, Signal, Slot, QTimer, QRunnable, QThreadPool, QObject
 from PySide6.QtGui import QDragEnterEvent, QDropEvent
@@ -32,6 +45,7 @@ class DragDropListWidget(QListWidget):
 
     WHY: QListWidget doesn't support drag-and-drop by default for external files
     """
+
     files_dropped = Signal(list)  # Emits list of Path objects
 
     def __init__(self, parent=None):
@@ -86,7 +100,9 @@ class BeatAnalysisWorker(QRunnable):
     def __init__(self, audio_path: Path, logger, bpm_audio_path: Optional[Path] = None):
         super().__init__()
         self.audio_path = audio_path
-        self.bpm_audio_path = bpm_audio_path  # Separate path for BPM detection (e.g., drums)
+        self.bpm_audio_path = (
+            bpm_audio_path  # Separate path for BPM detection (e.g., drums)
+        )
         self.logger = logger
         self.signals = self.Signals()
         self._cancelled = False
@@ -108,12 +124,13 @@ class BeatAnalysisWorker(QRunnable):
             if self._cancelled:
                 return
 
-            beat_times, downbeat_times, first_downbeat, conf_msg = \
+            beat_times, downbeat_times, first_downbeat, conf_msg = (
                 beat_detection.detect_beats_and_downbeats(
                     self.audio_path,
                     bpm_audio_path=self.bpm_audio_path,
-                    progress_callback=self._progress_callback
+                    progress_callback=self._progress_callback,
                 )
+            )
 
             if self._cancelled:
                 return
@@ -145,7 +162,7 @@ class StemControl(QWidget):
         self.stem_name = stem_name
         self.is_muted = False
         self.is_solo = False
-        
+
         # Enable styling and set ID for Channel Strip look
         self.setAttribute(Qt.WA_StyledBackground, True)
         self.setObjectName("channelStrip")
@@ -190,7 +207,7 @@ class StemControl(QWidget):
         self.btn_solo.setToolTip("Solo this stem (mute all others)")
         self.btn_solo.clicked.connect(self._on_solo_clicked)
         btn_layout.addWidget(self.btn_solo)
-        
+
         layout.addLayout(btn_layout)
 
         # 3. Fader Section (Meter + Slider side-by-side)
@@ -227,7 +244,7 @@ class StemControl(QWidget):
             lambda v: self.volume_label.setText(f"{v}%")
         )
         layout.addWidget(self.volume_label)
-        
+
         # Add fixed width to the whole strip to make it look like a channel strip
         self.setFixedWidth(90)
 
@@ -238,7 +255,7 @@ class StemControl(QWidget):
         # Force style update for dynamic property
         self.btn_mute.style().unpolish(self.btn_mute)
         self.btn_mute.style().polish(self.btn_mute)
-        
+
         self.mute_changed.emit(self.stem_name, self.is_muted)
 
     @Slot()
@@ -248,7 +265,7 @@ class StemControl(QWidget):
         # Force style update for dynamic property
         self.btn_solo.style().unpolish(self.btn_solo)
         self.btn_solo.style().polish(self.btn_solo)
-        
+
         self.solo_changed.emit(self.stem_name, self.is_solo)
 
     @Slot()
@@ -273,10 +290,10 @@ class PlayerWidget(QWidget):
     - Position slider with seek
     - Export mixed audio (triggered from sidebar)
     """
-    
+
     # Signal to handle state changes from worker thread safely
     sig_state_changed = Signal(object)  # PlaybackState
-    
+
     # Signal emitted when stems are loaded or cleared
     # WHY: Allows MainWindow to enable/disable Export buttons in sidebar
     stems_loaded_changed = Signal(bool)  # True if stems loaded, False if cleared
@@ -300,12 +317,16 @@ class PlayerWidget(QWidget):
         self.detected_beat_times: Optional[np.ndarray] = None
         self.detected_downbeat_times: Optional[np.ndarray] = None
         self.detected_loop_segments: List[Tuple[float, float]] = []
-        self.detected_intro_loops: List[Tuple[float, float]] = []  # Leading loops if song start marker is set
+        self.detected_intro_loops: List[Tuple[float, float]] = (
+            []
+        )  # Leading loops if song start marker is set
         self.selected_loop_index: int = -1
         self._bars_per_loop: int = 4  # Default: 4 bars per loop
 
         # Song start marker state
-        self.song_start_downbeat_index: Optional[int] = None  # Index in detected_downbeat_times
+        self.song_start_downbeat_index: Optional[int] = (
+            None  # Index in detected_downbeat_times
+        )
         self.intro_handling: str = "pad"  # "pad" or "skip"
 
         # Beat analysis worker (for async detection)
@@ -376,21 +397,21 @@ class PlayerWidget(QWidget):
         """Create a styled card frame with header"""
         card = QFrame()
         card.setObjectName("card")
-        
+
         layout = QVBoxLayout(card)
         layout.setContentsMargins(20, 20, 20, 20)
         layout.setSpacing(15)
-        
+
         header = QLabel(title)
         header.setObjectName("card_header")
         layout.addWidget(header)
-        
+
         return card, layout
 
     def _setup_ui(self):
         """
         Setup widget layout with stacked pages (navigation via sidebar).
-        
+
         PURPOSE: Provide 3 pages (Stems, Playback, Looping) controlled by MainWindow sidebar
         CONTEXT: Replaced QTabWidget with QStackedWidget for sidebar-based navigation
         """
@@ -409,9 +430,9 @@ class PlayerWidget(QWidget):
         self.looping_page = self._create_loop_preview_tab()
 
         # Add pages to stack
-        self._page_stack.addWidget(self.stems_page)     # Index 0
+        self._page_stack.addWidget(self.stems_page)  # Index 0
         self._page_stack.addWidget(self.playback_page)  # Index 1
-        self._page_stack.addWidget(self.looping_page)   # Index 2
+        self._page_stack.addWidget(self.looping_page)  # Index 2
 
         main_layout.addWidget(self._page_stack)
 
@@ -421,7 +442,7 @@ class PlayerWidget(QWidget):
     def _create_stems_tab(self) -> QWidget:
         """
         Create stems tab for loading stem files.
-        
+
         PURPOSE: Separate tab for stem file management (Load, Remove, Clear)
         CONTEXT: Part of UI restructuring - moved from Playback tab
         """
@@ -443,18 +464,26 @@ class PlayerWidget(QWidget):
         self.btn_load_dir = QPushButton("📁 Load from Directory")
         ThemeManager.set_widget_property(self.btn_load_dir, "buttonStyle", "secondary")
         self.btn_load_dir.setToolTip("Load all stems from a separated audio directory")
-        
+
         self.btn_load_files = QPushButton("📄 Load Individual Files")
-        ThemeManager.set_widget_property(self.btn_load_files, "buttonStyle", "secondary")
+        ThemeManager.set_widget_property(
+            self.btn_load_files, "buttonStyle", "secondary"
+        )
         self.btn_load_files.setToolTip("Load individual stem files")
-        
+
         self.btn_remove_selected = QPushButton("Remove Selected")
-        ThemeManager.set_widget_property(self.btn_remove_selected, "buttonStyle", "secondary")
-        self.btn_remove_selected.setToolTip("Remove selected stems from list (available when stems are selected)")
-        
+        ThemeManager.set_widget_property(
+            self.btn_remove_selected, "buttonStyle", "secondary"
+        )
+        self.btn_remove_selected.setToolTip(
+            "Remove selected stems from list (available when stems are selected)"
+        )
+
         self.btn_clear = QPushButton("Clear All")
         ThemeManager.set_widget_property(self.btn_clear, "buttonStyle", "secondary")
-        self.btn_clear.setToolTip("Clear all stems from list (available when stems are present)")
+        self.btn_clear.setToolTip(
+            "Clear all stems from list (available when stems are present)"
+        )
         load_buttons.addWidget(self.btn_load_dir)
         load_buttons.addWidget(self.btn_load_files)
         load_buttons.addWidget(self.btn_remove_selected)
@@ -471,7 +500,9 @@ class PlayerWidget(QWidget):
         )
         self.stems_info_label.setAlignment(Qt.AlignCenter)
         self.stems_info_label.setWordWrap(True)
-        self.stems_info_label.setStyleSheet("color: #888; font-size: 10pt; padding: 20px;")
+        self.stems_info_label.setStyleSheet(
+            "color: #888; font-size: 10pt; padding: 20px;"
+        )
         tab_layout.addWidget(self.stems_info_label)
 
         tab_layout.addStretch()
@@ -495,13 +526,13 @@ class PlayerWidget(QWidget):
         self.stems_scroll.setStyleSheet("background: transparent;")
         self.stems_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.stems_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-        
+
         self.stems_scroll_widget = QWidget()
         self.stems_container = QHBoxLayout(self.stems_scroll_widget)
         self.stems_container.setContentsMargins(0, 0, 0, 0)
         self.stems_container.setSpacing(2)  # Tight spacing between strips
         self.stems_container.setAlignment(Qt.AlignLeft)  # Start from left
-        
+
         self.stems_scroll.setWidget(self.stems_scroll_widget)
         mixer_layout.addWidget(self.stems_scroll)
 
@@ -517,7 +548,7 @@ class PlayerWidget(QWidget):
         master_layout.addWidget(self.master_label)
         mixer_layout.addLayout(master_layout)
 
-        tab_layout.addWidget(mixer_card, stretch=1) # Allow mixer to expand
+        tab_layout.addWidget(mixer_card, stretch=1)  # Allow mixer to expand
 
         # Playback Controls Card
         controls_card, controls_layout = self._create_card("Playback")
@@ -568,9 +599,7 @@ class PlayerWidget(QWidget):
         tab_layout.addWidget(controls_card)
 
         # Info label
-        self.info_label = QLabel(
-            "Load separated stems to use the mixer and playback."
-        )
+        self.info_label = QLabel("Load separated stems to use the mixer and playback.")
         self.info_label.setAlignment(Qt.AlignCenter)
         self.info_label.setWordWrap(True)
         tab_layout.addWidget(self.info_label)
@@ -598,7 +627,9 @@ class PlayerWidget(QWidget):
         left_layout.addStretch()
 
         self.btn_detect_loops = QPushButton("🔍 Detect Loops")
-        ThemeManager.set_widget_property(self.btn_detect_loops, "buttonStyle", "primary")
+        ThemeManager.set_widget_property(
+            self.btn_detect_loops, "buttonStyle", "primary"
+        )
         self.btn_detect_loops.setMinimumWidth(140)
         self.btn_detect_loops.setMinimumHeight(36)
         left_layout.addWidget(self.btn_detect_loops, alignment=Qt.AlignLeft)
@@ -616,7 +647,9 @@ class PlayerWidget(QWidget):
         status_container.setSpacing(4)
 
         # Status line 1: Current phase/action
-        self.loop_status_line1 = QLabel("Click 'Detect Loops' to analyze beat structure")
+        self.loop_status_line1 = QLabel(
+            "Click 'Detect Loops' to analyze beat structure"
+        )
         self.loop_status_line1.setStyleSheet("color: #aaa; font-size: 10pt;")
         self.loop_status_line1.setWordWrap(True)
         status_container.addWidget(self.loop_status_line1)
@@ -641,7 +674,9 @@ class PlayerWidget(QWidget):
         detection_layout.addLayout(detection_split_layout)
 
         # === MANUAL GRID DEFINITION CARD (Combined BPM + Downbeat) ===
-        self.manual_grid_card, manual_grid_layout = self._create_card("Manual Grid Definition")
+        self.manual_grid_card, manual_grid_layout = self._create_card(
+            "Manual Grid Definition"
+        )
         self.manual_grid_card.setVisible(False)
 
         controls_layout = QHBoxLayout()
@@ -650,13 +685,17 @@ class PlayerWidget(QWidget):
         # Place Downbeat toggle
         self.btn_place_downbeat = QPushButton("Place Downbeat")
         self.btn_place_downbeat.setCheckable(True)
-        ThemeManager.set_widget_property(self.btn_place_downbeat, "buttonStyle", "secondary")
+        ThemeManager.set_widget_property(
+            self.btn_place_downbeat, "buttonStyle", "secondary"
+        )
         self.btn_place_downbeat.setMinimumWidth(130)
         controls_layout.addWidget(self.btn_place_downbeat)
 
         # Clear button
         self.btn_clear_downbeat = QPushButton("Clear")
-        ThemeManager.set_widget_property(self.btn_clear_downbeat, "buttonStyle", "secondary")
+        ThemeManager.set_widget_property(
+            self.btn_clear_downbeat, "buttonStyle", "secondary"
+        )
         self.btn_clear_downbeat.setEnabled(False)
         controls_layout.addWidget(self.btn_clear_downbeat)
 
@@ -686,7 +725,9 @@ class PlayerWidget(QWidget):
         manual_grid_layout.addLayout(controls_layout)
 
         # Status label
-        self.manual_grid_info_label = QLabel("Click 'Place Downbeat' and then click on waveform")
+        self.manual_grid_info_label = QLabel(
+            "Click 'Place Downbeat' and then click on waveform"
+        )
         self.manual_grid_info_label.setStyleSheet("color: #888; font-size: 9pt;")
         self.manual_grid_info_label.setWordWrap(True)
         manual_grid_layout.addWidget(self.manual_grid_info_label)
@@ -699,7 +740,9 @@ class PlayerWidget(QWidget):
         layout.addLayout(upper_cards_layout)
 
         # Initialize state
-        self.manual_downbeat_anchor: Optional[Tuple[float, Optional[str]]] = None  # (time, stem_name)
+        self.manual_downbeat_anchor: Optional[Tuple[float, Optional[str]]] = (
+            None  # (time, stem_name)
+        )
         self.detected_bpm: Optional[float] = None
 
         # Waveform visualization
@@ -719,7 +762,9 @@ class PlayerWidget(QWidget):
         self.btn_play_loop.setEnabled(False)  # Disabled until loop selected
 
         self.btn_play_loop_repeat = QPushButton("🔁 Play Loop (Repeat)")
-        ThemeManager.set_widget_property(self.btn_play_loop_repeat, "buttonStyle", "secondary")
+        ThemeManager.set_widget_property(
+            self.btn_play_loop_repeat, "buttonStyle", "secondary"
+        )
         self.btn_play_loop_repeat.setEnabled(False)
 
         self.btn_stop_loop = QPushButton("⏹ Stop")
@@ -742,7 +787,9 @@ class PlayerWidget(QWidget):
 
         # Connect signals
         self.btn_detect_loops.clicked.connect(self._on_detect_loops_clicked)
-        self.loop_waveform_widget.bars_per_loop_changed.connect(self._on_bars_per_loop_changed)
+        self.loop_waveform_widget.bars_per_loop_changed.connect(
+            self._on_bars_per_loop_changed
+        )
         self.loop_waveform_widget.loop_selected.connect(self._on_loop_waveform_selected)
         self.loop_waveform_widget.waveform_display.song_start_marker_requested.connect(
             self._on_song_start_marker_requested
@@ -770,7 +817,7 @@ class PlayerWidget(QWidget):
     def _on_page_changed(self, index: int):
         """
         Handle page change events (internal callback).
-        
+
         PURPOSE: React to page switches (e.g., prepare loop preview)
         CONTEXT: Called when page changes via set_page() from MainWindow sidebar
         """
@@ -786,10 +833,10 @@ class PlayerWidget(QWidget):
     def set_page(self, index: int) -> None:
         """
         Set the currently visible page.
-        
+
         PURPOSE: Allow MainWindow sidebar to control which page is shown
         CONTEXT: Called when user clicks Stems/Playback/Looping in sidebar
-        
+
         Args:
             index: Page index (0=Stems, 1=Playback, 2=Looping)
         """
@@ -810,18 +857,12 @@ class PlayerWidget(QWidget):
         # Check if stems are loaded
         if not self.stem_files:
             self._set_loop_status(
-                "⚠ No stems loaded",
-                "Load stems in the Playback tab first.",
-                ""
+                "⚠ No stems loaded", "Load stems in the Playback tab first.", ""
             )
             return
 
         # Show hint to user
-        self._set_loop_status(
-            "Click 'Detect Loops' to analyze beat structure",
-            "",
-            ""
-        )
+        self._set_loop_status("Click 'Detect Loops' to analyze beat structure", "", "")
 
     def _set_loop_status(self, line1: str, line2: str = "", line3: str = ""):
         """
@@ -847,11 +888,11 @@ class PlayerWidget(QWidget):
             self._beat_analysis_worker = None
 
         # Stop analysis timer
-        if hasattr(self, '_beat_analysis_timer'):
+        if hasattr(self, "_beat_analysis_timer"):
             self._beat_analysis_timer.stop()
 
         # Delete temporary analysis file
-        if hasattr(self, '_beat_analysis_tmp_path') and self._beat_analysis_tmp_path:
+        if hasattr(self, "_beat_analysis_tmp_path") and self._beat_analysis_tmp_path:
             if self._beat_analysis_tmp_path.exists():
                 try:
                     self._beat_analysis_tmp_path.unlink(missing_ok=True)
@@ -877,31 +918,29 @@ class PlayerWidget(QWidget):
         self.song_start_downbeat_index = None
 
         # Clear waveform widget visualization
-        if hasattr(self, 'loop_waveform_widget'):
+        if hasattr(self, "loop_waveform_widget"):
             self.loop_waveform_widget.clear()
 
         # Reset loop playback buttons
-        if hasattr(self, 'btn_play_loop'):
+        if hasattr(self, "btn_play_loop"):
             self.btn_play_loop.setEnabled(False)
-        if hasattr(self, 'btn_play_loop_repeat'):
+        if hasattr(self, "btn_play_loop_repeat"):
             self.btn_play_loop_repeat.setEnabled(False)
-        if hasattr(self, 'btn_stop_loop'):
+        if hasattr(self, "btn_stop_loop"):
             self.btn_stop_loop.setEnabled(False)
 
         # Re-enable detect loops button
-        if hasattr(self, 'btn_detect_loops'):
+        if hasattr(self, "btn_detect_loops"):
             self.btn_detect_loops.setEnabled(True)
 
         # Reset status labels
-        if hasattr(self, 'loop_status_line1'):
+        if hasattr(self, "loop_status_line1"):
             self._set_loop_status(
-                "Click 'Detect Loops' to analyze beat structure",
-                "",
-                ""
+                "Click 'Detect Loops' to analyze beat structure", "", ""
             )
 
         # Reset manual grid UI
-        if hasattr(self, 'manual_grid_card'):
+        if hasattr(self, "manual_grid_card"):
             self.manual_grid_card.setVisible(False)
             self.detected_bpm = None
             self.manual_grid_bpm_spin.setEnabled(False)
@@ -912,9 +951,11 @@ class PlayerWidget(QWidget):
             self.manual_grid_info_label.setText("")
             self.manual_downbeat_anchor = None
 
-            if hasattr(self.loop_waveform_widget, 'waveform_display'):
+            if hasattr(self.loop_waveform_widget, "waveform_display"):
                 self.loop_waveform_widget.waveform_display.clear_manual_downbeats()
-                self.loop_waveform_widget.waveform_display.set_manual_placement_mode(False)
+                self.loop_waveform_widget.waveform_display.set_manual_placement_mode(
+                    False
+                )
 
         self.ctx.logger().debug("Loop detection state reset")
 
@@ -924,7 +965,7 @@ class PlayerWidget(QWidget):
             QMessageBox.warning(
                 self,
                 "No Stems Loaded",
-                "Please load stems in the Playback tab before detecting loops."
+                "Please load stems in the Playback tab before detecting loops.",
             )
             return
 
@@ -936,9 +977,7 @@ class PlayerWidget(QWidget):
         try:
             # New detection run: Initial Status
             self._set_loop_status(
-                "🔍 Preparing audio for analysis...",
-                "Mixing stems...",
-                ""
+                "🔍 Preparing audio for analysis...", "Mixing stems...", ""
             )
             self.btn_detect_loops.setEnabled(False)
             self.ctx.logger().info("Starting loop detection...")
@@ -949,7 +988,8 @@ class PlayerWidget(QWidget):
 
             # Step 2: Save to temporary file
             import tempfile
-            tmp_file = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
+
+            tmp_file = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
             self._beat_analysis_tmp_path = Path(tmp_file.name)
             tmp_file.close()
 
@@ -962,13 +1002,18 @@ class PlayerWidget(QWidget):
             # Step 3: Find drums stem for BPM detection (more accurate than mixed)
             drums_path = self._find_drums_stem_path()
             if drums_path:
-                self.ctx.logger().info(f"Using drums stem for BPM detection: {drums_path.name}")
+                self.ctx.logger().info(
+                    f"Using drums stem for BPM detection: {drums_path.name}"
+                )
             else:
-                self.ctx.logger().info("No drums stem found, using mixed audio for BPM detection")
+                self.ctx.logger().info(
+                    "No drums stem found, using mixed audio for BPM detection"
+                )
 
             # Step 4: Calculate timeout and start countdown timer
             # Increased timeout for M1 and less performant Macs
             import time
+
             audio_duration = len(mixed_audio) / sample_rate
             self._beat_analysis_timeout = max(120.0, 60.0 + audio_duration * 1.0)
             self._beat_analysis_start_time = time.time()
@@ -980,21 +1025,23 @@ class PlayerWidget(QWidget):
             self._beat_analysis_worker = BeatAnalysisWorker(
                 self._beat_analysis_tmp_path,
                 self.ctx.logger(),
-                bpm_audio_path=drums_path  # Pass drums for better BPM accuracy
+                bpm_audio_path=drums_path,  # Pass drums for better BPM accuracy
             )
-            self._beat_analysis_worker.signals.finished.connect(self._on_beat_analysis_finished)
-            self._beat_analysis_worker.signals.error.connect(self._on_beat_analysis_error)
-            self._beat_analysis_worker.signals.progress.connect(self._on_beat_analysis_progress)
+            self._beat_analysis_worker.signals.finished.connect(
+                self._on_beat_analysis_finished
+            )
+            self._beat_analysis_worker.signals.error.connect(
+                self._on_beat_analysis_error
+            )
+            self._beat_analysis_worker.signals.progress.connect(
+                self._on_beat_analysis_progress
+            )
 
             self._thread_pool.start(self._beat_analysis_worker)
 
         except Exception as e:
             error_msg = str(e)
-            self._set_loop_status(
-                "❌ Loop detection failed",
-                error_msg,
-                ""
-            )
+            self._set_loop_status("❌ Loop detection failed", error_msg, "")
             self.ctx.logger().error(f"Loop detection failed: {e}", exc_info=True)
             self.btn_detect_loops.setEnabled(True)
 
@@ -1041,17 +1088,22 @@ class PlayerWidget(QWidget):
         self._set_loop_status(
             f"{icon} [{self._beat_analysis_phase}] {self._beat_analysis_detail}",
             f"Elapsed: {elapsed_str}",
-            f"Timeout in: {countdown_str}"
+            f"Timeout in: {countdown_str}",
         )
 
-    def _on_beat_analysis_finished(self, beat_times, downbeat_times, first_downbeat, conf_msg):
+    def _on_beat_analysis_finished(
+        self, beat_times, downbeat_times, first_downbeat, conf_msg
+    ):
         """Handle successful beat analysis completion."""
         # Stop countdown timer
         self._beat_analysis_timer.stop()
 
         try:
             # Clean up temp file
-            if hasattr(self, '_beat_analysis_tmp_path') and self._beat_analysis_tmp_path.exists():
+            if (
+                hasattr(self, "_beat_analysis_tmp_path")
+                and self._beat_analysis_tmp_path.exists()
+            ):
                 self._beat_analysis_tmp_path.unlink(missing_ok=True)
 
             self.detected_beat_times = beat_times
@@ -1064,7 +1116,7 @@ class PlayerWidget(QWidget):
                     self,
                     "Eingeschränkte Beat-Erkennung",
                     "BeatNet ist nicht verfügbar. Die Loop-Erkennung basiert nur auf BPM.\n\n"
-                    "Downbeat-genaue Loops sind möglicherweise nicht exakt."
+                    "Downbeat-genaue Loops sind möglicherweise nicht exakt.",
                 )
 
             # Get bars per loop setting
@@ -1073,60 +1125,67 @@ class PlayerWidget(QWidget):
             # Calculate loop segments
             duration = self.player.get_duration()
             loops, intro_loops = beat_detection.calculate_loops_from_downbeats(
-                downbeat_times, bars_per_loop, duration,
-                song_start_downbeat_index=getattr(self, 'song_start_downbeat_index', None),
-                intro_handling=getattr(self, 'intro_handling', 'pad')
+                downbeat_times,
+                bars_per_loop,
+                duration,
+                song_start_downbeat_index=getattr(
+                    self, "song_start_downbeat_index", None
+                ),
+                intro_handling=getattr(self, "intro_handling", "pad"),
             )
             self.detected_loop_segments = loops
             self.detected_intro_loops = intro_loops
 
             # Load waveforms into widget
             self._set_loop_status(
-                "🎨 Rendering waveforms...",
-                "Loading stem data...",
-                ""
+                "🎨 Rendering waveforms...", "Loading stem data...", ""
             )
 
             # Get player's actual sample rate and duration for accurate beat alignment
             # WHY: Player may have resampled audio, so we must use player's rate and duration
             player_sample_rate = self.player.sample_rate
             player_duration = self.player.get_duration()
-            
+
             # Re-mix stems using player's sample rate to ensure consistency
             # WHY: Original mix may have used file's native rate, but player uses different rate
             mixed_audio, sample_rate = self._mix_stems_to_array()
-            
+
             # Store for potential reuse
             self._beat_analysis_mixed_audio = mixed_audio
             self._beat_analysis_sample_rate = sample_rate
 
             # Combined mode: use mixed audio with player's sample rate
-            self.loop_waveform_widget.set_combined_waveform(mixed_audio, sample_rate, duration=player_duration)
+            self.loop_waveform_widget.set_combined_waveform(
+                mixed_audio, sample_rate, duration=player_duration
+            )
 
             # Stacked mode: load individual stems
             # WHY: Resample to player's sample rate for consistency
             player_sample_rate = self.player.sample_rate
             stem_waveforms = {}
             for stem_name, stem_path in self.stem_files.items():
-                audio_data, file_sr = sf.read(stem_path, dtype='float32')
-                
+                audio_data, file_sr = sf.read(stem_path, dtype="float32")
+
                 # Resample to player's sample rate if needed
                 # WHY: Ensures waveform uses same sample rate as playback
                 if file_sr != player_sample_rate:
                     import librosa
+
                     audio_data = librosa.resample(
                         audio_data,
                         orig_sr=file_sr,
                         target_sr=player_sample_rate,
-                        res_type='kaiser_best'
+                        res_type="kaiser_best",
                     )
                     self.ctx.logger().debug(
                         f"Resampled {stem_name} for stacked waveform: {file_sr} Hz -> {player_sample_rate} Hz"
                     )
-                
+
                 stem_waveforms[stem_name] = audio_data
 
-            self.loop_waveform_widget.set_stem_waveforms(stem_waveforms, player_sample_rate, duration=player_duration)
+            self.loop_waveform_widget.set_stem_waveforms(
+                stem_waveforms, player_sample_rate, duration=player_duration
+            )
 
             # Set beat times and loop segments
             self.loop_waveform_widget.set_beat_times(beat_times, downbeat_times)
@@ -1138,7 +1197,7 @@ class PlayerWidget(QWidget):
             self._set_loop_status(
                 f"{status_icon} Detection complete",
                 f"{num_loops} loops ({bars_per_loop} bars each)",
-                f"{len(downbeat_times)} downbeats, {len(beat_times)} beats"
+                f"{len(downbeat_times)} downbeats, {len(beat_times)} beats",
             )
 
             # Calculate BPM from downbeat intervals for consistent display
@@ -1155,6 +1214,7 @@ class PlayerWidget(QWidget):
             confidence_str = ""
             if "DeepRhythm" in conf_msg:
                 import re
+
                 match = re.search(r"DeepRhythm\s*\((\d+)%\)", conf_msg)
                 if match:
                     confidence_str = f" ({match.group(1)}%)"
@@ -1177,6 +1237,7 @@ class PlayerWidget(QWidget):
                 detected_bpm_value = calculated_bpm
             else:
                 import re
+
                 bpm_match = re.search(r"(\d+\.?\d*)\s*BPM", conf_msg)
                 detected_bpm_value = float(bpm_match.group(1)) if bpm_match else 120.0
 
@@ -1198,7 +1259,7 @@ class PlayerWidget(QWidget):
             try:
                 stem_waveforms = {}
                 for stem_name, stem_path in self.stem_files.items():
-                    audio_data_stem, sr = sf.read(stem_path, dtype='float32')
+                    audio_data_stem, sr = sf.read(stem_path, dtype="float32")
                     if audio_data_stem.ndim == 2:
                         audio_data_stem = np.mean(audio_data_stem, axis=1)
                     stem_waveforms[stem_name] = audio_data_stem
@@ -1210,13 +1271,17 @@ class PlayerWidget(QWidget):
                     stem_waveforms=stem_waveforms,
                     sample_rate=sample_rate,
                     threshold=0.3,
-                    min_distance=0.1
+                    min_distance=0.1,
                 )
 
-                self.loop_waveform_widget.waveform_display.set_transient_times_per_stem(transient_dict)
+                self.loop_waveform_widget.waveform_display.set_transient_times_per_stem(
+                    transient_dict
+                )
 
                 total = sum(len(t) for t in transient_dict.values())
-                self.ctx.logger().info(f"Transients: {len(transient_dict)} stems, {total} total")
+                self.ctx.logger().info(
+                    f"Transients: {len(transient_dict)} stems, {total} total"
+                )
 
             except Exception as e:
                 self.ctx.logger().warning(f"Per-stem transient detection failed: {e}")
@@ -1225,7 +1290,9 @@ class PlayerWidget(QWidget):
             self.manual_downbeat_anchor = None
             self.loop_waveform_widget.waveform_display.clear_manual_downbeats()
 
-            self.ctx.logger().info(f"Loop detection complete: {num_loops} loops detected")
+            self.ctx.logger().info(
+                f"Loop detection complete: {num_loops} loops detected"
+            )
 
         except Exception as e:
             self._on_beat_analysis_error(str(e))
@@ -1240,21 +1307,21 @@ class PlayerWidget(QWidget):
         self._beat_analysis_timer.stop()
 
         # Clean up temp file
-        if hasattr(self, '_beat_analysis_tmp_path') and self._beat_analysis_tmp_path.exists():
+        if (
+            hasattr(self, "_beat_analysis_tmp_path")
+            and self._beat_analysis_tmp_path.exists()
+        ):
             self._beat_analysis_tmp_path.unlink(missing_ok=True)
 
         self._set_loop_status(
-            "❌ Loop detection failed",
-            error_msg,
-            "Check the log for details."
+            "❌ Loop detection failed", error_msg, "Check the log for details."
         )
         self.ctx.logger().error(f"Loop detection failed: {error_msg}")
 
         QMessageBox.critical(
             self,
             "Loop Detection Failed",
-            f"Failed to detect loops:\n\n{error_msg}\n\n"
-            "Check the log for details."
+            f"Failed to detect loops:\n\n{error_msg}\n\n" "Check the log for details.",
         )
 
         self.btn_detect_loops.setEnabled(True)
@@ -1263,15 +1330,22 @@ class PlayerWidget(QWidget):
     def _on_bars_per_loop_changed(self, bars_per_loop: int):
         """Handle bars per loop setting change - re-calculate loops if already detected"""
         self._bars_per_loop = bars_per_loop
-        
-        if not self.detected_downbeat_times is None and len(self.detected_downbeat_times) > 0:
+
+        if (
+            not self.detected_downbeat_times is None
+            and len(self.detected_downbeat_times) > 0
+        ):
             # Re-calculate loops with new bar count
             duration = self.player.get_duration()
 
             loops, intro_loops = beat_detection.calculate_loops_from_downbeats(
-                self.detected_downbeat_times, bars_per_loop, duration,
-                song_start_downbeat_index=getattr(self, 'song_start_downbeat_index', None),
-                intro_handling=getattr(self, 'intro_handling', 'pad')
+                self.detected_downbeat_times,
+                bars_per_loop,
+                duration,
+                song_start_downbeat_index=getattr(
+                    self, "song_start_downbeat_index", None
+                ),
+                intro_handling=getattr(self, "intro_handling", "pad"),
             )
             self.detected_loop_segments = loops
             self.detected_intro_loops = intro_loops
@@ -1286,11 +1360,11 @@ class PlayerWidget(QWidget):
 
             num_loops = len(self.detected_loop_segments)
             self._set_loop_status(
-                f"✓ Recalculated",
-                f"{num_loops} loops ({bars_per_loop} bars each)",
-                ""
+                f"✓ Recalculated", f"{num_loops} loops ({bars_per_loop} bars each)", ""
             )
-            self.ctx.logger().info(f"Recalculated loops: {num_loops} loops, {bars_per_loop} bars each")
+            self.ctx.logger().info(
+                f"Recalculated loops: {num_loops} loops, {bars_per_loop} bars each"
+            )
 
     # === MANUAL GRID DEFINITION EVENT HANDLERS ===
 
@@ -1355,8 +1429,10 @@ class PlayerWidget(QWidget):
     def _update_manual_grid_ui(self):
         """Update UI state based on current downbeat and BPM."""
         has_downbeat = self.manual_downbeat_anchor is not None
-        bpm_changed = (self.detected_bpm and
-                       abs(self.manual_grid_bpm_spin.value() - self.detected_bpm) > 0.5)
+        bpm_changed = (
+            self.detected_bpm
+            and abs(self.manual_grid_bpm_spin.value() - self.detected_bpm) > 0.5
+        )
 
         self.btn_clear_downbeat.setEnabled(has_downbeat)
         # Enable Apply Grid if EITHER downbeat is placed OR BPM is changed
@@ -1398,12 +1474,15 @@ class PlayerWidget(QWidget):
         """Apply manual downbeat and/or BPM change and recalculate beat grid."""
         try:
             has_downbeat = self.manual_downbeat_anchor is not None
-            has_bpm_change = (self.detected_bpm and
-                             abs(self.manual_grid_bpm_spin.value() - self.detected_bpm) > 0.5)
+            has_bpm_change = (
+                self.detected_bpm
+                and abs(self.manual_grid_bpm_spin.value() - self.detected_bpm) > 0.5
+            )
 
             if not has_downbeat and not has_bpm_change:
-                QMessageBox.warning(self, "No Changes",
-                    "Please place a downbeat or adjust BPM first.")
+                QMessageBox.warning(
+                    self, "No Changes", "Please place a downbeat or adjust BPM first."
+                )
                 return
 
             # Determine anchor and BPM based on what changed
@@ -1438,14 +1517,15 @@ class PlayerWidget(QWidget):
             duration = self.player.get_duration()
 
             # Recalculate grid using existing function
-            new_beat_times, new_downbeat_times, first_downbeat = \
+            new_beat_times, new_downbeat_times, first_downbeat = (
                 beat_detection.recalculate_beat_grid_from_bpm(
                     current_beat_times=self.detected_beat_times,
                     current_downbeat_times=self.detected_downbeat_times,
                     new_bpm=new_bpm,
                     audio_duration=duration,
-                    first_downbeat_anchor=anchor_time
+                    first_downbeat_anchor=anchor_time,
                 )
+            )
 
             # Store new grid
             self.detected_beat_times = new_beat_times
@@ -1455,9 +1535,13 @@ class PlayerWidget(QWidget):
             # Recalculate loops
             bars_per_loop = self._bars_per_loop
             loops, intro_loops = beat_detection.calculate_loops_from_downbeats(
-                new_downbeat_times, bars_per_loop, duration,
-                song_start_downbeat_index=getattr(self, 'song_start_downbeat_index', None),
-                intro_handling=getattr(self, 'intro_handling', 'pad')
+                new_downbeat_times,
+                bars_per_loop,
+                duration,
+                song_start_downbeat_index=getattr(
+                    self, "song_start_downbeat_index", None
+                ),
+                intro_handling=getattr(self, "intro_handling", "pad"),
             )
             self.detected_loop_segments = loops
             self.detected_intro_loops = intro_loops
@@ -1493,8 +1577,12 @@ class PlayerWidget(QWidget):
             elif has_downbeat:
                 status_title = "✓ Grid realigned"
                 status_detail = f"Anchor: {anchor_time:.2f}s{stem_info}"
-                info_msg = f"✓ Applied - Grid realigned to {anchor_time:.2f}s{stem_info}"
-                log_msg = f"Grid realigned: anchor {anchor_time:.2f}s, {num_loops} loops"
+                info_msg = (
+                    f"✓ Applied - Grid realigned to {anchor_time:.2f}s{stem_info}"
+                )
+                log_msg = (
+                    f"Grid realigned: anchor {anchor_time:.2f}s, {num_loops} loops"
+                )
             else:
                 status_title = "✓ BPM adjusted"
                 status_detail = f"Using auto-detected anchor"
@@ -1504,7 +1592,7 @@ class PlayerWidget(QWidget):
             self._set_loop_status(
                 status_title,
                 f"{num_loops} loops ({bars_per_loop} bars) at {new_bpm:.1f} BPM",
-                status_detail
+                status_detail,
             )
 
             self.manual_grid_info_label.setText(info_msg)
@@ -1514,8 +1602,9 @@ class PlayerWidget(QWidget):
 
         except Exception as e:
             self.ctx.logger().error(f"Manual grid failed: {e}", exc_info=True)
-            QMessageBox.critical(self, "Manual Grid Error",
-                f"Failed to apply manual grid:\n\n{str(e)}")
+            QMessageBox.critical(
+                self, "Manual Grid Error", f"Failed to apply manual grid:\n\n{str(e)}"
+            )
             self._set_loop_status("❌ Manual grid failed", str(e), "")
             self.btn_apply_grid.setEnabled(True)
 
@@ -1529,8 +1618,13 @@ class PlayerWidget(QWidget):
         Args:
             downbeat_index: Index in self.detected_downbeat_times array
         """
-        if self.detected_downbeat_times is None or len(self.detected_downbeat_times) == 0:
-            self.ctx.logger().warning("Cannot set song start marker: No downbeats detected")
+        if (
+            self.detected_downbeat_times is None
+            or len(self.detected_downbeat_times) == 0
+        ):
+            self.ctx.logger().warning(
+                "Cannot set song start marker: No downbeats detected"
+            )
             return
 
         if downbeat_index < 0 or downbeat_index >= len(self.detected_downbeat_times):
@@ -1550,7 +1644,7 @@ class PlayerWidget(QWidget):
         self._recalculate_loops_with_current_settings()
 
         # Update waveform widget to show marker
-        if hasattr(self.loop_waveform_widget, 'set_song_start_marker'):
+        if hasattr(self.loop_waveform_widget, "set_song_start_marker"):
             self.loop_waveform_widget.set_song_start_marker(downbeat_index)
 
     def clear_song_start_marker(self):
@@ -1566,7 +1660,7 @@ class PlayerWidget(QWidget):
         self._recalculate_loops_with_current_settings()
 
         # Update waveform widget
-        if hasattr(self.loop_waveform_widget, 'clear_song_start_marker'):
+        if hasattr(self.loop_waveform_widget, "clear_song_start_marker"):
             self.loop_waveform_widget.clear_song_start_marker()
 
     def set_intro_handling(self, handling: str):
@@ -1577,7 +1671,9 @@ class PlayerWidget(QWidget):
             handling: "pad" (create padded intro loop) or "skip" (skip intro)
         """
         if handling not in ("pad", "skip"):
-            self.ctx.logger().warning(f"Invalid intro_handling: {handling}, must be 'pad' or 'skip'")
+            self.ctx.logger().warning(
+                f"Invalid intro_handling: {handling}, must be 'pad' or 'skip'"
+            )
             return
 
         self.intro_handling = handling
@@ -1589,7 +1685,10 @@ class PlayerWidget(QWidget):
 
     def _recalculate_loops_with_current_settings(self):
         """Recalculate loops with current bars_per_loop and song_start_marker settings."""
-        if self.detected_downbeat_times is None or len(self.detected_downbeat_times) == 0:
+        if (
+            self.detected_downbeat_times is None
+            or len(self.detected_downbeat_times) == 0
+        ):
             return
 
         duration = self.player.get_duration()
@@ -1598,7 +1697,7 @@ class PlayerWidget(QWidget):
             self._bars_per_loop,
             duration,
             song_start_downbeat_index=self.song_start_downbeat_index,
-            intro_handling=self.intro_handling
+            intro_handling=self.intro_handling,
         )
         self.detected_loop_segments = loops
         self.detected_intro_loops = intro_loops
@@ -1628,7 +1727,9 @@ class PlayerWidget(QWidget):
                         f"({padding_duration:.1f}s silence + {actual_intro_duration:.1f}s audio), "
                     )
                 else:
-                    intro_info = f"{len(intro_loops)} leading loops: {last_loop[1]:.1f}s, "
+                    intro_info = (
+                        f"{len(intro_loops)} leading loops: {last_loop[1]:.1f}s, "
+                    )
             else:
                 intro_info = "intro skipped, "
             status_msg = f"✓ Loops from marker (bar {self.song_start_downbeat_index})"
@@ -1640,9 +1741,8 @@ class PlayerWidget(QWidget):
         self._set_loop_status(
             status_msg,
             f"{intro_info}{num_loops} loops ({self._bars_per_loop} bars each)",
-            ""
+            "",
         )
-
 
     def _on_song_start_marker_requested(self, downbeat_index: int):
         """Handle song start marker request from waveform widget."""
@@ -1678,7 +1778,11 @@ class PlayerWidget(QWidget):
             # Determine if this is a leading loop or main loop
             is_leading_loop = loop_index < len(self.detected_intro_loops)
             loop_type = "Leading Loop" if is_leading_loop else "Main Loop"
-            relative_index = loop_index + 1 if is_leading_loop else (loop_index - len(self.detected_intro_loops) + 1)
+            relative_index = (
+                loop_index + 1
+                if is_leading_loop
+                else (loop_index - len(self.detected_intro_loops) + 1)
+            )
 
             self.loop_playback_info_label.setText(
                 f"{loop_type} {relative_index} selected: {start_time:.2f}s - {end_time:.2f}s "
@@ -1689,7 +1793,9 @@ class PlayerWidget(QWidget):
             self.btn_play_loop.setEnabled(True)
             self.btn_play_loop_repeat.setEnabled(True)
 
-            self.ctx.logger().info(f"{loop_type} {relative_index} selected: {start_time:.2f}s - {end_time:.2f}s")
+            self.ctx.logger().info(
+                f"{loop_type} {relative_index} selected: {start_time:.2f}s - {end_time:.2f}s"
+            )
 
     def _on_play_loop_clicked(self):
         """Handle 'Play Loop' button click (play once)"""
@@ -1704,7 +1810,11 @@ class PlayerWidget(QWidget):
         # Determine loop type for display
         is_leading_loop = self.selected_loop_index < len(self.detected_intro_loops)
         loop_type = "Leading Loop" if is_leading_loop else "Main Loop"
-        relative_index = self.selected_loop_index + 1 if is_leading_loop else (self.selected_loop_index - len(self.detected_intro_loops) + 1)
+        relative_index = (
+            self.selected_loop_index + 1
+            if is_leading_loop
+            else (self.selected_loop_index - len(self.detected_intro_loops) + 1)
+        )
 
         # Stop position timer for Playback tab (loop playback shouldn't update it)
         self.position_timer.stop()
@@ -1723,7 +1833,7 @@ class PlayerWidget(QWidget):
             QMessageBox.warning(
                 self,
                 "Playback Failed",
-                "Failed to start loop playback. Check that sounddevice is installed."
+                "Failed to start loop playback. Check that sounddevice is installed.",
             )
 
     def _on_play_loop_repeat_clicked(self):
@@ -1739,7 +1849,11 @@ class PlayerWidget(QWidget):
         # Determine loop type for display
         is_leading_loop = self.selected_loop_index < len(self.detected_intro_loops)
         loop_type = "Leading Loop" if is_leading_loop else "Main Loop"
-        relative_index = self.selected_loop_index + 1 if is_leading_loop else (self.selected_loop_index - len(self.detected_intro_loops) + 1)
+        relative_index = (
+            self.selected_loop_index + 1
+            if is_leading_loop
+            else (self.selected_loop_index - len(self.detected_intro_loops) + 1)
+        )
 
         # Stop position timer for Playback tab (loop playback shouldn't update it)
         self.position_timer.stop()
@@ -1753,12 +1867,14 @@ class PlayerWidget(QWidget):
                 f"Playing {loop_type} {relative_index} (repeating): "
                 f"{start_time:.2f}s - {end_time:.2f}s"
             )
-            self.ctx.logger().info(f"Playing {loop_type.lower()} {relative_index} with repeat")
+            self.ctx.logger().info(
+                f"Playing {loop_type.lower()} {relative_index} with repeat"
+            )
         else:
             QMessageBox.warning(
                 self,
                 "Playback Failed",
-                "Failed to start loop playback. Check that sounddevice is installed."
+                "Failed to start loop playback. Check that sounddevice is installed.",
             )
 
     def _on_stop_loop_clicked(self):
@@ -1785,7 +1901,7 @@ class PlayerWidget(QWidget):
         Returns:
             Path to drums stem or None if not found
         """
-        drums_stem_names = ['drums', 'Drums', 'DRUMS', 'drum', 'Drum', 'DRUM']
+        drums_stem_names = ["drums", "Drums", "DRUMS", "drum", "Drum", "DRUM"]
         for stem_name in drums_stem_names:
             if stem_name in self.stem_files:
                 return Path(self.stem_files[stem_name])
@@ -1797,7 +1913,7 @@ class PlayerWidget(QWidget):
 
         Returns:
             Tuple of (mixed_audio, sample_rate)
-            
+
         WHY: Uses player's sample rate to ensure waveform matches playback exactly.
         This prevents drift between beat markers and actual audio playback.
         """
@@ -1819,7 +1935,7 @@ class PlayerWidget(QWidget):
         mixed_audio = None
 
         for stem_name, stem_path in self.stem_files.items():
-            audio_data, file_sr = sf.read(stem_path, dtype='float32')
+            audio_data, file_sr = sf.read(stem_path, dtype="float32")
 
             # Ensure mono
             if audio_data.ndim == 2:
@@ -1829,11 +1945,12 @@ class PlayerWidget(QWidget):
             # WHY: Ensures waveform uses same sample rate as playback
             if file_sr != player_sample_rate:
                 import librosa
+
                 audio_data = librosa.resample(
                     audio_data,
                     orig_sr=file_sr,
                     target_sr=player_sample_rate,
-                    res_type='kaiser_best'
+                    res_type="kaiser_best",
                 )
                 self.ctx.logger().debug(
                     f"Resampled {stem_name} for waveform: {file_sr} Hz -> {player_sample_rate} Hz"
@@ -1870,8 +1987,7 @@ class PlayerWidget(QWidget):
     def _on_load_dir(self):
         """Load all stems from directory"""
         directory = QFileDialog.getExistingDirectory(
-            self,
-            "Select Directory with Stems"
+            self, "Select Directory with Stems"
         )
 
         if not directory:
@@ -1887,7 +2003,7 @@ class PlayerWidget(QWidget):
             QMessageBox.warning(
                 self,
                 "No Audio Files",
-                f"No supported audio files found in:\n{dir_path}"
+                f"No supported audio files found in:\n{dir_path}",
             )
             return
 
@@ -1909,17 +2025,14 @@ class PlayerWidget(QWidget):
         """Handle dropped files from drag-and-drop"""
         # Filter to only audio files
         file_manager = self.ctx.file_manager()
-        audio_files = [
-            f for f in file_paths
-            if file_manager.is_supported_format(f)
-        ]
+        audio_files = [f for f in file_paths if file_manager.is_supported_format(f)]
 
         if not audio_files:
             QMessageBox.warning(
                 self,
                 "No Audio Files",
                 "No supported audio files were dropped.\n\n"
-                "Supported formats: WAV, MP3, FLAC, M4A, OGG, AAC"
+                "Supported formats: WAV, MP3, FLAC, M4A, OGG, AAC",
             )
             return
 
@@ -1973,7 +2086,7 @@ class PlayerWidget(QWidget):
                 )
 
         self.ctx.logger().info(f"Removed {len(stems_to_remove)} stem(s) from player")
-        
+
         # Update button states
         self._update_button_states()
 
@@ -1993,7 +2106,7 @@ class PlayerWidget(QWidget):
             widget = item.widget()
             if widget:
                 widget.deleteLater()
-        
+
         self.stem_controls.clear()
 
         # Clear stems list widget
@@ -2009,14 +2122,12 @@ class PlayerWidget(QWidget):
         self.btn_play.setEnabled(False)
         self.btn_pause.setEnabled(False)
         self.btn_stop.setEnabled(False)
-        
+
         # Notify sidebar that stems are cleared
         self.stems_loaded_changed.emit(False)
 
         # Reset info label
-        self.info_label.setText(
-            "Load separated stems to use the mixer and playback."
-        )
+        self.info_label.setText("Load separated stems to use the mixer and playback.")
 
         # Reset all loop detection state
         self._reset_loop_detection_state()
@@ -2053,23 +2164,35 @@ class PlayerWidget(QWidget):
             import re
 
             # First try: Look for stem name in parentheses (most reliable)
-            match = re.search(r'\(([^)]+)\)', file_path.stem)
+            match = re.search(r"\(([^)]+)\)", file_path.stem)
             if match:
                 stem_name = match.group(1)
             else:
                 # Second try: Parse filename parts, skip model/ensemble suffixes
-                name_parts = file_path.stem.split('_')
+                name_parts = file_path.stem.split("_")
 
                 # Known suffixes to ignore (model names, ensemble marker)
-                ignore_suffixes = {'ensemble', 'bs-roformer', 'mel-roformer', 'demucs',
-                                   'htdemucs', '4s', '6s', 'v4', 'demucs4s', 'demucs6s'}
+                ignore_suffixes = {
+                    "ensemble",
+                    "bs-roformer",
+                    "mel-roformer",
+                    "demucs",
+                    "htdemucs",
+                    "4s",
+                    "6s",
+                    "v4",
+                    "demucs4s",
+                    "demucs6s",
+                }
 
                 # Filter out ignored suffixes from the end
                 stem_parts = []
                 for part in reversed(name_parts):
                     part_lower = part.lower()
                     # Stop when we hit an ignored suffix
-                    if part_lower in ignore_suffixes or any(suffix in part_lower for suffix in ignore_suffixes):
+                    if part_lower in ignore_suffixes or any(
+                        suffix in part_lower for suffix in ignore_suffixes
+                    ):
                         continue
                     stem_parts.insert(0, part)
 
@@ -2078,7 +2201,9 @@ class PlayerWidget(QWidget):
                     stem_name = stem_parts[-1]
                 else:
                     # Fallback: use original last part or whole filename
-                    stem_name = name_parts[-1] if len(name_parts) > 1 else file_path.stem
+                    stem_name = (
+                        name_parts[-1] if len(name_parts) > 1 else file_path.stem
+                    )
 
             # Ensure unique stem name to prevent overwriting/UI issues
             base_name = stem_name
@@ -2108,7 +2233,7 @@ class PlayerWidget(QWidget):
                 # Enable controls (but Play button will check sounddevice availability)
                 self.btn_play.setEnabled(True)
                 self.position_slider.setEnabled(True)
-                
+
                 # Notify sidebar that stems are loaded (enables export buttons)
                 self.stems_loaded_changed.emit(True)
 
@@ -2122,7 +2247,9 @@ class PlayerWidget(QWidget):
                     f"Duration: {self._format_time(duration)}"
                 )
 
-                self.ctx.logger().info(f"Loaded {len(self.stem_files)} stems for playback")
+                self.ctx.logger().info(
+                    f"Loaded {len(self.stem_files)} stems for playback"
+                )
 
                 # Check if playback is available and warn user if not
                 is_available, error_msg = self.player.is_playback_available()
@@ -2132,7 +2259,7 @@ class PlayerWidget(QWidget):
                         self,
                         "Playback Not Available",
                         f"Stems loaded successfully, but playback is not available:\n\n{error_msg}\n\n"
-                        "You can still export mixed audio, but cannot play it back in the app."
+                        "You can still export mixed audio, but cannot play it back in the app.",
                     )
                     # Update info label to reflect this
                     self.info_label.setText(
@@ -2144,58 +2271,80 @@ class PlayerWidget(QWidget):
                 QMessageBox.critical(
                     self,
                     "Loading Failed",
-                    "Failed to load stems. Check the log for details."
+                    "Failed to load stems. Check the log for details.",
                 )
-        
+
         # Update button states based on loaded stems
         self._update_button_states()
 
     def _get_common_filename(self) -> str:
         """
         Extract common filename from first loaded stem.
-        
+
         WHY: Provides consistent base name for all exports derived from the original
         source file that was separated into stems.
-        
+
         Returns:
             Common filename (e.g., "MySong" from "MySong_(vocals)_ensemble.wav")
             Returns "export" as fallback if no stems are loaded
         """
         if not self.stem_files:
             return "export"
-        
+
         # Get first stem file path
         first_stem_path = Path(list(self.stem_files.values())[0])
         stem_name = first_stem_path.stem
-        
+
         # Try to extract common filename by removing stem name and model suffixes
         import re
-        
+
         # Pattern 1: "songname_(StemName)_modelname" -> "songname"
-        match = re.search(r'^(.+?)_\([^)]+\)', stem_name)
+        match = re.search(r"^(.+?)_\([^)]+\)", stem_name)
         if match:
             return match.group(1)
-        
+
         # Pattern 2: "songname_stemname_modelname" -> "songname"
         # Known suffixes to remove
-        ignore_suffixes = {'ensemble', 'bs-roformer', 'mel-roformer', 'demucs',
-                          'htdemucs', '4s', '6s', 'v4', 'demucs4s', 'demucs6s'}
-        
-        parts = stem_name.split('_')
+        ignore_suffixes = {
+            "ensemble",
+            "bs-roformer",
+            "mel-roformer",
+            "demucs",
+            "htdemucs",
+            "4s",
+            "6s",
+            "v4",
+            "demucs4s",
+            "demucs6s",
+        }
+
+        parts = stem_name.split("_")
         # Find where stem name starts (usually after common filename)
         # Common pattern: commonname_stemname_suffix
         if len(parts) >= 2:
             # Try to identify stem name (common stem names)
-            common_stem_names = ['vocals', 'vocal', 'drums', 'drum', 'bass', 'other',
-                                'piano', 'guitar', 'instrumental', 'instrum']
-            
+            common_stem_names = [
+                "vocals",
+                "vocal",
+                "drums",
+                "drum",
+                "bass",
+                "other",
+                "piano",
+                "guitar",
+                "instrumental",
+                "instrum",
+            ]
+
             # Find first part that looks like a stem name
             for i, part in enumerate(parts[1:], 1):
                 part_lower = part.lower()
-                if part_lower in common_stem_names or any(suffix in part_lower for suffix in ignore_suffixes):
+                if part_lower in common_stem_names or any(
+                    suffix in part_lower for suffix in ignore_suffixes
+                ):
                     # Everything before this is the common filename
-                    return '_'.join(parts[:i])
-        
+                    return "_".join(parts[:i])
+
         # Fallback: use first part or whole name if no pattern matches
         return parts[0] if parts else stem_name
 
@@ -2231,11 +2380,7 @@ class PlayerWidget(QWidget):
         is_available, error_msg = self.player.is_playback_available()
 
         if not is_available:
-            QMessageBox.critical(
-                self,
-                "Playback Not Available",
-                error_msg
-            )
+            QMessageBox.critical(self, "Playback Not Available", error_msg)
             return
 
         # Try to start playback
@@ -2245,7 +2390,7 @@ class PlayerWidget(QWidget):
             QMessageBox.warning(
                 self,
                 "Playback Failed",
-                "Failed to start playback. Make sure audio device is available."
+                "Failed to start playback. Make sure audio device is available.",
             )
 
     @Slot()
@@ -2268,12 +2413,16 @@ class PlayerWidget(QWidget):
 
         # Show export settings dialog
         # Calculate duration in seconds from samples
-        duration_seconds = self.player.duration_samples / self.player.sample_rate if self.player.sample_rate > 0 else 0.0
+        duration_seconds = (
+            self.player.duration_samples / self.player.sample_rate
+            if self.player.sample_rate > 0
+            else 0.0
+        )
 
         dialog = ExportSettingsDialog(
             duration_seconds=duration_seconds,
             num_stems=len(self.stem_files),
-            parent=self
+            parent=self,
         )
 
         if dialog.exec() != ExportSettingsDialog.Accepted:
@@ -2284,12 +2433,10 @@ class PlayerWidget(QWidget):
         settings = dialog.get_settings()
 
         # Ask user for output location
-        if settings.enable_chunking and settings.export_mode == 'individual':
+        if settings.enable_chunking and settings.export_mode == "individual":
             # Individual stems with chunking - ask for directory
             output_dir = QFileDialog.getExistingDirectory(
-                self,
-                "Select Output Directory for Stem Chunks",
-                ""
+                self, "Select Output Directory for Stem Chunks", ""
             )
 
             if not output_dir:
@@ -2303,10 +2450,7 @@ class PlayerWidget(QWidget):
             filter_str = f"{settings.file_format} Files (*{extension})"
 
             save_path, _ = QFileDialog.getSaveFileName(
-                self,
-                "Export Audio",
-                "",
-                filter_str
+                self, "Export Audio", "", filter_str
             )
 
             if not save_path:
@@ -2317,20 +2461,20 @@ class PlayerWidget(QWidget):
         # Execute export based on settings
         success = False
         result_message = ""
-        
+
         # Get common filename from first loaded stem
         common_filename = self._get_common_filename()
 
         try:
             if settings.enable_chunking:
-                if settings.export_mode == 'mixed':
+                if settings.export_mode == "mixed":
                     # Mixed audio in chunks
                     chunk_paths = self.player.export_mix_chunked(
                         output_path,
                         settings.chunk_length,
                         file_format=settings.file_format,
                         bit_depth=settings.bit_depth,
-                        common_filename=common_filename
+                        common_filename=common_filename,
                     )
 
                     if chunk_paths:
@@ -2342,7 +2486,9 @@ class PlayerWidget(QWidget):
                             f"{common_filename}_02{output_path.suffix}, ..."
                         )
                     else:
-                        result_message = "Failed to export chunks. Check the log for details."
+                        result_message = (
+                            "Failed to export chunks. Check the log for details."
+                        )
 
                 else:  # individual stems
                     # Individual stems in chunks
@@ -2351,7 +2497,7 @@ class PlayerWidget(QWidget):
                         settings.chunk_length,
                         file_format=settings.file_format,
                         bit_depth=settings.bit_depth,
-                        common_filename=common_filename
+                        common_filename=common_filename,
                     )
 
                     if all_chunks:
@@ -2364,22 +2510,26 @@ class PlayerWidget(QWidget):
                             f"Stems: {stems_list}"
                         )
                     else:
-                        result_message = "Failed to export stem chunks. Check the log for details."
+                        result_message = (
+                            "Failed to export stem chunks. Check the log for details."
+                        )
 
             else:
                 # No chunking - standard export
-                if settings.export_mode == 'mixed':
+                if settings.export_mode == "mixed":
                     # Standard mixed export
                     success = self.player.export_mix(
                         output_path,
                         file_format=settings.file_format,
-                        bit_depth=settings.bit_depth
+                        bit_depth=settings.bit_depth,
                     )
 
                     if success:
                         result_message = f"Mixed audio exported to:\n{output_path}"
                     else:
-                        result_message = "Failed to export mixed audio. Check the log for details."
+                        result_message = (
+                            "Failed to export mixed audio. Check the log for details."
+                        )
 
                 else:  # individual stems without chunking
                     # Export individual stems as full files
@@ -2387,7 +2537,7 @@ class PlayerWidget(QWidget):
                         output_path,
                         chunk_length_seconds=999999,  # Very long chunks = no splitting
                         file_format=settings.file_format,
-                        bit_depth=settings.bit_depth
+                        bit_depth=settings.bit_depth,
                     )
 
                     if all_chunks:
@@ -2399,28 +2549,20 @@ class PlayerWidget(QWidget):
                             f"Stems: {stems_list}"
                         )
                     else:
-                        result_message = "Failed to export stems. Check the log for details."
+                        result_message = (
+                            "Failed to export stems. Check the log for details."
+                        )
 
             # Show result message
             if success:
-                QMessageBox.information(
-                    self,
-                    "Export Successful",
-                    result_message
-                )
+                QMessageBox.information(self, "Export Successful", result_message)
             else:
-                QMessageBox.critical(
-                    self,
-                    "Export Failed",
-                    result_message
-                )
+                QMessageBox.critical(self, "Export Failed", result_message)
 
         except Exception as e:
             self.ctx.logger().error(f"Export error: {e}", exc_info=True)
             QMessageBox.critical(
-                self,
-                "Export Failed",
-                f"An error occurred during export:\n{str(e)}"
+                self, "Export Failed", f"An error occurred during export:\n{str(e)}"
             )
 
     def _get_audio_for_bpm_detection(self) -> tuple[Path, str]:
@@ -2438,15 +2580,19 @@ class PlayerWidget(QWidget):
         import soundfile as sf
 
         # Priority 1: Check if drums stem is available
-        drums_stem_names = ['drums', 'Drums', 'DRUMS', 'drum', 'Drum', 'DRUM']
+        drums_stem_names = ["drums", "Drums", "DRUMS", "drum", "Drum", "DRUM"]
         for stem_name in drums_stem_names:
             if stem_name in self.stem_files:
                 drums_path = Path(self.stem_files[stem_name])
-                self.ctx.logger().info(f"Using drums stem for BPM detection: {drums_path.name}")
+                self.ctx.logger().info(
+                    f"Using drums stem for BPM detection: {drums_path.name}"
+                )
                 return drums_path, f"drums stem ({drums_path.name})"
 
         # Priority 2: No drums found, create mixed audio from all stems
-        self.ctx.logger().info("No drums stem found, using mixed audio for BPM detection")
+        self.ctx.logger().info(
+            "No drums stem found, using mixed audio for BPM detection"
+        )
 
         # Mix all stems
         mixed_audio = self.player._mix_stems(0, self.player.duration_samples)
@@ -2465,26 +2611,25 @@ class PlayerWidget(QWidget):
         # Create temporary file with mixed audio
         try:
             temp_file = tempfile.NamedTemporaryFile(
-                suffix='.wav',
-                delete=False,
-                prefix='bpm_detect_'
+                suffix=".wav", delete=False, prefix="bpm_detect_"
             )
             temp_path = Path(temp_file.name)
             temp_file.close()
 
             # Write mixed audio to temp file
             sf.write(
-                str(temp_path),
-                mixed_audio,
-                self.player.sample_rate,
-                subtype='PCM_24'
+                str(temp_path), mixed_audio, self.player.sample_rate, subtype="PCM_24"
             )
 
-            self.ctx.logger().info(f"Created mixed audio for BPM detection: {temp_path.name}")
+            self.ctx.logger().info(
+                f"Created mixed audio for BPM detection: {temp_path.name}"
+            )
             return temp_path, "mixed audio (all stems)"
 
         except Exception as e:
-            self.ctx.logger().error(f"Failed to create mixed audio file for BPM detection: {e}")
+            self.ctx.logger().error(
+                f"Failed to create mixed audio file for BPM detection: {e}"
+            )
             # Final fallback: use first stem
             first_stem_name = list(self.stem_files.keys())[0]
             first_stem_path = Path(self.stem_files[first_stem_name])
@@ -2502,7 +2647,7 @@ class PlayerWidget(QWidget):
                 QMessageBox.warning(
                     self,
                     "Export Failed",
-                    "No stems loaded. Please load audio files first."
+                    "No stems loaded. Please load audio files first.",
                 )
                 return
 
@@ -2514,7 +2659,7 @@ class PlayerWidget(QWidget):
                 QMessageBox.warning(
                     self,
                     "Export Failed",
-                    "Unable to mix audio for export. Please try loading stems again."
+                    "Unable to mix audio for export. Please try loading stems again.",
                 )
                 return
 
@@ -2522,7 +2667,11 @@ class PlayerWidget(QWidget):
             mixed_audio = mixed_audio.T
 
             # Calculate duration
-            duration_seconds = self.player.duration_samples / self.player.sample_rate if self.player.sample_rate > 0 else 0.0
+            duration_seconds = (
+                self.player.duration_samples / self.player.sample_rate
+                if self.player.sample_rate > 0
+                else 0.0
+            )
 
             # Get common filename from first loaded stem
             common_filename = self._get_common_filename()
@@ -2531,7 +2680,10 @@ class PlayerWidget(QWidget):
             preset_bpm = None
             preset_bars = None
 
-            if self.detected_downbeat_times is not None and len(self.detected_downbeat_times) >= 2:
+            if (
+                self.detected_downbeat_times is not None
+                and len(self.detected_downbeat_times) >= 2
+            ):
                 # Calculate BPM from downbeat intervals (more accurate than beat intervals)
                 downbeat_intervals = np.diff(self.detected_downbeat_times)
                 median_bar_duration = float(np.median(downbeat_intervals))
@@ -2554,7 +2706,7 @@ class PlayerWidget(QWidget):
                 num_stems=len(self.stem_files),
                 preset_bpm=preset_bpm,
                 preset_bars=preset_bars,
-                parent=self
+                parent=self,
             )
 
             if dialog.exec() != LoopExportDialog.Accepted:
@@ -2565,8 +2717,7 @@ class PlayerWidget(QWidget):
 
             # Ask user for output directory
             output_dir = QFileDialog.getExistingDirectory(
-                self,
-                "Select Output Directory for Loop Export"
+                self, "Select Output Directory for Loop Export"
             )
 
             if not output_dir:
@@ -2581,18 +2732,15 @@ class PlayerWidget(QWidget):
             from PySide6.QtWidgets import QProgressDialog, QApplication
 
             # Check export mode
-            if settings.export_mode == 'individual':
+            if settings.export_mode == "individual":
                 # Export each stem individually
                 self._export_individual_stems(
-                    output_path=output_path,
-                    settings=settings
+                    output_path=output_path, settings=settings
                 )
             else:
                 # Export mixed audio (original logic)
                 with tempfile.NamedTemporaryFile(
-                    suffix='.wav',
-                    delete=False,
-                    dir=str(output_path.parent)
+                    suffix=".wav", delete=False, dir=str(output_path.parent)
                 ) as temp_file:
                     temp_path = Path(temp_file.name)
 
@@ -2602,16 +2750,12 @@ class PlayerWidget(QWidget):
                             str(temp_path),
                             mixed_audio,
                             self.player.sample_rate,
-                            subtype='PCM_24'
+                            subtype="PCM_24",
                         )
 
                         # Progress dialog
                         progress_dialog = QProgressDialog(
-                            "Preparing export...",
-                            None,
-                            0,
-                            100,
-                            self
+                            "Preparing export...", None, 0, 100, self
                         )
                         progress_dialog.setWindowTitle("Exporting Loops")
                         progress_dialog.setWindowModality(Qt.WindowModal)
@@ -2635,7 +2779,7 @@ class PlayerWidget(QWidget):
                             file_format=settings.file_format,
                             progress_callback=progress_callback,
                             common_filename=common_filename,
-                            stem_name=None  # Mixed audio, no stem name
+                            stem_name=None,  # Mixed audio, no stem name
                         )
 
                         # Close progress dialog
@@ -2647,7 +2791,9 @@ class PlayerWidget(QWidget):
                         if result.success:
                             warning_text = ""
                             if result.warning_messages:
-                                warning_text = "\n\nWarnings:\n" + "\n".join(f"• {w}" for w in result.warning_messages)
+                                warning_text = "\n\nWarnings:\n" + "\n".join(
+                                    f"• {w}" for w in result.warning_messages
+                                )
 
                             QMessageBox.information(
                                 self,
@@ -2656,13 +2802,13 @@ class PlayerWidget(QWidget):
                                 f"Format: {settings.file_format}, {settings.bit_depth} bit, "
                                 f"{'Stereo' if settings.channels == 2 else 'Mono'}\n"
                                 f"Loop length: {settings.bars} bars at {settings.bpm} BPM"
-                                f"{warning_text}"
+                                f"{warning_text}",
                             )
                         else:
                             QMessageBox.critical(
                                 self,
                                 "Export Failed",
-                                f"Loop export failed:\n{result.error_message}"
+                                f"Loop export failed:\n{result.error_message}",
                             )
 
                     finally:
@@ -2670,14 +2816,16 @@ class PlayerWidget(QWidget):
                         try:
                             temp_path.unlink()
                         except Exception as e:
-                            self.ctx.logger().warning(f"Failed to delete temp file {temp_path}: {e}")
+                            self.ctx.logger().warning(
+                                f"Failed to delete temp file {temp_path}: {e}"
+                            )
 
         except Exception as e:
             self.ctx.logger().error(f"Loop export error: {e}", exc_info=True)
             QMessageBox.critical(
                 self,
                 "Export Failed",
-                f"An error occurred during loop export:\n{str(e)}"
+                f"An error occurred during loop export:\n{str(e)}",
             )
 
     def _export_individual_stems(self, output_path: Path, settings):
@@ -2692,11 +2840,7 @@ class PlayerWidget(QWidget):
         try:
             # Create progress dialog for overall progress
             overall_progress = QProgressDialog(
-                "Preparing stem export...",
-                None,
-                0,
-                len(self.stem_files) * 100,
-                self
+                "Preparing stem export...", None, 0, len(self.stem_files) * 100, self
             )
             overall_progress.setWindowTitle("Exporting Individual Stems")
             overall_progress.setWindowModality(Qt.WindowModal)
@@ -2719,7 +2863,9 @@ class PlayerWidget(QWidget):
 
                 # Progress callback for this stem
                 def progress_callback(message: str, percent: int):
-                    overall_progress.setLabelText(f"Exporting {stem_name}...\n{message}")
+                    overall_progress.setLabelText(
+                        f"Exporting {stem_name}...\n{message}"
+                    )
                     overall_progress.setValue(base_progress + percent)
                     QApplication.processEvents()
 
@@ -2735,18 +2881,24 @@ class PlayerWidget(QWidget):
                     file_format=settings.file_format,
                     progress_callback=progress_callback,
                     common_filename=common_filename,
-                    stem_name=stem_name  # Individual stem export
+                    stem_name=stem_name,  # Individual stem export
                 )
 
                 if result.success:
                     total_chunks += result.chunk_count
                     stem_results.append((stem_name, result.chunk_count))
                     if result.warning_messages:
-                        all_warnings.extend([f"{stem_name}: {w}" for w in result.warning_messages])
+                        all_warnings.extend(
+                            [f"{stem_name}: {w}" for w in result.warning_messages]
+                        )
                 else:
                     # Log error but continue with other stems
-                    self.ctx.logger().error(f"Failed to export {stem_name}: {result.error_message}")
-                    all_warnings.append(f"{stem_name}: Export failed - {result.error_message}")
+                    self.ctx.logger().error(
+                        f"Failed to export {stem_name}: {result.error_message}"
+                    )
+                    all_warnings.append(
+                        f"{stem_name}: Export failed - {result.error_message}"
+                    )
 
             # Close progress dialog
             overall_progress.setValue(len(self.stem_files) * 100)
@@ -2756,12 +2908,16 @@ class PlayerWidget(QWidget):
             # Show summary
             if total_chunks > 0:
                 # Build summary text
-                summary_lines = [f"• {name}: {count} file(s)" for name, count in stem_results]
+                summary_lines = [
+                    f"• {name}: {count} file(s)" for name, count in stem_results
+                ]
                 summary_text = "\n".join(summary_lines)
 
                 warning_text = ""
                 if all_warnings:
-                    warning_text = "\n\nWarnings:\n" + "\n".join(f"• {w}" for w in all_warnings)
+                    warning_text = "\n\nWarnings:\n" + "\n".join(
+                        f"• {w}" for w in all_warnings
+                    )
 
                 QMessageBox.information(
                     self,
@@ -2771,13 +2927,13 @@ class PlayerWidget(QWidget):
                     f"Format: {settings.file_format}, {settings.bit_depth} bit, "
                     f"{'Stereo' if settings.channels == 2 else 'Mono'}\n"
                     f"Loop length: {settings.bars} bars at {settings.bpm} BPM"
-                    f"{warning_text}"
+                    f"{warning_text}",
                 )
             else:
                 QMessageBox.critical(
                     self,
                     "Export Failed",
-                    "Failed to export any stems. Check the log for details."
+                    "Failed to export any stems. Check the log for details.",
                 )
 
         except Exception as e:
@@ -2785,7 +2941,7 @@ class PlayerWidget(QWidget):
             QMessageBox.critical(
                 self,
                 "Export Failed",
-                f"An error occurred during individual stem export:\n{str(e)}"
+                f"An error occurred during individual stem export:\n{str(e)}",
             )
 
     def _on_position_update(self, position: float, duration: float):
@@ -2821,7 +2977,7 @@ class PlayerWidget(QWidget):
     def _update_button_states(self):
         """
         Update button enabled states based on stem list and selection
-        
+
         WHY: Buttons should only be enabled when their action is meaningful.
              Consistent with UploadWidget behavior.
         """
@@ -2882,7 +3038,7 @@ class PlayerWidget(QWidget):
 
         # Use QTimer.singleShot to re-enable updates after a short delay
         # This prevents race condition with position timer
-        QTimer.singleShot(50, lambda: setattr(self, '_user_seeking', False))
+        QTimer.singleShot(50, lambda: setattr(self, "_user_seeking", False))
 
     def _format_time(self, seconds: float) -> str:
         """Format seconds as MM:SS"""
@@ -2900,7 +3056,7 @@ class PlayerWidget(QWidget):
     def has_stems_loaded(self) -> bool:
         """
         Check if stems are currently loaded.
-        
+
         WHY: Used by MainWindow to determine export button states
         """
         return len(self.stem_files) > 0
@@ -2909,7 +3065,7 @@ class PlayerWidget(QWidget):
     def export_mixed_audio(self):
         """
         Public method to trigger mixed audio export.
-        
+
         PURPOSE: Called from MainWindow sidebar export button
         CONTEXT: Wrapper around internal _on_export method
         """
@@ -2919,7 +3075,7 @@ class PlayerWidget(QWidget):
     def export_loops(self):
         """
         Public method to trigger loop export.
-        
+
         PURPOSE: Called from MainWindow sidebar export button
         CONTEXT: Wrapper around internal _on_export_loops method
         """

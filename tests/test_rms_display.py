@@ -3,7 +3,15 @@
 Quick test to verify RMS meter display implementation
 """
 import sys
-from PySide6.QtWidgets import QApplication, QMainWindow, QVBoxLayout, QWidget, QProgressBar, QLabel
+from PySide6.QtWidgets import (
+    QApplication,
+    QMainWindow,
+    QVBoxLayout,
+    QWidget,
+    QProgressBar,
+    QLabel,
+)
+
 
 def test_progress_bar_format():
     """Test that QProgressBar can display custom format text"""
@@ -40,10 +48,12 @@ def test_progress_bar_format():
     pb3.setTextVisible(True)
     pb3.setFormat("0 dB (CLIP!)")
     pb3.setMinimumHeight(30)
-    pb3.setStyleSheet("""
+    pb3.setStyleSheet(
+        """
         QProgressBar::chunk { background-color: #ff0000; }
         QProgressBar { color: white; font-weight: bold; }
-    """)
+    """
+    )
     layout.addWidget(QLabel("Test 3: Should show '0 dB (CLIP!)' in red"))
     layout.addWidget(pb3)
 
@@ -71,6 +81,7 @@ def test_progress_bar_format():
     print("  3. Tooltip appears when hovering over 'Level (RMS):' label")
 
     sys.exit(app.exec())
+
 
 if __name__ == "__main__":
     test_progress_bar_format()

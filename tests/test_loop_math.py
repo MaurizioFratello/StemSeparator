@@ -1,6 +1,7 @@
 """
 Tests for loop_math module - Musical calculations for sampler export
 """
+
 import pytest
 from utils.loop_math import (
     compute_bar_duration_seconds,
@@ -10,7 +11,7 @@ from utils.loop_math import (
     get_minimum_bpm,
     MIN_BPM_2_BARS,
     MIN_BPM_4_BARS,
-    MIN_BPM_8_BARS
+    MIN_BPM_8_BARS,
 )
 
 
@@ -215,4 +216,6 @@ class TestIntegration:
             for bars in standard_bars:
                 is_valid, msg = is_valid_for_sampler(bpm, bars)
                 # All these combinations should be valid (well under 20s)
-                assert is_valid, f"Expected valid: {bars} bars @ {bpm} BPM, but got: {msg}"
+                assert (
+                    is_valid
+                ), f"Expected valid: {bars} bars @ {bpm} BPM, but got: {msg}"

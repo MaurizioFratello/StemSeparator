@@ -1,6 +1,7 @@
 """
 Device Manager für GPU/CPU Detection und Management
 """
+
 import platform
 from typing import Optional, Dict
 from dataclasses import dataclass
@@ -14,6 +15,7 @@ logger = get_logger()
 @dataclass
 class DeviceInfo:
     """Informationen über ein verfügbares Device"""
+
     name: str  # 'mps', 'cuda', 'cpu'
     available: bool
     description: str
@@ -42,6 +44,7 @@ class DeviceManager:
 
         try:
             import torch
+
             self._torch = torch
             self.logger.info(f"PyTorch {torch.__version__} loaded")
             return True
@@ -52,22 +55,20 @@ class DeviceManager:
     def _detect_devices(self):
         """Erkennt verfügbare Devices"""
         # CPU ist immer verfügbar
-        self._device_info['cpu'] = DeviceInfo(
-            name='cpu',
-            available=True,
-            description='CPU (Universal)'
+        self._device_info["cpu"] = DeviceInfo(
+            name="cpu", available=True, description="CPU (Universal)"
         )
 
         if not self._import_torch():
             return
 
         # Check MPS (Apple Silicon)
-        if hasattr(self._torch.backends, 'mps'):
+        if hasattr(self._torch.backends, "mps"):
             mps_available = self._torch.backends.mps.is_available()
-            self._device_info['mps'] = DeviceInfo(
-                name='mps',
+            self._device_info["mps"] = DeviceInfo(
+                name="mps",
                 available=mps_available,
-                description='Apple Metal Performance Shaders (Apple Silicon GPU)'
+                description="Apple Metal Performance Shaders (Apple Silicon GPU)",
             )
 
             if mps_available:
@@ -79,7 +80,9 @@ class DeviceManager:
         cuda_available = self._torch.cuda.is_available()
         if cuda_available:
             device_count = self._torch.cuda.device_count()
-            device_name = self._torch.cuda.get_device_name(0) if device_count > 0 else "Unknown"
+            device_name = (
+                self._torch.cuda.get_device_name(0) if device_count > 0 else "Unknown"
+            )
 
             # Get CUDA memory
             try:
@@ -88,37 +91,35 @@ class DeviceManager:
             except:
                 memory_gb = None
 
-            self._device_info['cuda'] = DeviceInfo(
-                name='cuda',
+            self._device_info["cuda"] = DeviceInfo(
+                name="cuda",
                 available=True,
-                description=f'NVIDIA CUDA ({device_name})',
-                memory_gb=memory_gb
+                description=f"NVIDIA CUDA ({device_name})",
+                memory_gb=memory_gb,
             )
             self.logger.info(f"CUDA available: {device_name}")
         else:
-            self._device_info['cuda'] = DeviceInfo(
-                name='cuda',
-                available=False,
-                description='NVIDIA CUDA (Not available)'
+            self._device_info["cuda"] = DeviceInfo(
+                name="cuda", available=False, description="NVIDIA CUDA (Not available)"
             )
             self.logger.debug("CUDA not available on this system")
 
     def _select_best_device(self):
         """Wählt das beste verfügbare Device"""
         if not USE_GPU:
-            self._current_device = 'cpu'
+            self._current_device = "cpu"
             self.logger.info("GPU disabled in config, using CPU")
             return
 
         # Priorität: MPS > CUDA > CPU
-        if self._device_info.get('mps', DeviceInfo('mps', False, '')).available:
-            self._current_device = 'mps'
+        if self._device_info.get("mps", DeviceInfo("mps", False, "")).available:
+            self._current_device = "mps"
             self.logger.info("Selected device: MPS (Apple Silicon GPU)")
-        elif self._device_info.get('cuda', DeviceInfo('cuda', False, '')).available:
-            self._current_device = 'cuda'
+        elif self._device_info.get("cuda", DeviceInfo("cuda", False, "")).available:
+            self._current_device = "cuda"
             self.logger.info("Selected device: CUDA (NVIDIA GPU)")
         else:
-            self._current_device = 'cpu'
+            self._current_device = "cpu"
             self.logger.info("Selected device: CPU (no GPU available)")
 
     def get_device(self) -> str:
@@ -144,9 +145,11 @@ class DeviceManager:
 
     def is_gpu_available(self) -> bool:
         """Prüft ob ein GPU verfügbar ist"""
-        return self._current_device in ['mps', 'cuda']
+        return self._current_device in ["mps", "cuda"]
 
-    def get_device_info(self, device_name: Optional[str] = None) -> Optional[DeviceInfo]:
+    def get_device_info(
+        self, device_name: Optional[str] = None
+    ) -> Optional[DeviceInfo]:
         """
         Gibt Informationen über ein Device zurück
 
@@ -185,9 +188,9 @@ class DeviceManager:
         if not device_info.available:
             self.logger.error(f"Device '{device_name}' not available")
 
-            if FALLBACK_TO_CPU and device_name != 'cpu':
+            if FALLBACK_TO_CPU and device_name != "cpu":
                 self.logger.warning("Falling back to CPU")
-                self._current_device = 'cpu'
+                self._current_device = "cpu"
                 return True
 
             return False
@@ -206,7 +209,7 @@ class DeviceManager:
         if self._torch is None:
             return None
 
-        if self._current_device == 'cuda' and self._torch.cuda.is_available():
+        if self._current_device == "cuda" and self._torch.cuda.is_available():
             try:
                 # Verfügbarer Speicher = Total - Allocated
                 props = self._torch.cuda.get_device_properties(0)
@@ -217,11 +220,12 @@ class DeviceManager:
                 self.logger.debug(f"Could not get CUDA memory: {e}")
                 return None
 
-        elif self._current_device == 'mps':
+        elif self._current_device == "mps":
             # MPS hat kein direktes Memory-API
             # Schätze basierend auf System-RAM (macOS teilt unified memory)
             try:
                 import psutil
+
                 return psutil.virtual_memory().available / (1024**3)
             except ImportError:
                 self.logger.debug("psutil not available for memory check")
@@ -234,10 +238,10 @@ class DeviceManager:
         if self._torch is None:
             return
 
-        if self._current_device == 'cuda' and self._torch.cuda.is_available():
+        if self._current_device == "cuda" and self._torch.cuda.is_available():
             self._torch.cuda.empty_cache()
             self.logger.debug("CUDA cache cleared")
-        elif self._current_device == 'mps':
+        elif self._current_device == "mps":
             # MPS hat kein explizites cache clearing
             # PyTorch managed das automatisch
             self.logger.debug("MPS cache management is automatic")
@@ -245,23 +249,23 @@ class DeviceManager:
     def get_system_info(self) -> dict:
         """Gibt System-Informationen zurück"""
         info = {
-            'platform': platform.system(),
-            'platform_version': platform.version(),
-            'machine': platform.machine(),
-            'processor': platform.processor(),
-            'current_device': self._current_device,
-            'devices': {
+            "platform": platform.system(),
+            "platform_version": platform.version(),
+            "machine": platform.machine(),
+            "processor": platform.processor(),
+            "current_device": self._current_device,
+            "devices": {
                 name: {
-                    'available': dev.available,
-                    'description': dev.description,
-                    'memory_gb': dev.memory_gb
+                    "available": dev.available,
+                    "description": dev.description,
+                    "memory_gb": dev.memory_gb,
                 }
                 for name, dev in self._device_info.items()
-            }
+            },
         }
 
         if self._torch:
-            info['pytorch_version'] = self._torch.__version__
+            info["pytorch_version"] = self._torch.__version__
 
         return info
 
@@ -294,4 +298,5 @@ if __name__ == "__main__":
 
     print("\nSystem info:")
     import json
+
     print(json.dumps(dm.get_system_info(), indent=2))

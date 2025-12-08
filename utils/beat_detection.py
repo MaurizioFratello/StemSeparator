@@ -8,6 +8,7 @@ Strategy:
 1. Primary: BeatNet beat-service binary (full beat+downbeat grid)
 2. Fallback: DeepRhythm/librosa (BPM only, synthetic beat grid)
 """
+
 from pathlib import Path
 from typing import Tuple, Optional, List, Callable, Dict
 import numpy as np
@@ -45,7 +46,7 @@ def detect_beats_and_downbeats(
     audio_path: Path,
     bpm_hint: Optional[float] = None,
     bpm_audio_path: Optional[Path] = None,
-    progress_callback: Optional[ProgressCallback] = None
+    progress_callback: Optional[ProgressCallback] = None,
 ) -> Tuple[np.ndarray, np.ndarray, float, str]:
     """
     Detect beats and downbeats in audio file.
@@ -80,6 +81,7 @@ def detect_beats_and_downbeats(
         ...     audio_path=mixed_path, bpm_audio_path=drums_path
         ... )
     """
+
     def report_progress(phase: str, detail: str = ""):
         """Helper to report progress if callback is provided."""
         if progress_callback:
@@ -102,7 +104,7 @@ def detect_beats_and_downbeats(
             # Silent wait - warm-up runs in background, user shouldn't notice
             # Increased timeout for M1 and less performant Macs
             wait_for_warmup_complete(max_wait_seconds=120.0)
-            
+
             # Calculate dynamic timeout based on audio duration
             # Base: 60s + ~1.0s per second of audio (increased for M1 and less performant Macs)
             # BeatNet processes ~2x realtime on MPS, but slower on M1/CPU
@@ -110,20 +112,23 @@ def detect_beats_and_downbeats(
                 info = sf.info(str(audio_path))
                 audio_duration = info.duration
                 timeout = max(120.0, 60.0 + audio_duration * 1.0)
-                logger.debug(f"BeatNet timeout: {timeout:.0f}s for {audio_duration:.1f}s audio")
+                logger.debug(
+                    f"BeatNet timeout: {timeout:.0f}s for {audio_duration:.1f}s audio"
+                )
             except Exception:
                 audio_duration = 0
                 timeout = 180.0  # Safe default for unknown duration (increased for M1)
 
-            report_progress("BeatNet", f"Analyzing beat grid ({audio_duration:.0f}s audio, timeout: {timeout:.0f}s)...")
-
-            result = analyze_beats(
-                audio_path,
-                timeout_seconds=timeout,
-                device="auto"
+            report_progress(
+                "BeatNet",
+                f"Analyzing beat grid ({audio_duration:.0f}s audio, timeout: {timeout:.0f}s)...",
             )
 
-            report_progress("BeatNet", f"Found {len(result.beats)} beats, processing...")
+            result = analyze_beats(audio_path, timeout_seconds=timeout, device="auto")
+
+            report_progress(
+                "BeatNet", f"Found {len(result.beats)} beats, processing..."
+            )
 
             beat_times = np.array([b.time for b in result.beats])
             downbeat_times = np.array([d.time for d in result.downbeats])
@@ -143,10 +148,18 @@ def detect_beats_and_downbeats(
             tempo_source = "BeatNet"
             grid_recalculated = False
 
-            bpm_source_path = bpm_audio_path if bpm_audio_path and bpm_audio_path.exists() else audio_path
-            bpm_source_name = "drums" if bpm_audio_path and bpm_audio_path.exists() else "mixed"
+            bpm_source_path = (
+                bpm_audio_path
+                if bpm_audio_path and bpm_audio_path.exists()
+                else audio_path
+            )
+            bpm_source_name = (
+                "drums" if bpm_audio_path and bpm_audio_path.exists() else "mixed"
+            )
 
-            report_progress("DeepRhythm", f"Refining BPM from {bpm_source_name} stem...")
+            report_progress(
+                "DeepRhythm", f"Refining BPM from {bpm_source_name} stem..."
+            )
 
             try:
                 audio_data, sample_rate = sf.read(str(bpm_source_path), always_2d=False)
@@ -187,15 +200,20 @@ def detect_beats_and_downbeats(
                         f"DeepRhythm={final_tempo:.1f} ({bpm_diff_ratio:.1%} diff). "
                         f"Recalculating beat grid with DeepRhythm tempo."
                     )
-                    report_progress("Grid Correction", f"Recalculating beat grid at {final_tempo:.1f} BPM...")
+                    report_progress(
+                        "Grid Correction",
+                        f"Recalculating beat grid at {final_tempo:.1f} BPM...",
+                    )
 
                     # Recalculate grid using DeepRhythm tempo, anchored to first downbeat
-                    beat_times, downbeat_times, first_downbeat = recalculate_beat_grid_from_bpm(
-                        current_beat_times=beat_times,
-                        current_downbeat_times=downbeat_times,
-                        new_bpm=final_tempo,
-                        audio_duration=audio_duration,
-                        first_downbeat_anchor=first_downbeat
+                    beat_times, downbeat_times, first_downbeat = (
+                        recalculate_beat_grid_from_bpm(
+                            current_beat_times=beat_times,
+                            current_downbeat_times=downbeat_times,
+                            new_bpm=final_tempo,
+                            audio_duration=audio_duration,
+                            first_downbeat_anchor=first_downbeat,
+                        )
                     )
                     grid_recalculated = True
                     logger.info(
@@ -232,7 +250,9 @@ def detect_beats_and_downbeats(
     return _fallback_bpm_detection(audio_path)
 
 
-def _fallback_bpm_detection(audio_path: Path) -> Tuple[np.ndarray, np.ndarray, float, str]:
+def _fallback_bpm_detection(
+    audio_path: Path,
+) -> Tuple[np.ndarray, np.ndarray, float, str]:
     """
     Fallback beat detection using DeepRhythm/librosa.
 
@@ -276,9 +296,13 @@ def _fallback_bpm_detection(audio_path: Path) -> Tuple[np.ndarray, np.ndarray, f
 
         # Build confidence message
         if confidence is not None:
-            confidence_msg = f"Fallback: {bpm:.1f} BPM ({confidence:.0%}) - keine echten Downbeats"
+            confidence_msg = (
+                f"Fallback: {bpm:.1f} BPM ({confidence:.0%}) - keine echten Downbeats"
+            )
         else:
-            confidence_msg = f"Fallback: {bpm:.1f} BPM (librosa) - keine echten Downbeats"
+            confidence_msg = (
+                f"Fallback: {bpm:.1f} BPM (librosa) - keine echten Downbeats"
+            )
 
         logger.info(
             f"Fallback detection: {bpm:.1f} BPM, {len(beat_times)} synthetic beats, "
@@ -297,7 +321,7 @@ def calculate_loops_from_downbeats(
     bars_per_loop: int,
     audio_duration: float,
     song_start_downbeat_index: Optional[int] = None,
-    intro_handling: str = "pad"
+    intro_handling: str = "pad",
 ) -> Tuple[List[Tuple[float, float]], List[Tuple[float, float]]]:
     """
     Calculate loop segments based on downbeat positions.
@@ -409,7 +433,9 @@ def calculate_loops_from_downbeats(
             )
         elif intro_handling == "skip":
             # Skip intro - no intro loops created
-            logger.info(f"Skipping intro ({intro_actual_start:.2f}s - {intro_actual_end:.2f}s)")
+            logger.info(
+                f"Skipping intro ({intro_actual_start:.2f}s - {intro_actual_end:.2f}s)"
+            )
 
         # Start loop calculation from song start marker
         start_idx = song_start_downbeat_index
@@ -433,7 +459,9 @@ def calculate_loops_from_downbeats(
             if idx + 1 < num_downbeats:
                 # Calculate average bar duration
                 avg_bar_duration = np.mean(np.diff(downbeat_times))
-                end_time = min(audio_duration, start_time + (bars_per_loop * avg_bar_duration))
+                end_time = min(
+                    audio_duration, start_time + (bars_per_loop * avg_bar_duration)
+                )
             else:
                 end_time = audio_duration
 
@@ -455,7 +483,7 @@ def detect_transients(
     audio_data: np.ndarray,
     sample_rate: int,
     threshold: float = 0.3,
-    min_distance: float = 0.03  # CHANGED: 30ms instead of 100ms for fast drums
+    min_distance: float = 0.03,  # CHANGED: 30ms instead of 100ms for fast drums
 ) -> np.ndarray:
     """
     Detect transient peaks in audio signal with attack-phase focus.
@@ -484,7 +512,7 @@ def detect_transients(
         sample_rate=sample_rate,
         threshold=threshold,
         min_distance=min_distance,
-        percussion_mode=False
+        percussion_mode=False,
     )
 
     logger.info(f"Detected {len(transient_times)} transients")
@@ -496,7 +524,7 @@ def detect_transients_attack_focused(
     sample_rate: int,
     threshold: float = 0.3,
     min_distance: float = 0.03,  # 30ms - allows fast drum hits
-    percussion_mode: bool = False
+    percussion_mode: bool = False,
 ) -> np.ndarray:
     """
     Detect transient attack phases using combined spectral flux + energy derivative.
@@ -539,16 +567,18 @@ def detect_transients_attack_focused(
             y=audio_data,
             sr=sample_rate,
             hop_length=hop_length,
-            aggregate=np.median  # More robust than mean
+            aggregate=np.median,  # More robust than mean
         )
 
         # Method 2: Energy Derivative (detects rapid amplitude increases)
         # Calculate short-term energy with small window for attack detection
         frame_length = hop_length * 2
-        energy = np.array([
-            np.sum(audio_data[i:i + frame_length] ** 2)
-            for i in range(0, len(audio_data) - frame_length, hop_length)
-        ])
+        energy = np.array(
+            [
+                np.sum(audio_data[i : i + frame_length] ** 2)
+                for i in range(0, len(audio_data) - frame_length, hop_length)
+            ]
+        )
 
         # Compute first derivative (rate of energy increase)
         energy_derivative = np.diff(energy, prepend=energy[0])
@@ -589,9 +619,7 @@ def detect_transients_attack_focused(
 
             # Combine all three signals (weighted average)
             combined_onset = (
-                0.4 * spectral_onset_env +
-                0.3 * energy_derivative +
-                0.3 * perc_energy
+                0.4 * spectral_onset_env + 0.3 * energy_derivative + 0.3 * perc_energy
             )
         else:
             # Combine spectral flux and energy derivative (equal weight)
@@ -601,18 +629,22 @@ def detect_transients_attack_focused(
         # Use librosa's peak picking with proper threshold
         onset_frames = librosa.util.peak_pick(
             combined_onset,
-            pre_max=3,      # Frames before peak
-            post_max=3,     # Frames after peak
-            pre_avg=3,      # Frames for pre-average
-            post_avg=5,     # Frames for post-average
+            pre_max=3,  # Frames before peak
+            post_max=3,  # Frames after peak
+            pre_avg=3,  # Frames for pre-average
+            post_avg=5,  # Frames for post-average
             delta=threshold,  # Threshold for peak detection
-            wait=min_frames   # Minimum frames between peaks
+            wait=min_frames,  # Minimum frames between peaks
         )
 
         # Convert frames to time
-        transient_times = librosa.frames_to_time(onset_frames, sr=sample_rate, hop_length=hop_length)
+        transient_times = librosa.frames_to_time(
+            onset_frames, sr=sample_rate, hop_length=hop_length
+        )
 
-        logger.info(f"Detected {len(transient_times)} attack-focused transients (percussion_mode={percussion_mode})")
+        logger.info(
+            f"Detected {len(transient_times)} attack-focused transients (percussion_mode={percussion_mode})"
+        )
         return transient_times
 
     except ImportError:
@@ -625,8 +657,8 @@ def detect_transients_attack_focused(
         # Calculate energy
         energy = []
         for i in range(0, len(audio_data) - frame_length, hop_length):
-            frame = audio_data[i:i + frame_length]
-            energy.append(np.sum(frame ** 2))
+            frame = audio_data[i : i + frame_length]
+            energy.append(np.sum(frame**2))
 
         energy = np.array(energy)
 
@@ -634,24 +666,30 @@ def detect_transients_attack_focused(
         energy_derivative = np.diff(energy, prepend=energy[0])
 
         # Find peaks in positive derivative (attack moments)
-        threshold_value = np.mean(energy_derivative) + threshold * np.std(energy_derivative)
+        threshold_value = np.mean(energy_derivative) + threshold * np.std(
+            energy_derivative
+        )
 
         peaks = []
         min_frames_fallback = max(1, int(min_distance * sample_rate / hop_length))
 
         for i in range(1, len(energy_derivative) - 1):
             # Peak in derivative AND positive (rising energy)
-            if (energy_derivative[i] > threshold_value and
-                energy_derivative[i] > energy_derivative[i-1] and
-                energy_derivative[i] > energy_derivative[i+1] and
-                energy_derivative[i] > 0):
+            if (
+                energy_derivative[i] > threshold_value
+                and energy_derivative[i] > energy_derivative[i - 1]
+                and energy_derivative[i] > energy_derivative[i + 1]
+                and energy_derivative[i] > 0
+            ):
 
                 # Check minimum distance from last peak
                 if not peaks or (i - peaks[-1]) >= min_frames_fallback:
                     peaks.append(i)
 
         transient_times = np.array([(i * hop_length) / sample_rate for i in peaks])
-        logger.info(f"Detected {len(transient_times)} attack-focused transients (fallback method)")
+        logger.info(
+            f"Detected {len(transient_times)} attack-focused transients (fallback method)"
+        )
         return transient_times
 
 
@@ -659,7 +697,7 @@ def detect_transients_per_stem(
     stem_waveforms: Dict[str, np.ndarray],
     sample_rate: int,
     threshold: float = 0.3,
-    min_distance: float = 0.1
+    min_distance: float = 0.1,
 ) -> Dict[str, np.ndarray]:
     """
     Detect transients for each stem independently.
@@ -692,14 +730,14 @@ def detect_transients_per_stem(
                 audio_data = np.mean(audio_data, axis=1)
 
             # Determine if this is a percussion stem for enhanced detection
-            is_percussion = stem_name.lower() in ['drums', 'percussion', 'drum', 'perc']
+            is_percussion = stem_name.lower() in ["drums", "percussion", "drum", "perc"]
 
             transients = detect_transients_attack_focused(
                 audio_data=audio_data,
                 sample_rate=sample_rate,
                 threshold=threshold,
                 min_distance=min_distance,
-                percussion_mode=is_percussion  # Enable percussion weighting for drums
+                percussion_mode=is_percussion,  # Enable percussion weighting for drums
             )
             transient_dict[stem_name] = transients
             logger.debug(f"Stem '{stem_name}': {len(transients)} transients")
@@ -716,7 +754,7 @@ def recalculate_beat_grid_from_bpm(
     current_downbeat_times: np.ndarray,
     new_bpm: float,
     audio_duration: float,
-    first_downbeat_anchor: Optional[float] = None
+    first_downbeat_anchor: Optional[float] = None,
 ) -> Tuple[np.ndarray, np.ndarray, float]:
     """
     Recalculate beat grid based on new BPM value.
@@ -744,28 +782,40 @@ def recalculate_beat_grid_from_bpm(
         raise ValueError("No downbeats available for recalculation")
 
     # Use specified anchor or first downbeat
-    anchor = first_downbeat_anchor if first_downbeat_anchor is not None else current_downbeat_times[0]
+    anchor = (
+        first_downbeat_anchor
+        if first_downbeat_anchor is not None
+        else current_downbeat_times[0]
+    )
 
     # Calculate beat interval from BPM
     # WHY: Using exact division ensures precise beat spacing
     beat_interval = 60.0 / new_bpm
 
-    logger.info(f"Recalculating beat grid: {new_bpm:.1f} BPM, anchor at {anchor:.6f}s, interval={beat_interval:.6f}s")
+    logger.info(
+        f"Recalculating beat grid: {new_bpm:.1f} BPM, anchor at {anchor:.6f}s, interval={beat_interval:.6f}s"
+    )
 
     # Generate beats using direct multiplication to avoid cumulative floating-point errors
     # WHY: Repeated addition (current_time += beat_interval) accumulates floating-point errors.
     #      Direct multiplication (anchor + n * beat_interval) is mathematically equivalent
     #      but more numerically stable, as each position is calculated independently.
-    
+
     # Calculate number of beats forward from anchor to end of audio
     beats_forward_count = int((audio_duration - anchor) / beat_interval) + 1
-    beats_forward = [anchor + n * beat_interval for n in range(beats_forward_count)
-                     if anchor + n * beat_interval <= audio_duration]
-    
+    beats_forward = [
+        anchor + n * beat_interval
+        for n in range(beats_forward_count)
+        if anchor + n * beat_interval <= audio_duration
+    ]
+
     # Calculate number of beats backward from anchor to start of audio
     beats_backward_count = int(anchor / beat_interval)
-    beats_backward = [anchor - n * beat_interval for n in range(1, beats_backward_count + 1)
-                      if anchor - n * beat_interval >= 0]
+    beats_backward = [
+        anchor - n * beat_interval
+        for n in range(1, beats_backward_count + 1)
+        if anchor - n * beat_interval >= 0
+    ]
 
     # Combine and sort
     all_beats = sorted(beats_backward + beats_forward)
@@ -814,8 +864,7 @@ def recalculate_beat_grid_from_bpm(
 
 
 def recalculate_beat_grid_from_manual_downbeats(
-    manual_downbeat_times: np.ndarray,
-    audio_duration: float
+    manual_downbeat_times: np.ndarray, audio_duration: float
 ) -> Tuple[np.ndarray, np.ndarray, float, float]:
     """
     Recalculate beat grid based on manually placed downbeats.
@@ -854,9 +903,11 @@ def recalculate_beat_grid_from_manual_downbeats(
     # Calculate BPM (assuming 4/4 time: 4 beats per bar)
     calculated_bpm = (60.0 * 4) / median_bar_duration
 
-    logger.info(f"Manual downbeats: {len(downbeat_times)} bars, "
-                f"median bar duration: {median_bar_duration:.2f}s, "
-                f"calculated BPM: {calculated_bpm:.1f}")
+    logger.info(
+        f"Manual downbeats: {len(downbeat_times)} bars, "
+        f"median bar duration: {median_bar_duration:.2f}s, "
+        f"calculated BPM: {calculated_bpm:.1f}"
+    )
 
     # Generate beats between downbeats (interpolate 4 beats per bar)
     all_beats = []

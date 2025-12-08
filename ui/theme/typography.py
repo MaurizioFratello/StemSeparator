@@ -17,26 +17,28 @@ class Typography:
 
     # Font sizes (in pixels) - macOS-optimized
     # WHY: macOS native apps typically use 13px for body text, not 14px
-    SIZE_DISPLAY = 26           # Large headings (macOS convention: slightly smaller than other platforms)
-    SIZE_H1 = 20                # Section headers (macOS standard for large headers)
-    SIZE_H2 = 17                # Subsection headers (macOS standard for medium headers)
-    SIZE_H3 = 15                # Group box titles (slightly larger than body)
-    SIZE_BODY = 13              # Body text, buttons, inputs (macOS default!)
-    SIZE_SMALL = 11             # Labels, captions, secondary info (macOS small text)
-    SIZE_TINY = 9               # Metadata, timestamps (macOS caption text)
+    SIZE_DISPLAY = (
+        26  # Large headings (macOS convention: slightly smaller than other platforms)
+    )
+    SIZE_H1 = 20  # Section headers (macOS standard for large headers)
+    SIZE_H2 = 17  # Subsection headers (macOS standard for medium headers)
+    SIZE_H3 = 15  # Group box titles (slightly larger than body)
+    SIZE_BODY = 13  # Body text, buttons, inputs (macOS default!)
+    SIZE_SMALL = 11  # Labels, captions, secondary info (macOS small text)
+    SIZE_TINY = 9  # Metadata, timestamps (macOS caption text)
 
     # Font weights - extended for SF Pro compatibility
     # WHY: SF Pro has more weight variants than standard fonts
-    WEIGHT_ULTRALIGHT = 100     # SF Pro Ultralight
-    WEIGHT_THIN = 200           # SF Pro Thin
-    WEIGHT_LIGHT = 300          # SF Pro Light
-    WEIGHT_NORMAL = 400         # SF Pro Regular
-    WEIGHT_MEDIUM = 500         # SF Pro Medium
-    WEIGHT_SEMIBOLD = 600       # SF Pro Semibold
-    WEIGHT_BOLD = 700           # SF Pro Bold
-    WEIGHT_HEAVY = 800          # SF Pro Heavy
-    WEIGHT_BLACK = 900          # SF Pro Black
-    WEIGHT_EXTRABOLD = 800      # Alias for Heavy (backward compatibility)
+    WEIGHT_ULTRALIGHT = 100  # SF Pro Ultralight
+    WEIGHT_THIN = 200  # SF Pro Thin
+    WEIGHT_LIGHT = 300  # SF Pro Light
+    WEIGHT_NORMAL = 400  # SF Pro Regular
+    WEIGHT_MEDIUM = 500  # SF Pro Medium
+    WEIGHT_SEMIBOLD = 600  # SF Pro Semibold
+    WEIGHT_BOLD = 700  # SF Pro Bold
+    WEIGHT_HEAVY = 800  # SF Pro Heavy
+    WEIGHT_BLACK = 900  # SF Pro Black
+    WEIGHT_EXTRABOLD = 800  # Alias for Heavy (backward compatibility)
 
     # Line heights (relative to font size)
     LINE_HEIGHT_TIGHT = 1.2
@@ -49,7 +51,9 @@ class Typography:
     TRACKING_WIDE = "0.05em"
 
     @classmethod
-    def get_font_style(cls, size: int, weight: int = WEIGHT_NORMAL, family: str = None) -> str:
+    def get_font_style(
+        cls, size: int, weight: int = WEIGHT_NORMAL, family: str = None
+    ) -> str:
         """
         Generate QSS font style string
 

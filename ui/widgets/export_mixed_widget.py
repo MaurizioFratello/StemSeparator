@@ -4,13 +4,25 @@ Export Mixed Widget - Configure and execute mixed audio export
 PURPOSE: Allow users to configure export settings and export mixed/individual stems
 CONTEXT: Displayed in main content area when Export Mixed is selected in sidebar
 """
+
 from pathlib import Path
 from typing import Optional, NamedTuple
 
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QCheckBox,
-    QDoubleSpinBox, QComboBox, QPushButton, QRadioButton,
-    QButtonGroup, QFrame, QFileDialog, QMessageBox, QApplication
+    QWidget,
+    QVBoxLayout,
+    QHBoxLayout,
+    QLabel,
+    QCheckBox,
+    QDoubleSpinBox,
+    QComboBox,
+    QPushButton,
+    QRadioButton,
+    QButtonGroup,
+    QFrame,
+    QFileDialog,
+    QMessageBox,
+    QApplication,
 )
 from PySide6.QtCore import Qt, Signal, Slot
 
@@ -20,6 +32,7 @@ from ui.theme import ThemeManager
 
 class ExportSettings(NamedTuple):
     """Export settings data"""
+
     file_format: str  # 'WAV' or 'FLAC'
     bit_depth: int  # 16, 24, or 32
     enable_chunking: bool  # Split into chunks?
@@ -30,10 +43,10 @@ class ExportSettings(NamedTuple):
 class ExportMixedWidget(QWidget):
     """
     Widget for configuring and executing mixed audio export.
-    
+
     PURPOSE: Replaces ExportSettingsDialog as embedded content in main window
     CONTEXT: Shown when user clicks "Export Mixed" in sidebar
-    
+
     Features:
     - File format selection (WAV/FLAC)
     - Bit depth selection (16/24/32)
@@ -42,14 +55,14 @@ class ExportMixedWidget(QWidget):
     - Preview of output files
     - Direct export execution
     """
-    
+
     # Signal emitted when export completes successfully
     export_completed = Signal(str)  # success message
 
     def __init__(self, player_widget=None, parent=None):
         """
         Initialize export mixed widget.
-        
+
         Args:
             player_widget: Reference to PlayerWidget for accessing stems and export logic
             parent: Parent widget
@@ -57,12 +70,12 @@ class ExportMixedWidget(QWidget):
         super().__init__(parent)
         self.ctx = AppContext()
         self.player_widget = player_widget
-        
+
         self._setup_ui()
         self._connect_signals()
         self._update_preview()
         self._update_export_button_state()
-        
+
         self.ctx.logger().info("ExportMixedWidget initialized")
 
     def set_player_widget(self, player_widget) -> None:
@@ -162,7 +175,7 @@ class ExportMixedWidget(QWidget):
         length_label = QLabel("Chunk Length:")
         length_label.setMinimumWidth(110)
         length_row.addWidget(length_label)
-        
+
         self.chunk_length = QDoubleSpinBox()
         self.chunk_length.setMinimum(0.5)
         self.chunk_length.setMaximum(300.0)
@@ -193,7 +206,9 @@ class ExportMixedWidget(QWidget):
         self.preview_label = QLabel()
         self.preview_label.setWordWrap(True)
         self.preview_label.setMinimumHeight(50)
-        self.preview_label.setStyleSheet("padding: 5px; color: rgba(255, 255, 255, 0.9);")
+        self.preview_label.setStyleSheet(
+            "padding: 5px; color: rgba(255, 255, 255, 0.9);"
+        )
         preview_layout.addWidget(self.preview_label)
 
         main_layout.addWidget(preview_card)
@@ -221,7 +236,7 @@ class ExportMixedWidget(QWidget):
         self.mode_button_group.buttonToggled.connect(self._update_preview)
         self.format_combo.currentIndexChanged.connect(self._update_preview)
         self.bit_depth_combo.currentIndexChanged.connect(self._update_preview)
-        
+
         self.btn_export.clicked.connect(self._on_export_clicked)
 
     def _on_chunking_toggled(self, checked: bool):
@@ -232,15 +247,16 @@ class ExportMixedWidget(QWidget):
     def _update_export_button_state(self):
         """Update export button enabled state based on stems availability"""
         has_stems = (
-            self.player_widget is not None and
-            self.player_widget.has_stems_loaded()
+            self.player_widget is not None and self.player_widget.has_stems_loaded()
         )
         self.btn_export.setEnabled(has_stems)
 
         if has_stems:
             num_stems = len(self.player_widget.stem_files)
             # Update individual mode label with stem count
-            self.mode_individual.setText(f"Individual Stems ({num_stems} separate files)")
+            self.mode_individual.setText(
+                f"Individual Stems ({num_stems} separate files)"
+            )
         else:
             self.mode_individual.setText("Individual Stems")
 
@@ -249,10 +265,10 @@ class ExportMixedWidget(QWidget):
         if not self.player_widget or not self.player_widget.has_stems_loaded():
             self.preview_label.setText("Load stems to see preview")
             return
-            
+
         num_stems = len(self.player_widget.stem_files)
         duration_seconds = self.player_widget.player.get_duration()
-        
+
         if not self.enable_chunking.isChecked():
             if self.mode_individual.isChecked():
                 preview = f"Will export {num_stems} individual stem file(s)"
@@ -296,7 +312,7 @@ class ExportMixedWidget(QWidget):
             bit_depth=bit_depth,
             enable_chunking=self.enable_chunking.isChecked(),
             chunk_length=self.chunk_length.value(),
-            export_mode=export_mode
+            export_mode=export_mode,
         )
 
     @Slot()
@@ -306,18 +322,16 @@ class ExportMixedWidget(QWidget):
             QMessageBox.warning(
                 self,
                 "No Stems Loaded",
-                "Please load stems in the Stems tab before exporting."
+                "Please load stems in the Stems tab before exporting.",
             )
             return
 
         settings = self.get_settings()
-        
+
         # Ask user for output location
-        if settings.enable_chunking and settings.export_mode == 'individual':
+        if settings.enable_chunking and settings.export_mode == "individual":
             output_dir = QFileDialog.getExistingDirectory(
-                self,
-                "Select Output Directory for Stem Chunks",
-                ""
+                self, "Select Output Directory for Stem Chunks", ""
             )
             if not output_dir:
                 return
@@ -327,10 +341,7 @@ class ExportMixedWidget(QWidget):
             filter_str = f"{settings.file_format} Files (*{extension})"
 
             save_path, _ = QFileDialog.getSaveFileName(
-                self,
-                "Export Audio",
-                "",
-                filter_str
+                self, "Export Audio", "", filter_str
             )
             if not save_path:
                 return
@@ -343,21 +354,21 @@ class ExportMixedWidget(QWidget):
         """Execute the export with given settings"""
         success = False
         result_message = ""
-        
+
         # Get common filename from player widget
         common_filename = self.player_widget._get_common_filename()
 
         try:
             player = self.player_widget.player
-            
+
             if settings.enable_chunking:
-                if settings.export_mode == 'mixed':
+                if settings.export_mode == "mixed":
                     chunk_paths = player.export_mix_chunked(
                         output_path,
                         settings.chunk_length,
                         file_format=settings.file_format,
                         bit_depth=settings.bit_depth,
-                        common_filename=common_filename
+                        common_filename=common_filename,
                     )
 
                     if chunk_paths:
@@ -367,14 +378,16 @@ class ExportMixedWidget(QWidget):
                             f"{output_path.parent}"
                         )
                     else:
-                        result_message = "Failed to export chunks. Check the log for details."
+                        result_message = (
+                            "Failed to export chunks. Check the log for details."
+                        )
                 else:
                     all_chunks = player.export_stems_chunked(
                         output_path,
                         settings.chunk_length,
                         file_format=settings.file_format,
                         bit_depth=settings.bit_depth,
-                        common_filename=common_filename
+                        common_filename=common_filename,
                     )
 
                     if all_chunks:
@@ -385,25 +398,29 @@ class ExportMixedWidget(QWidget):
                             f"{output_path}"
                         )
                     else:
-                        result_message = "Failed to export stem chunks. Check the log for details."
+                        result_message = (
+                            "Failed to export stem chunks. Check the log for details."
+                        )
             else:
-                if settings.export_mode == 'mixed':
+                if settings.export_mode == "mixed":
                     success = player.export_mix(
                         output_path,
                         file_format=settings.file_format,
-                        bit_depth=settings.bit_depth
+                        bit_depth=settings.bit_depth,
                     )
 
                     if success:
                         result_message = f"Mixed audio exported to:\n{output_path}"
                     else:
-                        result_message = "Failed to export mixed audio. Check the log for details."
+                        result_message = (
+                            "Failed to export mixed audio. Check the log for details."
+                        )
                 else:
                     all_chunks = player.export_stems_chunked(
                         output_path,
                         chunk_length_seconds=999999,
                         file_format=settings.file_format,
-                        bit_depth=settings.bit_depth
+                        bit_depth=settings.bit_depth,
                     )
 
                     if all_chunks:
@@ -413,7 +430,9 @@ class ExportMixedWidget(QWidget):
                             f"{output_path}"
                         )
                     else:
-                        result_message = "Failed to export stems. Check the log for details."
+                        result_message = (
+                            "Failed to export stems. Check the log for details."
+                        )
 
             if success:
                 QMessageBox.information(self, "Export Successful", result_message)
@@ -424,8 +443,5 @@ class ExportMixedWidget(QWidget):
         except Exception as e:
             self.ctx.logger().error(f"Export error: {e}", exc_info=True)
             QMessageBox.critical(
-                self,
-                "Export Failed",
-                f"An error occurred during export:\n{str(e)}"
+                self, "Export Failed", f"An error occurred during export:\n{str(e)}"
             )
-

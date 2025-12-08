@@ -1,6 +1,7 @@
 """
 Main window scaffolding for the Stem Separator GUI.
 """
+
 from __future__ import annotations
 
 import platform
@@ -71,7 +72,7 @@ class MainWindow(QMainWindow):
 
         self.setWindowTitle(APP_NAME)
         self.resize(1400, 900)  # Larger default size for modern displays
-        
+
         # Set window icon
         icon_path = ICONS_DIR / "app_icon_1024.png"
         if icon_path.exists():
@@ -91,20 +92,20 @@ class MainWindow(QMainWindow):
         main_v_layout = QVBoxLayout(main_widget)
         main_v_layout.setContentsMargins(0, 0, 0, 0)
         main_v_layout.setSpacing(0)
-        
+
         # Content container (Sidebar + Stack)
         content_widget = QWidget()
         content_layout = QHBoxLayout(content_widget)
         content_layout.setContentsMargins(0, 0, 0, 0)
         content_layout.setSpacing(0)
-        
+
         self.setCentralWidget(main_widget)
 
         # 1. LEFT SIDEBAR
         self._sidebar = QFrame()
         self._sidebar.setObjectName("sidebar")
         self._sidebar.setFixedWidth(220)  # Wide sidebar for text labels
-        
+
         # Sidebar layout
         sidebar_layout = QVBoxLayout(self._sidebar)
         sidebar_layout.setContentsMargins(0, 10, 0, 20)
@@ -122,14 +123,18 @@ class MainWindow(QMainWindow):
         self._recording_widget = RecordingWidget(self)
         self._queue_widget = QueueWidget(self)
         self._player_widget = PlayerWidget(self)
-        self._export_mixed_widget = ExportMixedWidget(player_widget=self._player_widget, parent=self)
-        self._export_loops_widget = ExportLoopsWidget(player_widget=self._player_widget, parent=self)
+        self._export_mixed_widget = ExportMixedWidget(
+            player_widget=self._player_widget, parent=self
+        )
+        self._export_loops_widget = ExportLoopsWidget(
+            player_widget=self._player_widget, parent=self
+        )
 
         # Add to Stack
-        self._content_stack.addWidget(self._upload_widget)    # Index 0
-        self._content_stack.addWidget(self._recording_widget) # Index 1
-        self._content_stack.addWidget(self._queue_widget)     # Index 2
-        self._content_stack.addWidget(self._player_widget)    # Index 3
+        self._content_stack.addWidget(self._upload_widget)  # Index 0
+        self._content_stack.addWidget(self._recording_widget)  # Index 1
+        self._content_stack.addWidget(self._queue_widget)  # Index 2
+        self._content_stack.addWidget(self._player_widget)  # Index 3
         self._content_stack.addWidget(self._export_mixed_widget)  # Index 4
         self._content_stack.addWidget(self._export_loops_widget)  # Index 5
 
@@ -138,21 +143,21 @@ class MainWindow(QMainWindow):
         self._btn_upload = self._create_nav_button("upload", 0)
         self._btn_record = self._create_nav_button("mic", 1)
         self._btn_queue = self._create_nav_button("list", 2)
-        
+
         # Monitoring section buttons (navigate to PlayerWidget + specific page)
         self._btn_stems = self._create_player_page_button("stems", 0)
         self._btn_playback = self._create_player_page_button("playback", 1)
         self._btn_looping = self._create_player_page_button("looping", 2)
-        
+
         # --- SIDEBAR STRUCTURE ---
-        
+
         # SECTION: INPUT
         self._lbl_input = QLabel("Input")
         self._lbl_input.setObjectName("sidebar_header")
         sidebar_layout.addWidget(self._lbl_input)
         sidebar_layout.addWidget(self._btn_upload)
         sidebar_layout.addWidget(self._btn_record)
-        
+
         # SEPARATOR 1
         sep1 = QFrame()
         sep1.setObjectName("sidebar_separator")
@@ -165,7 +170,7 @@ class MainWindow(QMainWindow):
         self._lbl_process.setObjectName("sidebar_header")
         sidebar_layout.addWidget(self._lbl_process)
         sidebar_layout.addWidget(self._btn_queue)
-        
+
         # SEPARATOR 2
         sep2 = QFrame()
         sep2.setObjectName("sidebar_separator")
@@ -202,8 +207,8 @@ class MainWindow(QMainWindow):
         self._btn_export_loops = self._create_export_page_button("export_loops", 5)
         self._btn_export_loops.setToolTip("Configure and export sampler loops")
         sidebar_layout.addWidget(self._btn_export_loops)
-        
-        sidebar_layout.addStretch() # Push buttons to top
+
+        sidebar_layout.addStretch()  # Push buttons to top
 
         # Set default selection
         self._btn_upload.setChecked(True)
@@ -211,20 +216,23 @@ class MainWindow(QMainWindow):
         # Assemble Content Layout
         content_layout.addWidget(self._sidebar)
         content_layout.addWidget(self._content_stack)
-        
+
         # Add content to main VBox with stretch factor 1 to allow shrinking
         main_v_layout.addWidget(content_widget, stretch=1)
-        
+
         # Wire up signals between widgets
         self._upload_widget.file_queued.connect(self._queue_widget.add_task)
-        self._upload_widget.start_queue_requested.connect(self._on_start_queue_requested)
+        self._upload_widget.start_queue_requested.connect(
+            self._on_start_queue_requested
+        )
         self._recording_widget.recording_saved.connect(self._on_recording_saved)
-        
+
         # Connect PlayerWidget stem status to refresh Export widgets
         self._player_widget.stems_loaded_changed.connect(self._on_stems_loaded_changed)
 
         # Enhanced status bar with log monitoring and resource usage
         from ui.widgets.enhanced_statusbar import EnhancedStatusBar
+
         status_bar = EnhancedStatusBar(self)
         self.setStatusBar(status_bar)
 
@@ -237,52 +245,56 @@ class MainWindow(QMainWindow):
         """Helper to create sidebar navigation buttons"""
         btn = QPushButton()
         btn.setCheckable(True)
-        btn.setObjectName("sidebar_button") # For styling
+        btn.setObjectName("sidebar_button")  # For styling
         # Connect click to page switch
         btn.clicked.connect(lambda: self._content_stack.setCurrentIndex(index))
         self._nav_group.addButton(btn)
         # TODO: Load icon here once we have them, or use unicode/text for now
         return btn
 
-    def _create_player_page_button(self, page_name: str, page_index: int) -> QPushButton:
+    def _create_player_page_button(
+        self, page_name: str, page_index: int
+    ) -> QPushButton:
         """
         Helper to create sidebar buttons for PlayerWidget pages.
-        
+
         PURPOSE: Navigate to PlayerWidget (index 3) AND set specific page
         CONTEXT: Stems, Playback, Looping buttons under MONITORING section
         """
         btn = QPushButton()
         btn.setCheckable(True)
         btn.setObjectName("sidebar_button")
-        
+
         # Connect click to: 1) switch to PlayerWidget, 2) set page within PlayerWidget
         def on_click():
             self._content_stack.setCurrentIndex(3)  # PlayerWidget is at index 3
             self._player_widget.set_page(page_index)
-        
+
         btn.clicked.connect(on_click)
         self._nav_group.addButton(btn)
         return btn
 
-    def _create_export_page_button(self, page_name: str, stack_index: int) -> QPushButton:
+    def _create_export_page_button(
+        self, page_name: str, stack_index: int
+    ) -> QPushButton:
         """
         Helper to create sidebar buttons for Export widgets.
-        
+
         PURPOSE: Navigate to Export widgets and refresh their state
         CONTEXT: Export Mixed (index 4) and Export Loops (index 5)
         """
         btn = QPushButton()
         btn.setCheckable(True)
         btn.setObjectName("sidebar_button")
-        
+
         # Connect click to switch to export widget and refresh it
         def on_click():
             self._content_stack.setCurrentIndex(stack_index)
             # Refresh the export widget to update stem availability
             widget = self._content_stack.widget(stack_index)
-            if hasattr(widget, 'refresh'):
+            if hasattr(widget, "refresh"):
                 widget.refresh()
-        
+
         btn.clicked.connect(on_click)
         self._nav_group.addButton(btn)
         return btn
@@ -291,12 +303,13 @@ class MainWindow(QMainWindow):
         """Center window on primary screen"""
         try:
             from PySide6.QtGui import QScreen
+
             screen = QApplication.primaryScreen()
             if screen:
                 geometry = screen.availableGeometry()
                 self.move(
                     (geometry.width() - self.width()) // 2,
-                    (geometry.height() - self.height()) // 2
+                    (geometry.height() - self.height()) // 2,
                 )
         except Exception:
             pass
@@ -347,36 +360,36 @@ class MainWindow(QMainWindow):
     def _setup_edit_menu(self, menubar) -> None:
         """Setup standard Edit menu"""
         self._edit_menu = menubar.addMenu("Edit")
-        
+
         self._undo_action = QAction("Undo", self)
         self._undo_action.setShortcut(QKeySequence.Undo)
         self._undo_action.setEnabled(False)
         self._edit_menu.addAction(self._undo_action)
-        
+
         self._redo_action = QAction("Redo", self)
         self._redo_action.setShortcut(QKeySequence.Redo)
         self._redo_action.setEnabled(False)
         self._edit_menu.addAction(self._redo_action)
-        
+
         self._edit_menu.addSeparator()
-        
+
         self._cut_action = QAction("Cut", self)
         self._cut_action.setShortcut(QKeySequence.Cut)
         self._cut_action.setEnabled(False)
         self._edit_menu.addAction(self._cut_action)
-        
+
         self._copy_action = QAction("Copy", self)
         self._copy_action.setShortcut(QKeySequence.Copy)
         self._copy_action.setEnabled(False)
         self._edit_menu.addAction(self._copy_action)
-        
+
         self._paste_action = QAction("Paste", self)
         self._paste_action.setShortcut(QKeySequence.Paste)
         self._paste_action.setEnabled(False)
         self._edit_menu.addAction(self._paste_action)
-        
+
         self._edit_menu.addSeparator()
-        
+
         self._select_all_action = QAction("Select All", self)
         self._select_all_action.setShortcut(QKeySequence.SelectAll)
         self._select_all_action.setEnabled(False)
@@ -390,7 +403,8 @@ class MainWindow(QMainWindow):
         toolbar.setToolButtonStyle(Qt.ToolButtonTextUnderIcon)
 
         if platform.system() == "Darwin":
-            toolbar.setStyleSheet("""
+            toolbar.setStyleSheet(
+                """
                 QToolBar {
                     background: transparent;
                     border: none;
@@ -410,7 +424,8 @@ class MainWindow(QMainWindow):
                 QToolButton:pressed {
                     background: rgba(255, 255, 255, 0.15);
                 }
-            """)
+            """
+            )
 
         toolbar.addAction(self._settings_action)
 
@@ -438,30 +453,42 @@ class MainWindow(QMainWindow):
         self.setWindowTitle(translator("app.title", fallback=APP_NAME))
 
         self._file_menu.setTitle(translator("menu.file", fallback="File"))
-        self._open_files_action.setText(translator("menu.file.open_files", fallback="Open Audio Files"))
+        self._open_files_action.setText(
+            translator("menu.file.open_files", fallback="Open Audio Files")
+        )
         self._quit_action.setText(translator("menu.file.quit", fallback="Quit"))
 
         self._view_menu.setTitle(translator("menu.view", fallback="View"))
-        self._settings_action.setText(translator("menu.view.settings", fallback="Settings"))
+        self._settings_action.setText(
+            translator("menu.view.settings", fallback="Settings")
+        )
 
         self._help_menu.setTitle(translator("menu.help", fallback="Help"))
         self._about_action.setText(translator("menu.help.about", fallback="About"))
 
         # Update Sidebar Headers
         self._lbl_input.setText(translator("sidebar.input", fallback="INPUT"))
-        self._lbl_process.setText(translator("sidebar.processing", fallback="PROCESSING"))
-        self._lbl_monitoring.setText(translator("sidebar.monitoring", fallback="MONITORING"))
+        self._lbl_process.setText(
+            translator("sidebar.processing", fallback="PROCESSING")
+        )
+        self._lbl_monitoring.setText(
+            translator("sidebar.monitoring", fallback="MONITORING")
+        )
         self._lbl_export.setText(translator("sidebar.export", fallback="EXPORT"))
-        
+
         # Update Export Navigation Buttons
-        self._btn_export_mixed.setText(translator("tabs.export_mixed", fallback="💾 Export Mixed"))
-        self._btn_export_loops.setText(translator("tabs.export_loops", fallback="🔁 Export Loops"))
+        self._btn_export_mixed.setText(
+            translator("tabs.export_mixed", fallback="💾 Export Mixed")
+        )
+        self._btn_export_loops.setText(
+            translator("tabs.export_loops", fallback="🔁 Export Loops")
+        )
 
         # Update Sidebar Buttons
         self._btn_upload.setText(translator("tabs.upload", fallback="Upload"))
         self._btn_record.setText(translator("tabs.recording", fallback="Recording"))
         self._btn_queue.setText(translator("tabs.queue", fallback="Queue"))
-        
+
         # Monitoring section buttons
         self._btn_stems.setText(translator("tabs.stems", fallback="📂 Stems"))
         self._btn_playback.setText(translator("tabs.playback", fallback="▶ Playback"))
@@ -495,7 +522,9 @@ class MainWindow(QMainWindow):
                     "dialog.files.filter.audio",
                     fallback="Audio Files (*.wav *.mp3 *.flac *.m4a *.ogg *.aac)",
                 ),
-                self._context.translate("dialog.files.filter.all", fallback="All Files (*)"),
+                self._context.translate(
+                    "dialog.files.filter.all", fallback="All Files (*)"
+                ),
             ]
         )
 
@@ -510,7 +539,7 @@ class MainWindow(QMainWindow):
                 ),
                 5000,
             )
-            # If we are not on upload tab, switch to it? 
+            # If we are not on upload tab, switch to it?
             # Maybe better to let user decide, but we could:
             # self._content_stack.setCurrentIndex(0)
             # self._btn_upload.setChecked(True)
@@ -540,7 +569,7 @@ class MainWindow(QMainWindow):
     @Slot()
     def _on_start_queue_requested(self):
         """Handle start request: Switch to queue and start"""
-        self._content_stack.setCurrentIndex(2) # Queue Tab
+        self._content_stack.setCurrentIndex(2)  # Queue Tab
         self._btn_queue.setChecked(True)
         self._queue_widget.start_processing()
 
@@ -550,7 +579,7 @@ class MainWindow(QMainWindow):
         self._logger.info(f"Recording saved: {file_path}")
         if self.statusBar():
             self.statusBar().showMessage(f"Recording saved: {file_path.name}", 5000)
-        
+
         # Auto-switch to Upload/Input tab to let user proceed
         self._content_stack.setCurrentIndex(0)
         self._btn_upload.setChecked(True)
@@ -560,7 +589,7 @@ class MainWindow(QMainWindow):
     def _on_stems_loaded_changed(self, stems_loaded: bool) -> None:
         """
         Handle stem loading status change from PlayerWidget.
-        
+
         PURPOSE: Refresh export widgets when stems are loaded/cleared
         CONTEXT: Called when stems are loaded or cleared in PlayerWidget
         """

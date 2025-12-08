@@ -1,6 +1,7 @@
 """
 Intelligenter Error Handler mit Retry-Logik und Fallback-Strategien
 """
+
 import time
 import traceback
 from enum import Enum
@@ -15,6 +16,7 @@ logger = get_logger()
 
 class ErrorType(Enum):
     """Kategorisierung von Fehlern"""
+
     GPU_MEMORY = "gpu_memory"
     CPU_MEMORY = "cpu_memory"
     MODEL_LOADING = "model_loading"
@@ -26,7 +28,13 @@ class ErrorType(Enum):
 
 class SeparationError(Exception):
     """Basis-Exception für Separation-Fehler"""
-    def __init__(self, message: str, error_type: ErrorType = ErrorType.UNKNOWN, context: dict = None):
+
+    def __init__(
+        self,
+        message: str,
+        error_type: ErrorType = ErrorType.UNKNOWN,
+        context: dict = None,
+    ):
         super().__init__(message)
         self.error_type = error_type
         self.context = context or {}
@@ -34,18 +42,21 @@ class SeparationError(Exception):
 
 class GPUMemoryError(SeparationError):
     """GPU Memory erschöpft"""
+
     def __init__(self, message: str, context: dict = None):
         super().__init__(message, ErrorType.GPU_MEMORY, context)
 
 
 class CPUMemoryError(SeparationError):
     """CPU Memory erschöpft"""
+
     def __init__(self, message: str, context: dict = None):
         super().__init__(message, ErrorType.CPU_MEMORY, context)
 
 
 class ModelLoadingError(SeparationError):
     """Fehler beim Model Loading"""
+
     def __init__(self, message: str, context: dict = None):
         super().__init__(message, ErrorType.MODEL_LOADING, context)
 
@@ -58,11 +69,7 @@ class ErrorHandler:
         self.logger = logger
 
     def retry_with_fallback(
-        self,
-        func: Callable,
-        *args,
-        strategies: Optional[list] = None,
-        **kwargs
+        self, func: Callable, *args, strategies: Optional[list] = None, **kwargs
     ) -> Any:
         """
         Führt Funktion mit Retry-Strategien aus
@@ -116,16 +123,15 @@ class ErrorHandler:
                 # Wenn es der letzte Versuch war, raise
                 if attempt >= len(strategies):
                     self.logger.error(
-                        f"All {len(strategies)} retry attempts failed",
-                        exc_info=True
+                        f"All {len(strategies)} retry attempts failed", exc_info=True
                     )
                     raise SeparationError(
                         f"Processing failed after {len(strategies)} attempts",
                         error_type=error_type,
                         context={
-                            'last_error': str(last_error),
-                            'attempted_strategies': strategies
-                        }
+                            "last_error": str(last_error),
+                            "attempted_strategies": strategies,
+                        },
                     ) from last_error
 
                 # Kurze Pause vor nächstem Versuch
@@ -133,8 +139,7 @@ class ErrorHandler:
 
         # Sollte nie erreicht werden, aber zur Sicherheit
         raise SeparationError(
-            "Unexpected error in retry logic",
-            context={'last_error': str(last_error)}
+            "Unexpected error in retry logic", context={"last_error": str(last_error)}
         )
 
     def _classify_error(self, error: Exception) -> ErrorType:
@@ -143,27 +148,40 @@ class ErrorHandler:
         error_type_str = type(error).__name__.lower()
 
         # GPU Memory Errors
-        if any(keyword in error_str for keyword in ['cuda', 'gpu', 'mps', 'out of memory']):
+        if any(
+            keyword in error_str for keyword in ["cuda", "gpu", "mps", "out of memory"]
+        ):
             return ErrorType.GPU_MEMORY
 
         # CPU Memory Errors
-        if any(keyword in error_str for keyword in ['memoryerror', 'ram', 'allocation']):
+        if any(
+            keyword in error_str for keyword in ["memoryerror", "ram", "allocation"]
+        ):
             return ErrorType.CPU_MEMORY
 
         # Model Loading Errors
-        if any(keyword in error_str for keyword in ['model', 'checkpoint', 'weight']):
+        if any(keyword in error_str for keyword in ["model", "checkpoint", "weight"]):
             return ErrorType.MODEL_LOADING
 
         # Network Errors
-        if any(keyword in error_str for keyword in ['connection', 'network', 'download', 'timeout']):
+        if any(
+            keyword in error_str
+            for keyword in ["connection", "network", "download", "timeout"]
+        ):
             return ErrorType.NETWORK
 
         # File I/O Errors
-        if any(keyword in error_type_str for keyword in ['ioerror', 'filenotfound', 'permission']):
+        if any(
+            keyword in error_type_str
+            for keyword in ["ioerror", "filenotfound", "permission"]
+        ):
             return ErrorType.FILE_IO
 
         # Audio Processing Errors
-        if any(keyword in error_str for keyword in ['audio', 'sample', 'waveform', 'decode']):
+        if any(
+            keyword in error_str
+            for keyword in ["audio", "sample", "waveform", "decode"]
+        ):
             return ErrorType.AUDIO_PROCESSING
 
         return ErrorType.UNKNOWN
@@ -173,8 +191,7 @@ class ErrorHandler:
         error_type = self._classify_error(error)
 
         self.logger.error(
-            f"Error Type: {error_type.value} | {str(error)}",
-            exc_info=True
+            f"Error Type: {error_type.value} | {str(error)}", exc_info=True
         )
 
         if context:
@@ -186,7 +203,7 @@ class ErrorHandler:
         *args,
         default_return: Any = None,
         log_errors: bool = True,
-        **kwargs
+        **kwargs,
     ) -> Any:
         """
         Führt Funktion sicher aus und gibt default_return bei Fehler zurück
@@ -203,18 +220,19 @@ class ErrorHandler:
             return func(*args, **kwargs)
         except Exception as e:
             if log_errors:
-                self.log_error(e, context={
-                    'function': func.__name__,
-                    'args': str(args)[:100],  # Limitiere für Readability
-                    'kwargs': str(kwargs)[:100]
-                })
+                self.log_error(
+                    e,
+                    context={
+                        "function": func.__name__,
+                        "args": str(args)[:100],  # Limitiere für Readability
+                        "kwargs": str(kwargs)[:100],
+                    },
+                )
             return default_return
 
 
 def retry_on_error(
-    max_retries: int = 3,
-    delay: float = 1.0,
-    exceptions: tuple = (Exception,)
+    max_retries: int = 3, delay: float = 1.0, exceptions: tuple = (Exception,)
 ):
     """
     Decorator für automatische Retries
@@ -224,6 +242,7 @@ def retry_on_error(
         def my_function():
             ...
     """
+
     def decorator(func):
         @wraps(func)
         def wrapper(*args, **kwargs):
@@ -244,13 +263,14 @@ def retry_on_error(
                     else:
                         logger.error(
                             f"{func.__name__} failed after {max_retries} attempts",
-                            exc_info=True
+                            exc_info=True,
                         )
                         raise last_error
 
             return None  # Should never reach here
 
         return wrapper
+
     return decorator
 
 
@@ -260,17 +280,14 @@ error_handler = ErrorHandler()
 
 if __name__ == "__main__":
     # Test Error Handler
-    def test_function(device='cpu', chunk_length=300, fail=True):
+    def test_function(device="cpu", chunk_length=300, fail=True):
         logger.info(f"Test function called with device={device}, chunk={chunk_length}")
         if fail:
             raise RuntimeError("Simulated GPU memory error")
         return "Success"
 
     try:
-        result = error_handler.retry_with_fallback(
-            test_function,
-            fail=True
-        )
+        result = error_handler.retry_with_fallback(test_function, fail=True)
     except SeparationError as e:
         logger.error(f"Final error: {e}")
         logger.error(f"Error type: {e.error_type}")

@@ -4,18 +4,32 @@ Export Settings Dialog - Configure audio export with chunk splitting options
 PURPOSE: Allow users to configure export settings including chunk splitting for samplers
 CONTEXT: Used when exporting mixed or individual stems from the Player
 """
+
 from pathlib import Path
 from typing import Optional, NamedTuple
 from PySide6.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QLabel, QCheckBox,
-    QSpinBox, QDoubleSpinBox, QComboBox, QPushButton, QGroupBox,
-    QRadioButton, QButtonGroup, QFrame, QSizePolicy, QApplication
+    QDialog,
+    QVBoxLayout,
+    QHBoxLayout,
+    QLabel,
+    QCheckBox,
+    QSpinBox,
+    QDoubleSpinBox,
+    QComboBox,
+    QPushButton,
+    QGroupBox,
+    QRadioButton,
+    QButtonGroup,
+    QFrame,
+    QSizePolicy,
+    QApplication,
 )
 from PySide6.QtCore import Qt, QSize
 
 
 class ExportSettings(NamedTuple):
     """Export settings data"""
+
     file_format: str  # 'WAV' or 'FLAC'
     bit_depth: int  # 16, 24, or 32
     enable_chunking: bool  # Split into chunks?
@@ -51,7 +65,7 @@ class ExportSettingsDialog(QDialog):
 
         self.setWindowTitle("Export Settings")
         self.setModal(True)
-        
+
         # Set dimensions to use screen height minus 10%
         # WHY: Configure dialog to use 90% of screen height for better field visibility
         # while leaving small margin for system UI elements
@@ -59,10 +73,12 @@ class ExportSettingsDialog(QDialog):
         screen_height = screen.height()
         default_width = 644  # Keep current width
         default_height = int(screen_height * 0.9)  # Screen height minus 10%
-        
+
         self.setMinimumWidth(default_width)
         self.setMinimumHeight(default_height)
-        self.resize(default_width, default_height)  # Set default size to full screen height
+        self.resize(
+            default_width, default_height
+        )  # Set default size to full screen height
 
         self._setup_ui()
         self._connect_signals()
@@ -143,7 +159,9 @@ class ExportSettingsDialog(QDialog):
         self.mode_button_group.addButton(self.mode_mixed)
         mode_options_row.addWidget(self.mode_mixed)
 
-        self.mode_individual = QRadioButton(f"Individual Stems ({self.num_stems} separate files)")
+        self.mode_individual = QRadioButton(
+            f"Individual Stems ({self.num_stems} separate files)"
+        )
         self.mode_button_group.addButton(self.mode_individual)
         mode_options_row.addWidget(self.mode_individual)
 
@@ -186,7 +204,8 @@ class ExportSettingsDialog(QDialog):
             "▼ (Down) = Decrease by 0.5s"
         )
         # Improve spinbox readability and button visibility
-        self.chunk_length.setStyleSheet("""
+        self.chunk_length.setStyleSheet(
+            """
             QDoubleSpinBox {
                 padding: 5px 10px;
                 font-size: 13pt;
@@ -211,7 +230,8 @@ class ExportSettingsDialog(QDialog):
                 width: 7px;
                 height: 7px;
             }
-        """)
+        """
+        )
         length_row.addWidget(self.chunk_length)
         length_row.addStretch()
         chunk_layout.addLayout(length_row)
@@ -233,7 +253,9 @@ class ExportSettingsDialog(QDialog):
         self.preview_label = QLabel()
         self.preview_label.setWordWrap(True)
         self.preview_label.setMinimumHeight(50)
-        self.preview_label.setStyleSheet("padding: 5px; color: rgba(255, 255, 255, 0.9);")
+        self.preview_label.setStyleSheet(
+            "padding: 5px; color: rgba(255, 255, 255, 0.9);"
+        )
         preview_layout.addWidget(self.preview_label)
 
         main_layout.addWidget(preview_card)
@@ -284,7 +306,9 @@ class ExportSettingsDialog(QDialog):
         else:
             # With chunking
             chunk_len = self.chunk_length.value()
-            chunks_per_file = int(self.duration_seconds / chunk_len) + (1 if self.duration_seconds % chunk_len > 0 else 0)
+            chunks_per_file = int(self.duration_seconds / chunk_len) + (
+                1 if self.duration_seconds % chunk_len > 0 else 0
+            )
 
             if self.mode_individual.isChecked():
                 total_files = self.num_stems * chunks_per_file
@@ -320,7 +344,7 @@ class ExportSettingsDialog(QDialog):
             bit_depth=bit_depth,
             enable_chunking=self.enable_chunking.isChecked(),
             chunk_length=self.chunk_length.value(),
-            export_mode=export_mode
+            export_mode=export_mode,
         )
 
 

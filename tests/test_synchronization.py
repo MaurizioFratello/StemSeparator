@@ -16,7 +16,7 @@ import shutil
 import soundfile as sf
 
 # Add project to path
-sys.path.insert(0, '/home/user/StemSeparator')
+sys.path.insert(0, "/home/user/StemSeparator")
 
 from core.ensemble_separator import EnsembleSeparator
 from core.separator import SeparationResult
@@ -55,14 +55,14 @@ def create_test_audio_with_different_sample_rates():
     sf.write(str(model2_dir / "test_(vocals)_m2.wav"), vocals2_stereo, sr2)
 
     return temp_dir, {
-        'model1_dir': model1_dir,
-        'model2_dir': model2_dir,
-        'model1_file': model1_dir / "test_(vocals)_m1.wav",
-        'model2_file': model2_dir / "test_(vocals)_m2.wav",
-        'sr1': sr1,
-        'sr2': sr2,
-        'samples1': samples1,
-        'samples2': samples2
+        "model1_dir": model1_dir,
+        "model2_dir": model2_dir,
+        "model1_file": model1_dir / "test_(vocals)_m1.wav",
+        "model2_file": model2_dir / "test_(vocals)_m2.wav",
+        "sr1": sr1,
+        "sr2": sr2,
+        "samples1": samples1,
+        "samples2": samples2,
     }
 
 
@@ -99,15 +99,15 @@ def create_test_audio_with_different_lengths():
     sf.write(str(model2_dir / "test_(vocals)_m2.wav"), vocals2_stereo, sr)
 
     return temp_dir, {
-        'model1_dir': model1_dir,
-        'model2_dir': model2_dir,
-        'model1_file': model1_dir / "test_(vocals)_m1.wav",
-        'model2_file': model2_dir / "test_(vocals)_m2.wav",
-        'sr': sr,
-        'samples1': samples1,
-        'samples2': samples2,
-        'duration1': duration1,
-        'duration2': duration2
+        "model1_dir": model1_dir,
+        "model2_dir": model2_dir,
+        "model1_file": model1_dir / "test_(vocals)_m1.wav",
+        "model2_file": model2_dir / "test_(vocals)_m2.wav",
+        "sr": sr,
+        "samples1": samples1,
+        "samples2": samples2,
+        "duration1": duration1,
+        "duration2": duration2,
     }
 
 
@@ -143,12 +143,12 @@ def create_test_audio_with_phase_shift():
     sf.write(str(model2_dir / "test_(vocals)_m2.wav"), vocals2_stereo, sr)
 
     return temp_dir, {
-        'model1_dir': model1_dir,
-        'model2_dir': model2_dir,
-        'model1_file': model1_dir / "test_(vocals)_m1.wav",
-        'model2_file': model2_dir / "test_(vocals)_m2.wav",
-        'phase_shift': phase_shift,
-        'sr': sr
+        "model1_dir": model1_dir,
+        "model2_dir": model2_dir,
+        "model1_file": model1_dir / "test_(vocals)_m1.wav",
+        "model2_file": model2_dir / "test_(vocals)_m2.wav",
+        "phase_shift": phase_shift,
+        "sr": sr,
     }
 
 
@@ -181,11 +181,11 @@ def create_test_audio_with_different_channels():
     sf.write(str(model2_dir / "test_(vocals)_m2.wav"), vocals_mono, sr)
 
     return temp_dir, {
-        'model1_dir': model1_dir,
-        'model2_dir': model2_dir,
-        'model1_file': model1_dir / "test_(vocals)_m1.wav",
-        'model2_file': model2_dir / "test_(vocals)_m2.wav",
-        'sr': sr
+        "model1_dir": model1_dir,
+        "model2_dir": model2_dir,
+        "model1_file": model1_dir / "test_(vocals)_m1.wav",
+        "model2_file": model2_dir / "test_(vocals)_m2.wav",
+        "sr": sr,
     }
 
 
@@ -196,9 +196,9 @@ def test_sample_rate_mismatch():
     Tests automatic resampling when models output different sample rates.
     Expected behavior: Detect mismatch, resample to common rate, log warning.
     """
-    print("\n" + "="*70)
+    print("\n" + "=" * 70)
     print("TEST: Sample Rate Mismatch (44100 vs 48000)")
-    print("="*70)
+    print("=" * 70)
 
     temp_dir, test_files = create_test_audio_with_different_sample_rates()
 
@@ -209,45 +209,49 @@ def test_sample_rate_mismatch():
         result1 = SeparationResult(
             success=True,
             input_file=Path("test.wav"),
-            output_dir=test_files['model1_dir'],
-            stems={'vocals': test_files['model1_file']},
+            output_dir=test_files["model1_dir"],
+            stems={"vocals": test_files["model1_file"]},
             model_used="model1",
             device_used="cpu",
-            duration_seconds=1.0
+            duration_seconds=1.0,
         )
 
         result2 = SeparationResult(
             success=True,
             input_file=Path("test.wav"),
-            output_dir=test_files['model2_dir'],
-            stems={'vocals': test_files['model2_file']},
+            output_dir=test_files["model2_dir"],
+            stems={"vocals": test_files["model2_file"]},
             model_used="model2",
             device_used="cpu",
-            duration_seconds=1.0
+            duration_seconds=1.0,
         )
 
         # Attempt to combine
-        weights = {'vocals': [0.5, 0.5]}
+        weights = {"vocals": [0.5, 0.5]}
 
         print(f"  Model 1: {test_files['sr1']} Hz, {test_files['samples1']} samples")
         print(f"  Model 2: {test_files['sr2']} Hz, {test_files['samples2']} samples")
-        print(f"  Difference: {abs(test_files['samples2'] - test_files['samples1'])} samples")
-
-        combined = separator._combine_stems_weighted(
-            [result1, result2],
-            weights,
-            ['model1', 'model2']
+        print(
+            f"  Difference: {abs(test_files['samples2'] - test_files['samples1'])} samples"
         )
 
-        if 'vocals' in combined:
+        combined = separator._combine_stems_weighted(
+            [result1, result2], weights, ["model1", "model2"]
+        )
+
+        if "vocals" in combined:
             print(f"\n  ✓ Successfully combined with automatic resampling!")
             print(f"  Combined shape: {combined['vocals'].shape}")
             print(f"  Peak: {np.max(np.abs(combined['vocals'])):.3f}")
 
             # Verify both stems were resampled to same length
-            if combined['vocals'].shape[1] == test_files['samples1']:
-                print(f"  ✓ Resampled to {test_files['sr1']} Hz ({test_files['samples1']} samples)")
-                print(f"  ✓ PASS: Sample rate mismatch detected and corrected via resampling")
+            if combined["vocals"].shape[1] == test_files["samples1"]:
+                print(
+                    f"  ✓ Resampled to {test_files['sr1']} Hz ({test_files['samples1']} samples)"
+                )
+                print(
+                    f"  ✓ PASS: Sample rate mismatch detected and corrected via resampling"
+                )
                 return True
             else:
                 print(f"  ❌ Unexpected length: {combined['vocals'].shape[1]}")
@@ -256,6 +260,7 @@ def test_sample_rate_mismatch():
     except Exception as e:
         print(f"\n  ❌ Failed with error: {e}")
         import traceback
+
         traceback.print_exc()
         return False
 
@@ -271,9 +276,9 @@ def test_length_mismatch():
 
     This should pad shorter audio, but WARN about significant differences
     """
-    print("\n" + "="*70)
+    print("\n" + "=" * 70)
     print("TEST: Length Mismatch (Same Sample Rate)")
-    print("="*70)
+    print("=" * 70)
 
     temp_dir, test_files = create_test_audio_with_different_lengths()
 
@@ -283,51 +288,60 @@ def test_length_mismatch():
         result1 = SeparationResult(
             success=True,
             input_file=Path("test.wav"),
-            output_dir=test_files['model1_dir'],
-            stems={'vocals': test_files['model1_file']},
+            output_dir=test_files["model1_dir"],
+            stems={"vocals": test_files["model1_file"]},
             model_used="model1",
             device_used="cpu",
-            duration_seconds=test_files['duration1']
+            duration_seconds=test_files["duration1"],
         )
 
         result2 = SeparationResult(
             success=True,
             input_file=Path("test.wav"),
-            output_dir=test_files['model2_dir'],
-            stems={'vocals': test_files['model2_file']},
+            output_dir=test_files["model2_dir"],
+            stems={"vocals": test_files["model2_file"]},
             model_used="model2",
             device_used="cpu",
-            duration_seconds=test_files['duration2']
+            duration_seconds=test_files["duration2"],
         )
 
-        weights = {'vocals': [0.5, 0.5]}
+        weights = {"vocals": [0.5, 0.5]}
 
-        print(f"  Model 1: {test_files['samples1']} samples ({test_files['duration1']}s)")
-        print(f"  Model 2: {test_files['samples2']} samples ({test_files['duration2']}s)")
-        print(f"  Difference: {abs(test_files['samples2'] - test_files['samples1'])} samples")
+        print(
+            f"  Model 1: {test_files['samples1']} samples ({test_files['duration1']}s)"
+        )
+        print(
+            f"  Model 2: {test_files['samples2']} samples ({test_files['duration2']}s)"
+        )
+        print(
+            f"  Difference: {abs(test_files['samples2'] - test_files['samples1'])} samples"
+        )
 
         combined = separator._combine_stems_weighted(
-            [result1, result2],
-            weights,
-            ['model1', 'model2']
+            [result1, result2], weights, ["model1", "model2"]
         )
 
-        if 'vocals' in combined:
+        if "vocals" in combined:
             print(f"\n  ✓ Successfully combined with padding")
             print(f"  Combined shape: {combined['vocals'].shape}")
             print(f"  Peak: {np.max(np.abs(combined['vocals'])):.3f}")
 
             # Check that combined length matches longest input
-            if combined['vocals'].shape[1] == test_files['samples2']:
-                print(f"  ✓ Length matches longest input: {test_files['samples2']} samples")
+            if combined["vocals"].shape[1] == test_files["samples2"]:
+                print(
+                    f"  ✓ Length matches longest input: {test_files['samples2']} samples"
+                )
                 return True
             else:
-                print(f"  ❌ Length mismatch: expected {test_files['samples2']}, got {combined['vocals'].shape[1]}")
+                print(
+                    f"  ❌ Length mismatch: expected {test_files['samples2']}, got {combined['vocals'].shape[1]}"
+                )
                 return False
 
     except Exception as e:
         print(f"\n  ❌ Unexpected error: {e}")
         import traceback
+
         traceback.print_exc()
         return False
 
@@ -344,9 +358,9 @@ def test_phase_cancellation():
     When stems are phase-shifted, averaging can cause cancellation
     This test verifies if phase shifts are detected/handled
     """
-    print("\n" + "="*70)
+    print("\n" + "=" * 70)
     print("TEST: Phase Shift Detection (Potential Cancellation)")
-    print("="*70)
+    print("=" * 70)
 
     temp_dir, test_files = create_test_audio_with_phase_shift()
 
@@ -356,43 +370,43 @@ def test_phase_cancellation():
         result1 = SeparationResult(
             success=True,
             input_file=Path("test.wav"),
-            output_dir=test_files['model1_dir'],
-            stems={'vocals': test_files['model1_file']},
+            output_dir=test_files["model1_dir"],
+            stems={"vocals": test_files["model1_file"]},
             model_used="model1",
             device_used="cpu",
-            duration_seconds=2.0
+            duration_seconds=2.0,
         )
 
         result2 = SeparationResult(
             success=True,
             input_file=Path("test.wav"),
-            output_dir=test_files['model2_dir'],
-            stems={'vocals': test_files['model2_file']},
+            output_dir=test_files["model2_dir"],
+            stems={"vocals": test_files["model2_file"]},
             model_used="model2",
             device_used="cpu",
-            duration_seconds=2.0
+            duration_seconds=2.0,
         )
 
-        weights = {'vocals': [0.5, 0.5]}
+        weights = {"vocals": [0.5, 0.5]}
 
         # Read original signals
-        audio1, _ = sf.read(str(test_files['model1_file']), always_2d=True)
-        audio2, _ = sf.read(str(test_files['model2_file']), always_2d=True)
+        audio1, _ = sf.read(str(test_files["model1_file"]), always_2d=True)
+        audio2, _ = sf.read(str(test_files["model2_file"]), always_2d=True)
 
         peak1 = np.max(np.abs(audio1))
         peak2 = np.max(np.abs(audio2))
 
         print(f"  Model 1 peak: {peak1:.3f}")
-        print(f"  Model 2 peak (shifted by {test_files['phase_shift']} samples): {peak2:.3f}")
-
-        combined = separator._combine_stems_weighted(
-            [result1, result2],
-            weights,
-            ['model1', 'model2']
+        print(
+            f"  Model 2 peak (shifted by {test_files['phase_shift']} samples): {peak2:.3f}"
         )
 
-        if 'vocals' in combined:
-            peak_combined = np.max(np.abs(combined['vocals']))
+        combined = separator._combine_stems_weighted(
+            [result1, result2], weights, ["model1", "model2"]
+        )
+
+        if "vocals" in combined:
+            peak_combined = np.max(np.abs(combined["vocals"]))
             print(f"\n  Combined peak: {peak_combined:.3f}")
 
             # Check for phase cancellation
@@ -402,17 +416,24 @@ def test_phase_cancellation():
 
             if peak_combined < expected_peak * 0.7:  # More than 30% reduction
                 print(f"  ⚠️  WARNING: Potential phase cancellation detected!")
-                print(f"  Expected peak: ~{expected_peak:.3f}, got: {peak_combined:.3f}")
+                print(
+                    f"  Expected peak: ~{expected_peak:.3f}, got: {peak_combined:.3f}"
+                )
                 print(f"  ❌ CRITICAL: Phase alignment not verified!")
                 return False
             else:
-                print(f"  ℹ️  No significant cancellation (expected ~{expected_peak:.3f})")
-                print(f"  ⚠️  NOTE: Current implementation does NOT check phase alignment")
+                print(
+                    f"  ℹ️  No significant cancellation (expected ~{expected_peak:.3f})"
+                )
+                print(
+                    f"  ⚠️  NOTE: Current implementation does NOT check phase alignment"
+                )
                 return True
 
     except Exception as e:
         print(f"\n  ❌ Unexpected error: {e}")
         import traceback
+
         traceback.print_exc()
         return False
 
@@ -428,9 +449,9 @@ def test_channel_count_mismatch():
 
     Should handle gracefully by upmixing mono to stereo
     """
-    print("\n" + "="*70)
+    print("\n" + "=" * 70)
     print("TEST: Channel Count Mismatch (Stereo vs Mono)")
-    print("="*70)
+    print("=" * 70)
 
     temp_dir, test_files = create_test_audio_with_different_channels()
 
@@ -440,43 +461,41 @@ def test_channel_count_mismatch():
         result1 = SeparationResult(
             success=True,
             input_file=Path("test.wav"),
-            output_dir=test_files['model1_dir'],
-            stems={'vocals': test_files['model1_file']},
+            output_dir=test_files["model1_dir"],
+            stems={"vocals": test_files["model1_file"]},
             model_used="model1",
             device_used="cpu",
-            duration_seconds=2.0
+            duration_seconds=2.0,
         )
 
         result2 = SeparationResult(
             success=True,
             input_file=Path("test.wav"),
-            output_dir=test_files['model2_dir'],
-            stems={'vocals': test_files['model2_file']},
+            output_dir=test_files["model2_dir"],
+            stems={"vocals": test_files["model2_file"]},
             model_used="model2",
             device_used="cpu",
-            duration_seconds=2.0
+            duration_seconds=2.0,
         )
 
-        weights = {'vocals': [0.5, 0.5]}
+        weights = {"vocals": [0.5, 0.5]}
 
         # Read to check channel counts
-        audio1, _ = sf.read(str(test_files['model1_file']), always_2d=True)
-        audio2, _ = sf.read(str(test_files['model2_file']), always_2d=True)
+        audio1, _ = sf.read(str(test_files["model1_file"]), always_2d=True)
+        audio2, _ = sf.read(str(test_files["model2_file"]), always_2d=True)
 
         print(f"  Model 1: {audio1.shape[1]} channels (stereo)")
         print(f"  Model 2: {audio2.shape[1]} channels (mono)")
 
         combined = separator._combine_stems_weighted(
-            [result1, result2],
-            weights,
-            ['model1', 'model2']
+            [result1, result2], weights, ["model1", "model2"]
         )
 
-        if 'vocals' in combined:
+        if "vocals" in combined:
             print(f"\n  Combined shape: {combined['vocals'].shape}")
 
             # Should be stereo (2 channels)
-            if combined['vocals'].shape[0] == 2:
+            if combined["vocals"].shape[0] == 2:
                 print(f"  ✓ Successfully converted to stereo")
                 return True
             else:
@@ -496,10 +515,10 @@ def test_channel_count_mismatch():
 
 def run_all_synchronization_tests():
     """Run all synchronization tests"""
-    print("\n" + "="*70)
+    print("\n" + "=" * 70)
     print("COMPREHENSIVE SYNCHRONIZATION TESTS")
     print("Testing for CRITICAL audio alignment issues")
-    print("="*70)
+    print("=" * 70)
 
     tests = [
         ("Sample Rate Mismatch", test_sample_rate_mismatch),
@@ -518,13 +537,14 @@ def run_all_synchronization_tests():
             print(f"\n  ❌ Test FAILED with exception: {name}")
             print(f"     Error: {e}")
             import traceback
+
             traceback.print_exc()
             results.append((name, False))
 
     # Summary
-    print("\n" + "="*70)
+    print("\n" + "=" * 70)
     print("SYNCHRONIZATION TEST RESULTS")
-    print("="*70)
+    print("=" * 70)
 
     passed = sum(1 for _, result in results if result)
     failed = len(results) - passed
@@ -542,11 +562,11 @@ def run_all_synchronization_tests():
         print("  2. Phase alignment detection/correction")
         print("  3. Channel count normalization")
 
-    print("="*70)
+    print("=" * 70)
 
     return failed == 0
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     success = run_all_synchronization_tests()
     sys.exit(0 if success else 1)

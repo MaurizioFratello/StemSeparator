@@ -20,7 +20,7 @@ print()
 mac_version = platform.mac_ver()[0]
 print(f"macOS Version: {mac_version}")
 
-major, minor, patch = map(int, mac_version.split('.')[:3])
+major, minor, patch = map(int, mac_version.split(".")[:3])
 if major < 13:
     print("❌ ERROR: ScreenCaptureKit requires macOS 13.0 (Ventura) or later")
     print(f"   Your version: {mac_version}")
@@ -34,6 +34,7 @@ print()
 print("Testing PyObjC ScreenCaptureKit import...")
 try:
     import ScreenCaptureKit as SCK
+
     print("✓ ScreenCaptureKit imported successfully")
 except ImportError as e:
     print(f"❌ Failed to import ScreenCaptureKit: {e}")
@@ -47,6 +48,7 @@ print()
 print("Test 1: Getting shareable content...")
 print("-" * 60)
 
+
 async def test_shareable_content():
     """Test if we can access shareable content"""
     try:
@@ -55,7 +57,9 @@ async def test_shareable_content():
         from Foundation import NSError
 
         # Try synchronous version first (easier to debug)
-        content, error = SCK.SCShareableContent.getShareableContentWithCompletionHandler_(None)
+        content, error = (
+            SCK.SCShareableContent.getShareableContentWithCompletionHandler_(None)
+        )
 
         if error is not None:
             raise Exception(f"Error: {error}")
@@ -77,6 +81,7 @@ async def test_shareable_content():
         print("  System Settings → Privacy & Security → Screen Recording")
         print("  → Enable permission for Terminal/Python")
         return None
+
 
 # Run the async test
 try:
@@ -132,10 +137,12 @@ try:
     display = content.displays()[0]
 
     # Create filter for display (captures all audio from that display)
-    content_filter = SCContentFilter.alloc().initWithDisplay_excludingApplications_exceptingWindows_(
-        display,
-        [],  # Don't exclude any applications
-        []   # Don't except any windows
+    content_filter = (
+        SCContentFilter.alloc().initWithDisplay_excludingApplications_exceptingWindows_(
+            display,
+            [],  # Don't exclude any applications
+            [],  # Don't except any windows
+        )
     )
 
     print("✓ Content filter created")
@@ -158,6 +165,7 @@ from Foundation import NSObject
 from ScreenCaptureKit import SCStream, SCStreamOutputType
 import time
 
+
 class AudioStreamOutput(NSObject):
     """Delegate to receive audio samples"""
 
@@ -176,12 +184,11 @@ class AudioStreamOutput(NSObject):
             self.audio_received = True
             print(f"  ✓ Audio sample received! (count: {self.sample_count})")
 
+
 try:
     # Create stream
     stream = SCStream.alloc().initWithFilter_configuration_delegate_(
-        content_filter,
-        config,
-        None  # No delegate (we use output handler instead)
+        content_filter, config, None  # No delegate (we use output handler instead)
     )
 
     print("✓ Stream created")
@@ -191,13 +198,11 @@ try:
 
     # Add stream output for audio
     from dispatch import dispatch_get_global_queue, DISPATCH_QUEUE_PRIORITY_HIGH
+
     queue = dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 0)
 
     error = stream.addStreamOutput_type_sampleHandlerQueue_error_(
-        output_handler,
-        SCStreamOutputType.audio,
-        queue,
-        None
+        output_handler, SCStreamOutputType.audio, queue, None
     )
 
     if error[1] is not None:
@@ -270,6 +275,6 @@ try:
 except Exception as e:
     print(f"❌ Stream test failed: {e}")
     import traceback
+
     traceback.print_exc()
     sys.exit(1)
-

@@ -1,6 +1,7 @@
 """
 Unit Tests for Ensemble Separator
 """
+
 import pytest
 import numpy as np
 import soundfile as sf
@@ -48,23 +49,35 @@ def test_audio_files():
     # Model 1 stems
     model1_dir = stems_dir / "model1"
     model1_dir.mkdir()
-    sf.write(str(model1_dir / "test_song_(vocals)_model1.wav"), vocals_stereo, sample_rate)
-    sf.write(str(model1_dir / "test_song_(drums)_model1.wav"), drums_stereo, sample_rate)
+    sf.write(
+        str(model1_dir / "test_song_(vocals)_model1.wav"), vocals_stereo, sample_rate
+    )
+    sf.write(
+        str(model1_dir / "test_song_(drums)_model1.wav"), drums_stereo, sample_rate
+    )
     sf.write(str(model1_dir / "test_song_(bass)_model1.wav"), bass_stereo, sample_rate)
 
     # Model 2 stems (slightly different)
     model2_dir = stems_dir / "model2"
     model2_dir.mkdir()
-    sf.write(str(model2_dir / "test_song_(vocals)_model2.wav"), vocals_stereo * 0.95, sample_rate)
-    sf.write(str(model2_dir / "test_song_(drums)_model2.wav"), drums_stereo * 1.05, sample_rate)
+    sf.write(
+        str(model2_dir / "test_song_(vocals)_model2.wav"),
+        vocals_stereo * 0.95,
+        sample_rate,
+    )
+    sf.write(
+        str(model2_dir / "test_song_(drums)_model2.wav"),
+        drums_stereo * 1.05,
+        sample_rate,
+    )
     sf.write(str(model2_dir / "test_song_(bass)_model2.wav"), bass_stereo, sample_rate)
 
     yield {
-        'test_file': test_file,
-        'stems_dir': stems_dir,
-        'model1_dir': model1_dir,
-        'model2_dir': model2_dir,
-        'sample_rate': sample_rate
+        "test_file": test_file,
+        "stems_dir": stems_dir,
+        "model1_dir": model1_dir,
+        "model2_dir": model2_dir,
+        "sample_rate": sample_rate,
     }
 
     # Cleanup
@@ -98,7 +111,10 @@ class TestEnsembleSeparator:
         assert separator._extract_stem_name(Path("song_other_model.wav")) == "other"
 
         # Test instrumental
-        assert separator._extract_stem_name(Path("song_instrumental.wav")) == "instrumental"
+        assert (
+            separator._extract_stem_name(Path("song_instrumental.wav"))
+            == "instrumental"
+        )
         assert separator._extract_stem_name(Path("song_instrum.wav")) == "instrumental"
 
     def test_combine_stems_weighted(self, test_audio_files):
@@ -110,89 +126,85 @@ class TestEnsembleSeparator:
         # Create fake results
         result1 = SeparationResult(
             success=True,
-            input_file=test_audio_files['test_file'],
-            output_dir=test_audio_files['model1_dir'],
+            input_file=test_audio_files["test_file"],
+            output_dir=test_audio_files["model1_dir"],
             stems={
-                'vocals': test_audio_files['model1_dir'] / "test_song_(vocals)_model1.wav",
-                'drums': test_audio_files['model1_dir'] / "test_song_(drums)_model1.wav",
-                'bass': test_audio_files['model1_dir'] / "test_song_(bass)_model1.wav"
+                "vocals": test_audio_files["model1_dir"]
+                / "test_song_(vocals)_model1.wav",
+                "drums": test_audio_files["model1_dir"]
+                / "test_song_(drums)_model1.wav",
+                "bass": test_audio_files["model1_dir"] / "test_song_(bass)_model1.wav",
             },
             model_used="model1",
             device_used="cpu",
-            duration_seconds=1.0
+            duration_seconds=1.0,
         )
 
         result2 = SeparationResult(
             success=True,
-            input_file=test_audio_files['test_file'],
-            output_dir=test_audio_files['model2_dir'],
+            input_file=test_audio_files["test_file"],
+            output_dir=test_audio_files["model2_dir"],
             stems={
-                'vocals': test_audio_files['model2_dir'] / "test_song_(vocals)_model2.wav",
-                'drums': test_audio_files['model2_dir'] / "test_song_(drums)_model2.wav",
-                'bass': test_audio_files['model2_dir'] / "test_song_(bass)_model2.wav"
+                "vocals": test_audio_files["model2_dir"]
+                / "test_song_(vocals)_model2.wav",
+                "drums": test_audio_files["model2_dir"]
+                / "test_song_(drums)_model2.wav",
+                "bass": test_audio_files["model2_dir"] / "test_song_(bass)_model2.wav",
             },
             model_used="model2",
             device_used="cpu",
-            duration_seconds=1.0
+            duration_seconds=1.0,
         )
 
         # Test weighted combination
-        weights = {
-            'vocals': [0.6, 0.4],
-            'drums': [0.4, 0.6],
-            'bass': [0.5, 0.5]
-        }
+        weights = {"vocals": [0.6, 0.4], "drums": [0.4, 0.6], "bass": [0.5, 0.5]}
 
         combined = separator._combine_stems_weighted(
-            [result1, result2],
-            weights,
-            ['model1', 'model2']
+            [result1, result2], weights, ["model1", "model2"]
         )
 
         # Check results
-        assert 'vocals' in combined
-        assert 'drums' in combined
-        assert 'bass' in combined
+        assert "vocals" in combined
+        assert "drums" in combined
+        assert "bass" in combined
 
         # Check shapes
-        assert combined['vocals'].shape[0] == 2  # Stereo
-        assert combined['drums'].shape[0] == 2
-        assert combined['bass'].shape[0] == 2
+        assert combined["vocals"].shape[0] == 2  # Stereo
+        assert combined["drums"].shape[0] == 2
+        assert combined["bass"].shape[0] == 2
 
         # Check values are reasonable (not clipped)
-        assert np.max(np.abs(combined['vocals'])) <= 1.0
-        assert np.max(np.abs(combined['drums'])) <= 1.0
-        assert np.max(np.abs(combined['bass'])) <= 1.0
+        assert np.max(np.abs(combined["vocals"])) <= 1.0
+        assert np.max(np.abs(combined["drums"])) <= 1.0
+        assert np.max(np.abs(combined["bass"])) <= 1.0
 
     def test_ensemble_configs_exist(self):
         """Test that ensemble configs are properly defined"""
-        assert 'balanced' in ENSEMBLE_CONFIGS
-        assert 'quality' in ENSEMBLE_CONFIGS
-        assert 'vocals_focus' in ENSEMBLE_CONFIGS
+        assert "balanced" in ENSEMBLE_CONFIGS
+        assert "quality" in ENSEMBLE_CONFIGS
+        assert "vocals_focus" in ENSEMBLE_CONFIGS
 
         # Check balanced config
-        balanced = ENSEMBLE_CONFIGS['balanced']
-        assert 'models' in balanced
-        assert 'weights' in balanced
-        assert len(balanced['models']) == 2
-        assert 'vocals' in balanced['weights']
+        balanced = ENSEMBLE_CONFIGS["balanced"]
+        assert "models" in balanced
+        assert "weights" in balanced
+        assert len(balanced["models"]) == 2
+        assert "vocals" in balanced["weights"]
 
         # Check quality config
-        quality = ENSEMBLE_CONFIGS['quality']
-        assert len(quality['models']) == 3
+        quality = ENSEMBLE_CONFIGS["quality"]
+        assert len(quality["models"]) == 3
 
         # Check vocals_focus config
-        vocals = ENSEMBLE_CONFIGS['vocals_focus']
-        assert len(vocals['models']) == 2
+        vocals = ENSEMBLE_CONFIGS["vocals_focus"]
+        assert len(vocals["models"]) == 2
 
     def test_get_temp_dir(self, test_audio_files):
         """Test temporary directory creation"""
         separator = EnsembleSeparator()
 
         temp_dir = separator._get_temp_dir(
-            None,
-            "test_model",
-            test_audio_files['test_file']
+            None, "test_model", test_audio_files["test_file"]
         )
 
         assert temp_dir.exists()
@@ -214,15 +226,17 @@ class TestEnsembleSeparator:
 
         result = SeparationResult(
             success=True,
-            input_file=test_audio_files['test_file'],
-            output_dir=test_audio_files['model1_dir'],
+            input_file=test_audio_files["test_file"],
+            output_dir=test_audio_files["model1_dir"],
             stems={
-                'vocals': test_audio_files['model1_dir'] / "test_song_(vocals)_model1.wav",
-                'drums': test_audio_files['model1_dir'] / "test_song_(drums)_model1.wav"
+                "vocals": test_audio_files["model1_dir"]
+                / "test_song_(vocals)_model1.wav",
+                "drums": test_audio_files["model1_dir"]
+                / "test_song_(drums)_model1.wav",
             },
             model_used="model1",
             device_used="cpu",
-            duration_seconds=1.0
+            duration_seconds=1.0,
         )
 
         # Test finding exact match
@@ -260,9 +274,9 @@ class TestEnsembleIntegration:
         separator = EnsembleSeparator()
 
         result = separator.separate_ensemble(
-            audio_file=test_audio_files['test_file'],
-            ensemble_config='balanced',
-            progress_callback=lambda msg, pct: print(f"{pct}%: {msg}")
+            audio_file=test_audio_files["test_file"],
+            ensemble_config="balanced",
+            progress_callback=lambda msg, pct: print(f"{pct}%: {msg}"),
         )
 
         # This would actually run separation - skip in unit tests

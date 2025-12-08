@@ -4,6 +4,7 @@ Device Detection for BeatNet Beat-Service
 PURPOSE: Detect best available compute device for PyTorch inference
 CONTEXT: Prioritizes MPS (Apple Silicon) > CUDA > CPU
 """
+
 from typing import Literal
 
 DeviceType = Literal["cpu", "mps", "cuda"]
@@ -25,10 +26,10 @@ def get_best_device() -> DeviceType:
         import torch
 
         # Check MPS (Apple Silicon)
-        if hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
+        if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
             # Verify MPS is actually functional
             try:
-                _ = torch.zeros(1, device='mps')
+                _ = torch.zeros(1, device="mps")
                 return "mps"
             except Exception:
                 pass  # MPS available but not functional
@@ -63,7 +64,8 @@ def resolve_device(requested: str) -> DeviceType:
     if requested == "mps":
         try:
             import torch
-            if hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
+
+            if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
                 return "mps"
         except ImportError:
             pass
@@ -72,6 +74,7 @@ def resolve_device(requested: str) -> DeviceType:
     if requested == "cuda":
         try:
             import torch
+
             if torch.cuda.is_available():
                 return "cuda"
         except ImportError:
@@ -79,4 +82,3 @@ def resolve_device(requested: str) -> DeviceType:
         return "cpu"
 
     return "cpu"
-

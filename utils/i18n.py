@@ -1,6 +1,7 @@
 """
 Internationalisierungs-System für Deutsch/Englisch
 """
+
 import json
 from pathlib import Path
 from typing import Optional, Dict
@@ -14,7 +15,7 @@ logger = get_logger()
 class I18n:
     """Singleton für Übersetzungen"""
 
-    _instance: Optional['I18n'] = None
+    _instance: Optional["I18n"] = None
     _translations: Dict[str, Dict[str, str]] = {}
     _current_language: str = DEFAULT_LANGUAGE
 
@@ -34,7 +35,7 @@ class I18n:
 
             try:
                 if translation_file.exists():
-                    with open(translation_file, 'r', encoding='utf-8') as f:
+                    with open(translation_file, "r", encoding="utf-8") as f:
                         self._translations[lang] = json.load(f)
                     logger.debug(f"Loaded translations for language: {lang}")
                 else:
@@ -69,13 +70,11 @@ class I18n:
             Übersetzter String
         """
         # Hole Übersetzung für aktuelle Sprache
-        translation = self._translations.get(
-            self._current_language, {}
-        ).get(key)
+        translation = self._translations.get(self._current_language, {}).get(key)
 
         # Fallback auf Englisch
-        if translation is None and self._current_language != 'en':
-            translation = self._translations.get('en', {}).get(key)
+        if translation is None and self._current_language != "en":
+            translation = self._translations.get("en", {}).get(key)
 
         # Fallback auf provided fallback oder key selbst
         if translation is None:
@@ -132,5 +131,5 @@ if __name__ == "__main__":
     print(f"Current language: {get_language()}")
     print(f"Translation test: {t('app.title', 'Stem Separator')}")
 
-    set_language('en')
+    set_language("en")
     print(f"After switching to EN: {t('app.title', 'Stem Separator')}")

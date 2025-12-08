@@ -4,6 +4,7 @@ Export Loops Widget - Configure and execute sampler loop export
 PURPOSE: Allow users to configure BPM-based loop export for samplers
 CONTEXT: Displayed in main content area when Export Loops is selected in sidebar
 """
+
 from pathlib import Path
 from typing import Optional, NamedTuple, List
 import tempfile
@@ -11,10 +12,21 @@ import numpy as np
 import soundfile as sf
 
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QSpinBox,
-    QComboBox, QPushButton, QRadioButton, QButtonGroup,
-    QFrame, QMessageBox, QApplication, QProgressBar,
-    QProgressDialog, QFileDialog
+    QWidget,
+    QVBoxLayout,
+    QHBoxLayout,
+    QLabel,
+    QSpinBox,
+    QComboBox,
+    QPushButton,
+    QRadioButton,
+    QButtonGroup,
+    QFrame,
+    QMessageBox,
+    QApplication,
+    QProgressBar,
+    QProgressDialog,
+    QFileDialog,
 )
 from PySide6.QtCore import Qt, Signal, Slot, QRunnable, QThreadPool, QObject
 
@@ -25,6 +37,7 @@ from utils.loop_math import get_minimum_bpm, is_valid_for_sampler
 
 class LoopExportSettings(NamedTuple):
     """Loop export settings data"""
+
     bpm: int
     bars: int
     sample_rate: int
@@ -60,7 +73,9 @@ class BPMDetectionWorker(QRunnable):
             )
 
             confidence_value = confidence if confidence is not None else 0.0
-            self.signals.finished.emit(detected_bpm, bpm_message, self.source_description, confidence_value)
+            self.signals.finished.emit(
+                detected_bpm, bpm_message, self.source_description, confidence_value
+            )
 
         except Exception as e:
             self.logger.error(f"BPM detection error: {e}", exc_info=True)
@@ -70,10 +85,10 @@ class BPMDetectionWorker(QRunnable):
 class ExportLoopsWidget(QWidget):
     """
     Widget for configuring and executing sampler loop export.
-    
+
     PURPOSE: Replaces LoopExportDialog as embedded content in main window
     CONTEXT: Shown when user clicks "Export Loops" in sidebar
-    
+
     Features:
     - BPM input with auto-detection
     - Bar length selection (2, 4, or 8 bars)
@@ -83,13 +98,13 @@ class ExportLoopsWidget(QWidget):
     - Preview of chunk duration and file count
     - Direct export execution
     """
-    
+
     export_completed = Signal(str)
 
     def __init__(self, player_widget=None, parent=None):
         """
         Initialize export loops widget.
-        
+
         Args:
             player_widget: Reference to PlayerWidget for accessing stems and export logic
             parent: Parent widget
@@ -100,13 +115,13 @@ class ExportLoopsWidget(QWidget):
         self.detected_bpm = 120
         self.temp_bpm_file = None
         self.thread_pool = QThreadPool()
-        
+
         self._setup_ui()
         self._connect_signals()
         self._update_validation()
         self._update_preview()
         self._update_export_button_state()
-        
+
         self.ctx.logger().info("ExportLoopsWidget initialized")
 
     def set_player_widget(self, player_widget) -> None:
@@ -180,7 +195,9 @@ class ExportLoopsWidget(QWidget):
         bpm_container.addLayout(bpm_label_row)
 
         self.bpm_info_label = QLabel("💡 Click 'Detect BPM' for automatic detection")
-        self.bpm_info_label.setStyleSheet("color: rgba(255, 255, 255, 0.6); font-size: 11pt;")
+        self.bpm_info_label.setStyleSheet(
+            "color: rgba(255, 255, 255, 0.6); font-size: 11pt;"
+        )
         bpm_container.addWidget(self.bpm_info_label)
 
         self.bpm_progress = QProgressBar()
@@ -315,7 +332,9 @@ class ExportLoopsWidget(QWidget):
         self.preview_label = QLabel()
         self.preview_label.setWordWrap(True)
         self.preview_label.setMinimumHeight(60)
-        self.preview_label.setStyleSheet("padding: 5px; color: rgba(255, 255, 255, 0.9);")
+        self.preview_label.setStyleSheet(
+            "padding: 5px; color: rgba(255, 255, 255, 0.9);"
+        )
         preview_layout.addWidget(self.preview_label)
 
         main_layout.addWidget(preview_card)
@@ -371,15 +390,12 @@ class ExportLoopsWidget(QWidget):
     def _update_export_button_state(self):
         """Update export button and detect button enabled state"""
         has_stems = (
-            self.player_widget is not None and
-            self.player_widget.has_stems_loaded()
+            self.player_widget is not None and self.player_widget.has_stems_loaded()
         )
 
         # Check validation
         is_valid, _ = is_valid_for_sampler(
-            self.bpm_spin.value(),
-            self._get_selected_bars(),
-            max_seconds=20.0
+            self.bpm_spin.value(), self._get_selected_bars(), max_seconds=20.0
         )
 
         self.btn_export.setEnabled(has_stems and is_valid)
@@ -387,7 +403,9 @@ class ExportLoopsWidget(QWidget):
 
         if has_stems:
             num_stems = len(self.player_widget.stem_files)
-            self.mode_individual.setText(f"Individual Stems ({num_stems} separate sets)")
+            self.mode_individual.setText(
+                f"Individual Stems ({num_stems} separate sets)"
+            )
 
             # Check for Loop Preview presets
             self._check_loop_preview_presets()
@@ -401,8 +419,10 @@ class ExportLoopsWidget(QWidget):
             return
 
         # Check for detected downbeats from Loop Preview
-        if (self.player_widget.detected_downbeat_times is not None and
-            len(self.player_widget.detected_downbeat_times) >= 2):
+        if (
+            self.player_widget.detected_downbeat_times is not None
+            and len(self.player_widget.detected_downbeat_times) >= 2
+        ):
 
             # Calculate BPM from downbeat intervals
             downbeat_intervals = np.diff(self.player_widget.detected_downbeat_times)
@@ -457,8 +477,7 @@ class ExportLoopsWidget(QWidget):
             # Only enable detect button if stems are loaded
             # (button state is set in _update_export_button_state based on has_stems)
             has_stems = (
-                self.player_widget is not None and
-                self.player_widget.has_stems_loaded()
+                self.player_widget is not None and self.player_widget.has_stems_loaded()
             )
             self.detect_bpm_btn.setEnabled(has_stems)
             # Restore default tooltips
@@ -474,6 +493,7 @@ class ExportLoopsWidget(QWidget):
 
         if is_valid:
             from utils.loop_math import compute_chunk_duration_seconds
+
             duration = compute_chunk_duration_seconds(bpm, bars)
 
             self.validation_label.setText(
@@ -486,17 +506,15 @@ class ExportLoopsWidget(QWidget):
             min_bpm = get_minimum_bpm(bars, max_seconds=20.0)
 
             self.validation_label.setText(
-                f"⚠ {error_msg}\n"
-                f"Minimum BPM for {bars} bars: {min_bpm}"
+                f"⚠ {error_msg}\n" f"Minimum BPM for {bars} bars: {min_bpm}"
             )
             self.validation_label.setStyleSheet(
                 "color: rgba(255, 100, 100, 0.9); padding: 5px;"
             )
-        
+
         # Update export button state
         has_stems = (
-            self.player_widget is not None and 
-            self.player_widget.has_stems_loaded()
+            self.player_widget is not None and self.player_widget.has_stems_loaded()
         )
         self.btn_export.setEnabled(has_stems and is_valid)
 
@@ -505,7 +523,7 @@ class ExportLoopsWidget(QWidget):
         if not self.player_widget or not self.player_widget.has_stems_loaded():
             self.preview_label.setText("Load stems to see preview")
             return
-            
+
         bpm = self.bpm_spin.value()
         bars = self._get_selected_bars()
         duration_seconds = self.player_widget.player.get_duration()
@@ -521,7 +539,7 @@ class ExportLoopsWidget(QWidget):
 
         chunk_duration = compute_chunk_duration_seconds(bpm, bars)
         sr_text = self.sample_rate_combo.currentText()
-        
+
         num_chunks = max(1, int(duration_seconds / chunk_duration))
         if duration_seconds % chunk_duration > chunk_duration * 0.1:
             num_chunks += 1
@@ -565,7 +583,7 @@ class ExportLoopsWidget(QWidget):
         bit_depth = int(bit_depth_text.split()[0])
 
         channels = 2 if self.channels_combo.currentText() == "Stereo" else 1
-        export_mode = 'individual' if self.mode_individual.isChecked() else 'mixed'
+        export_mode = "individual" if self.mode_individual.isChecked() else "mixed"
 
         return LoopExportSettings(
             bpm=self.bpm_spin.value(),
@@ -574,7 +592,7 @@ class ExportLoopsWidget(QWidget):
             bit_depth=bit_depth,
             channels=channels,
             file_format=self.format_combo.currentText(),
-            export_mode=export_mode
+            export_mode=export_mode,
         )
 
     @Slot()
@@ -588,9 +606,11 @@ class ExportLoopsWidget(QWidget):
             self.bpm_progress.setVisible(True)
             self.bpm_info_label.setText("🔄 Detecting BPM from audio...")
 
-            bpm_source_file, source_description = self.player_widget._get_audio_for_bpm_detection()
+            bpm_source_file, source_description = (
+                self.player_widget._get_audio_for_bpm_detection()
+            )
 
-            if 'bpm_detect_' in str(bpm_source_file):
+            if "bpm_detect_" in str(bpm_source_file):
                 self.temp_bpm_file = bpm_source_file
 
             logger = self.player_widget.ctx.logger()
@@ -604,7 +624,13 @@ class ExportLoopsWidget(QWidget):
         except Exception as e:
             self._on_bpm_error(str(e))
 
-    def _on_bpm_detected(self, detected_bpm: float, message: str, source_description: str, confidence: float):
+    def _on_bpm_detected(
+        self,
+        detected_bpm: float,
+        message: str,
+        source_description: str,
+        confidence: float,
+    ):
         """Handle successful BPM detection"""
         self.detected_bpm = round(detected_bpm)
         self.bpm_spin.setValue(self.detected_bpm)
@@ -628,7 +654,9 @@ class ExportLoopsWidget(QWidget):
             self.bpm_info_label.setText(
                 f"✓ Detected: {self.detected_bpm} BPM (librosa)"
             )
-            self.bpm_info_label.setStyleSheet("color: rgba(255, 255, 255, 0.7); font-size: 11pt;")
+            self.bpm_info_label.setStyleSheet(
+                "color: rgba(255, 255, 255, 0.7); font-size: 11pt;"
+            )
 
         self.bpm_progress.setVisible(False)
         self.detect_bpm_btn.setEnabled(True)
@@ -647,7 +675,7 @@ class ExportLoopsWidget(QWidget):
         QMessageBox.warning(
             self,
             "BPM Detection Failed",
-            f"Could not detect BPM:\n{error_message}\n\nPlease enter BPM manually."
+            f"Could not detect BPM:\n{error_message}\n\nPlease enter BPM manually.",
         )
 
     def _cleanup_temp_bpm_file(self):
@@ -668,7 +696,7 @@ class ExportLoopsWidget(QWidget):
             QMessageBox.warning(
                 self,
                 "No Stems Loaded",
-                "Please load stems in the Stems tab before exporting."
+                "Please load stems in the Stems tab before exporting.",
             )
             return
 
@@ -676,8 +704,7 @@ class ExportLoopsWidget(QWidget):
 
         # Ask for output directory
         output_dir = QFileDialog.getExistingDirectory(
-            self,
-            "Select Output Directory for Loop Export"
+            self, "Select Output Directory for Loop Export"
         )
         if not output_dir:
             return
@@ -694,9 +721,9 @@ class ExportLoopsWidget(QWidget):
             common_filename = self.player_widget._get_common_filename()
 
             # Check if we have leading loops
-            intro_loops = getattr(self.player_widget, 'detected_intro_loops', [])
+            intro_loops = getattr(self.player_widget, "detected_intro_loops", [])
 
-            if settings.export_mode == 'individual':
+            if settings.export_mode == "individual":
                 self._export_individual_stems(
                     output_path, settings, common_filename, intro_loops
                 )
@@ -705,15 +732,14 @@ class ExportLoopsWidget(QWidget):
                 mixed_audio = player._mix_stems(0, player.duration_samples)
                 if mixed_audio is None or len(mixed_audio) == 0:
                     QMessageBox.warning(
-                        self, "Export Failed",
-                        "Unable to mix audio for export."
+                        self, "Export Failed", "Unable to mix audio for export."
                     )
                     return
 
                 mixed_audio = mixed_audio.T
 
                 with tempfile.NamedTemporaryFile(
-                    suffix='.wav', delete=False, dir=str(output_path.parent)
+                    suffix=".wav", delete=False, dir=str(output_path.parent)
                 ) as temp_file:
                     temp_path = Path(temp_file.name)
 
@@ -722,7 +748,7 @@ class ExportLoopsWidget(QWidget):
                             str(temp_path),
                             mixed_audio,
                             player.sample_rate,
-                            subtype='PCM_24'
+                            subtype="PCM_24",
                         )
 
                         progress_dialog = QProgressDialog(
@@ -743,7 +769,9 @@ class ExportLoopsWidget(QWidget):
                         # Export leading loops if present
                         if intro_loops:
                             for i, intro_loop in enumerate(intro_loops, start=1):
-                                progress_dialog.setLabelText(f"Exporting leading loop {i}/{len(intro_loops)}...")
+                                progress_dialog.setLabelText(
+                                    f"Exporting leading loop {i}/{len(intro_loops)}..."
+                                )
                                 progress_dialog.setValue(5 + (i * 5 / len(intro_loops)))
                                 QApplication.processEvents()
 
@@ -758,12 +786,14 @@ class ExportLoopsWidget(QWidget):
                                     sample_rate=settings.sample_rate,
                                     bit_depth=settings.bit_depth,
                                     channels=settings.channels,
-                                    file_format=settings.file_format
+                                    file_format=settings.file_format,
                                 )
 
                                 if intro_success:
                                     total_exported += 1
-                                    self.ctx.logger().info(f"Exported leading loop {i}: {intro_filename}")
+                                    self.ctx.logger().info(
+                                        f"Exported leading loop {i}: {intro_filename}"
+                                    )
 
                         # Export main loops
                         result = export_sampler_loops(
@@ -777,7 +807,7 @@ class ExportLoopsWidget(QWidget):
                             file_format=settings.file_format,
                             progress_callback=progress_callback,
                             common_filename=common_filename,
-                            stem_name=None
+                            stem_name=None,
                         )
 
                         progress_dialog.setValue(100)
@@ -785,16 +815,24 @@ class ExportLoopsWidget(QWidget):
 
                         if result.success:
                             total_exported += result.chunk_count
-                            intro_msg = f" (including {len(intro_loops)} leading loops)" if intro_loops else ""
-                            QMessageBox.information(
-                                self, "Export Successful",
-                                f"Exported {total_exported} loop file(s){intro_msg} to:\n{output_path}"
+                            intro_msg = (
+                                f" (including {len(intro_loops)} leading loops)"
+                                if intro_loops
+                                else ""
                             )
-                            self.export_completed.emit(f"Exported {total_exported} loops")
+                            QMessageBox.information(
+                                self,
+                                "Export Successful",
+                                f"Exported {total_exported} loop file(s){intro_msg} to:\n{output_path}",
+                            )
+                            self.export_completed.emit(
+                                f"Exported {total_exported} loops"
+                            )
                         else:
                             QMessageBox.critical(
-                                self, "Export Failed",
-                                f"Loop export failed:\n{result.error_message}"
+                                self,
+                                "Export Failed",
+                                f"Loop export failed:\n{result.error_message}",
                             )
 
                     finally:
@@ -806,11 +844,18 @@ class ExportLoopsWidget(QWidget):
         except Exception as e:
             self.ctx.logger().error(f"Loop export error: {e}", exc_info=True)
             QMessageBox.critical(
-                self, "Export Failed",
-                f"An error occurred during loop export:\n{str(e)}"
+                self,
+                "Export Failed",
+                f"An error occurred during loop export:\n{str(e)}",
             )
 
-    def _export_individual_stems(self, output_path: Path, settings: LoopExportSettings, common_filename: str, intro_loops: List[tuple[float, float]] = None):
+    def _export_individual_stems(
+        self,
+        output_path: Path,
+        settings: LoopExportSettings,
+        common_filename: str,
+        intro_loops: List[tuple[float, float]] = None,
+    ):
         """Export each stem individually as loops"""
         from core.sampler_export import export_sampler_loops, export_padded_intro
 
@@ -820,8 +865,11 @@ class ExportLoopsWidget(QWidget):
                 intro_loops = []
 
             overall_progress = QProgressDialog(
-                "Preparing stem export...", None, 0,
-                len(self.player_widget.stem_files) * 100, self
+                "Preparing stem export...",
+                None,
+                0,
+                len(self.player_widget.stem_files) * 100,
+                self,
             )
             overall_progress.setWindowTitle("Exporting Individual Stems")
             overall_progress.setWindowModality(Qt.WindowModal)
@@ -831,7 +879,9 @@ class ExportLoopsWidget(QWidget):
             total_chunks = 0
             stem_results = []
 
-            for stem_idx, (stem_name, stem_path) in enumerate(self.player_widget.stem_files.items()):
+            for stem_idx, (stem_name, stem_path) in enumerate(
+                self.player_widget.stem_files.items()
+            ):
                 stem_file = Path(stem_path)
                 base_progress = stem_idx * 100
 
@@ -840,7 +890,9 @@ class ExportLoopsWidget(QWidget):
                 QApplication.processEvents()
 
                 def progress_callback(message: str, percent: int):
-                    overall_progress.setLabelText(f"Exporting {stem_name}...\n{message}")
+                    overall_progress.setLabelText(
+                        f"Exporting {stem_name}...\n{message}"
+                    )
                     overall_progress.setValue(base_progress + percent)
                     QApplication.processEvents()
 
@@ -849,8 +901,12 @@ class ExportLoopsWidget(QWidget):
                 # Export leading loops if present
                 if intro_loops:
                     for i, intro_loop in enumerate(intro_loops, start=1):
-                        overall_progress.setLabelText(f"Exporting {stem_name} leading loop {i}/{len(intro_loops)}...")
-                        overall_progress.setValue(base_progress + (i * 5 / len(intro_loops)))
+                        overall_progress.setLabelText(
+                            f"Exporting {stem_name} leading loop {i}/{len(intro_loops)}..."
+                        )
+                        overall_progress.setValue(
+                            base_progress + (i * 5 / len(intro_loops))
+                        )
                         QApplication.processEvents()
 
                         intro_filename = f"{common_filename}_{stem_name}_{settings.bpm}BPM_{settings.bars}T_intro{i:03d}.{settings.file_format.lower()}"
@@ -864,12 +920,14 @@ class ExportLoopsWidget(QWidget):
                             sample_rate=settings.sample_rate,
                             bit_depth=settings.bit_depth,
                             channels=settings.channels,
-                            file_format=settings.file_format
+                            file_format=settings.file_format,
                         )
 
                         if intro_success:
                             stem_chunk_count += 1
-                            self.ctx.logger().info(f"Exported leading loop {i} for {stem_name}: {intro_filename}")
+                            self.ctx.logger().info(
+                                f"Exported leading loop {i} for {stem_name}: {intro_filename}"
+                            )
 
                 # Export main loops
                 result = export_sampler_loops(
@@ -883,7 +941,7 @@ class ExportLoopsWidget(QWidget):
                     file_format=settings.file_format,
                     progress_callback=progress_callback,
                     common_filename=common_filename,
-                    stem_name=stem_name
+                    stem_name=stem_name,
                 )
 
                 if result.success:
@@ -895,26 +953,36 @@ class ExportLoopsWidget(QWidget):
             overall_progress.close()
 
             if total_chunks > 0:
-                summary_lines = [f"• {name}: {count} file(s)" for name, count in stem_results]
+                summary_lines = [
+                    f"• {name}: {count} file(s)" for name, count in stem_results
+                ]
                 summary_text = "\n".join(summary_lines)
 
-                intro_msg = f" (including {len(intro_loops)} leading loops)" if intro_loops else ""
-                QMessageBox.information(
-                    self, "Export Successful",
-                    f"Exported {total_chunks} loop file(s) total{intro_msg} from {len(stem_results)} stem(s) to:\n"
-                    f"{output_path}\n\n{summary_text}"
+                intro_msg = (
+                    f" (including {len(intro_loops)} leading loops)"
+                    if intro_loops
+                    else ""
                 )
-                self.export_completed.emit(f"Exported {total_chunks} loops from {len(stem_results)} stems")
+                QMessageBox.information(
+                    self,
+                    "Export Successful",
+                    f"Exported {total_chunks} loop file(s) total{intro_msg} from {len(stem_results)} stem(s) to:\n"
+                    f"{output_path}\n\n{summary_text}",
+                )
+                self.export_completed.emit(
+                    f"Exported {total_chunks} loops from {len(stem_results)} stems"
+                )
             else:
                 QMessageBox.critical(
-                    self, "Export Failed",
-                    "Failed to export any stems. Check the log for details."
+                    self,
+                    "Export Failed",
+                    "Failed to export any stems. Check the log for details.",
                 )
 
         except Exception as e:
             self.ctx.logger().error(f"Individual stem export error: {e}", exc_info=True)
             QMessageBox.critical(
-                self, "Export Failed",
-                f"An error occurred during individual stem export:\n{str(e)}"
+                self,
+                "Export Failed",
+                f"An error occurred during individual stem export:\n{str(e)}",
             )
-

@@ -4,6 +4,7 @@ Unit tests for macOS visual effects
 PURPOSE: Test macOS vibrancy, blur, and translucency effects
 CONTEXT: Ensures effects apply correctly on macOS and gracefully degrade elsewhere
 """
+
 import pytest
 from unittest.mock import Mock, patch, MagicMock, call
 
@@ -19,12 +20,12 @@ class TestMacOSEffects:
 
     def test_is_macos_on_darwin(self):
         """Test macOS detection returns True on Darwin"""
-        with patch('platform.system', return_value='Darwin'):
+        with patch("platform.system", return_value="Darwin"):
             assert MacOSEffects.is_macos() is True
 
     def test_is_macos_on_linux(self):
         """Test macOS detection returns False on Linux"""
-        with patch('platform.system', return_value='Linux'):
+        with patch("platform.system", return_value="Linux"):
             assert MacOSEffects.is_macos() is False
 
     def test_apply_vibrancy_on_non_macos(self, qtbot):
@@ -32,7 +33,7 @@ class TestMacOSEffects:
         widget = QWidget()
         qtbot.addWidget(widget)
 
-        with patch('platform.system', return_value='Linux'):
+        with patch("platform.system", return_value="Linux"):
             # Should not raise exception
             MacOSEffects.apply_vibrancy(widget)
 
@@ -44,7 +45,7 @@ class TestMacOSEffects:
         widget = QWidget()
         qtbot.addWidget(widget)
 
-        with patch('platform.system', return_value='Darwin'):
+        with patch("platform.system", return_value="Darwin"):
             MacOSEffects.apply_vibrancy(widget, material="dark")
 
         # Should enable translucency
@@ -52,14 +53,14 @@ class TestMacOSEffects:
 
         # Should have stylesheet with dark background
         stylesheet = widget.styleSheet()
-        assert 'rgba' in stylesheet.lower()
+        assert "rgba" in stylesheet.lower()
 
     def test_apply_vibrancy_light_material(self, qtbot):
         """Test applying light vibrancy material"""
         widget = QWidget()
         qtbot.addWidget(widget)
 
-        with patch('platform.system', return_value='Darwin'):
+        with patch("platform.system", return_value="Darwin"):
             MacOSEffects.apply_vibrancy(widget, material="light")
 
         # Should enable translucency
@@ -67,14 +68,14 @@ class TestMacOSEffects:
 
         # Should have stylesheet
         stylesheet = widget.styleSheet()
-        assert 'rgba' in stylesheet.lower()
+        assert "rgba" in stylesheet.lower()
 
     def test_apply_sidebar_effect_on_non_macos(self, qtbot):
         """Test sidebar effect does nothing on non-macOS"""
         widget = QWidget()
         qtbot.addWidget(widget)
 
-        with patch('platform.system', return_value='Windows'):
+        with patch("platform.system", return_value="Windows"):
             MacOSEffects.apply_sidebar_effect(widget)
 
         # Should not modify widget
@@ -85,32 +86,32 @@ class TestMacOSEffects:
         widget = QWidget()
         qtbot.addWidget(widget)
 
-        with patch('platform.system', return_value='Darwin'):
+        with patch("platform.system", return_value="Darwin"):
             MacOSEffects.apply_sidebar_effect(widget, dark=True)
 
         assert widget.testAttribute(Qt.WA_TranslucentBackground)
         stylesheet = widget.styleSheet()
-        assert 'rgba' in stylesheet.lower()
-        assert 'border-right' in stylesheet.lower()
+        assert "rgba" in stylesheet.lower()
+        assert "border-right" in stylesheet.lower()
 
     def test_apply_sidebar_effect_light(self, qtbot):
         """Test applying light sidebar effect"""
         widget = QWidget()
         qtbot.addWidget(widget)
 
-        with patch('platform.system', return_value='Darwin'):
+        with patch("platform.system", return_value="Darwin"):
             MacOSEffects.apply_sidebar_effect(widget, dark=False)
 
         assert widget.testAttribute(Qt.WA_TranslucentBackground)
         stylesheet = widget.styleSheet()
-        assert 'rgba' in stylesheet.lower()
+        assert "rgba" in stylesheet.lower()
 
     def test_apply_toolbar_effect_on_non_macos(self, qtbot):
         """Test toolbar effect does nothing on non-macOS"""
         widget = QWidget()
         qtbot.addWidget(widget)
 
-        with patch('platform.system', return_value='Linux'):
+        with patch("platform.system", return_value="Linux"):
             MacOSEffects.apply_toolbar_effect(widget)
 
         # Should not modify stylesheet
@@ -121,23 +122,23 @@ class TestMacOSEffects:
         widget = QWidget()
         qtbot.addWidget(widget)
 
-        with patch('platform.system', return_value='Darwin'):
+        with patch("platform.system", return_value="Darwin"):
             MacOSEffects.apply_toolbar_effect(widget, dark=True)
 
         stylesheet = widget.styleSheet()
-        assert 'rgba' in stylesheet.lower()
-        assert 'border-bottom' in stylesheet.lower()
+        assert "rgba" in stylesheet.lower()
+        assert "border-bottom" in stylesheet.lower()
 
     def test_apply_toolbar_effect_light(self, qtbot):
         """Test applying light toolbar effect"""
         widget = QWidget()
         qtbot.addWidget(widget)
 
-        with patch('platform.system', return_value='Darwin'):
+        with patch("platform.system", return_value="Darwin"):
             MacOSEffects.apply_toolbar_effect(widget, dark=False)
 
         stylesheet = widget.styleSheet()
-        assert 'rgba' in stylesheet.lower()
+        assert "rgba" in stylesheet.lower()
 
     def test_apply_blur_effect(self, qtbot):
         """Test applying blur effect"""
@@ -169,7 +170,7 @@ class TestMacOSEffects:
         qtbot.addWidget(widget)
 
         # Apply some effects first
-        with patch('platform.system', return_value='Darwin'):
+        with patch("platform.system", return_value="Darwin"):
             MacOSEffects.apply_vibrancy(widget)
             MacOSEffects.apply_blur_effect(widget)
 
@@ -189,8 +190,8 @@ class TestMacOSEffects:
         MacOSEffects.set_corner_radius(widget, radius=12)
 
         stylesheet = widget.styleSheet()
-        assert 'border-radius' in stylesheet.lower()
-        assert '12px' in stylesheet
+        assert "border-radius" in stylesheet.lower()
+        assert "12px" in stylesheet
 
     def test_set_corner_radius_default(self, qtbot):
         """Test corner radius with default value"""
@@ -200,8 +201,8 @@ class TestMacOSEffects:
         MacOSEffects.set_corner_radius(widget)
 
         stylesheet = widget.styleSheet()
-        assert 'border-radius' in stylesheet.lower()
-        assert '8px' in stylesheet
+        assert "border-radius" in stylesheet.lower()
+        assert "8px" in stylesheet
 
     def test_apply_shadow_placeholder(self, qtbot):
         """Test shadow application (placeholder implementation)"""
@@ -226,7 +227,7 @@ class TestMacOSEffects:
         widget.setAttribute.side_effect = Exception("Test error")
 
         # Should not raise exception
-        with patch('platform.system', return_value='Darwin'):
+        with patch("platform.system", return_value="Darwin"):
             MacOSEffects.apply_vibrancy(widget)
 
     def test_sidebar_graceful_degradation(self, qtbot):
@@ -235,7 +236,7 @@ class TestMacOSEffects:
         widget.setAttribute.side_effect = Exception("Test error")
 
         # Should not raise exception
-        with patch('platform.system', return_value='Darwin'):
+        with patch("platform.system", return_value="Darwin"):
             MacOSEffects.apply_sidebar_effect(widget)
 
     def test_toolbar_graceful_degradation(self, qtbot):
@@ -244,7 +245,7 @@ class TestMacOSEffects:
         widget.setStyleSheet.side_effect = Exception("Test error")
 
         # Should not raise exception
-        with patch('platform.system', return_value='Darwin'):
+        with patch("platform.system", return_value="Darwin"):
             MacOSEffects.apply_toolbar_effect(widget)
 
     def test_blur_effect_error_handling(self, qtbot):
@@ -252,7 +253,7 @@ class TestMacOSEffects:
         # This will fail to create effect if Qt is not fully initialized
         widget = Mock(spec=QWidget)
 
-        with patch('ui.theme.macos_effects.QGraphicsBlurEffect', side_effect=Exception):
+        with patch("ui.theme.macos_effects.QGraphicsBlurEffect", side_effect=Exception):
             result = MacOSEffects.apply_blur_effect(widget)
             assert result is None
 
@@ -267,5 +268,6 @@ class TestMacOSEffects:
     def test_get_macos_effects_returns_class(self):
         """Test convenience function returns MacOSEffects class"""
         from ui.theme.macos_effects import get_macos_effects
+
         result = get_macos_effects()
         assert result is MacOSEffects

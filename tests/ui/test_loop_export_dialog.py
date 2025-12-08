@@ -22,11 +22,7 @@ def main():
     # - Detected BPM: 128.5 (will be rounded to 129)
     # - Audio duration: 180 seconds (3 minutes)
     # - Number of stems: 4 (for testing individual export preview)
-    dialog = LoopExportDialog(
-        detected_bpm=128.5,
-        duration_seconds=180.0,
-        num_stems=4
-    )
+    dialog = LoopExportDialog(detected_bpm=128.5, duration_seconds=180.0, num_stems=4)
 
     # Show dialog
     result = dialog.exec()
@@ -35,9 +31,9 @@ def main():
         # User clicked "Export Loops"
         settings = dialog.get_settings()
 
-        print("\n" + "="*60)
+        print("\n" + "=" * 60)
         print("LOOP EXPORT SETTINGS")
-        print("="*60)
+        print("=" * 60)
         print(f"BPM:          {settings.bpm}")
         print(f"Bars:         {settings.bars} bars")
         print(f"Sample Rate:  {settings.sample_rate} Hz")
@@ -45,17 +41,20 @@ def main():
         print(f"Channels:     {'Stereo' if settings.channels == 2 else 'Mono'}")
         print(f"Format:       {settings.file_format}")
         print(f"Export Mode:  {settings.export_mode}")
-        print("="*60)
+        print("=" * 60)
 
         # Calculate preview info
         from utils.loop_math import compute_chunk_duration_seconds
+
         chunk_duration = compute_chunk_duration_seconds(settings.bpm, settings.bars)
         num_chunks = max(1, int(180.0 / chunk_duration))
 
         print(f"\nPreview:")
         print(f"  • Each chunk: ~{chunk_duration:.2f} seconds")
         print(f"  • Total chunks: ~{num_chunks}")
-        print(f"  • Example filename: MyLoop_{settings.bpm}_{settings.bars}t_part01.{settings.file_format.lower()}")
+        print(
+            f"  • Example filename: MyLoop_{settings.bpm}_{settings.bars}t_part01.{settings.file_format.lower()}"
+        )
         print()
     else:
         # User clicked "Cancel"

@@ -1,6 +1,7 @@
 """
 Unit Tests für Separator
 """
+
 import pytest
 import numpy as np
 import soundfile as sf
@@ -65,7 +66,7 @@ class TestSeparationResult:
             stems={"vocals": Path("vocals.wav"), "drums": Path("drums.wav")},
             model_used="demucs",
             device_used="cpu",
-            duration_seconds=10.5
+            duration_seconds=10.5,
         )
 
         assert result.success is True
@@ -82,7 +83,7 @@ class TestSeparationResult:
             model_used="demucs",
             device_used="cpu",
             duration_seconds=1.0,
-            error_message="Test error"
+            error_message="Test error",
         )
 
         assert result.success is False
@@ -122,14 +123,14 @@ class TestSeparator:
         assert result.success is False
         assert "unknown model" in result.error_message.lower()
 
-    @patch('audio_separator.separator.Separator')
+    @patch("audio_separator.separator.Separator")
     def test_separate_single_success(self, mock_audio_sep, test_audio_file):
         """Teste successful separation ohne Chunking"""
         # Mock AudioSeparator
         mock_instance = MagicMock()
         mock_instance.separate.return_value = [
             str(test_audio_file.parent / "test_vocals.wav"),
-            str(test_audio_file.parent / "test_drums.wav")
+            str(test_audio_file.parent / "test_drums.wav"),
         ]
         mock_audio_sep.return_value = mock_instance
 
@@ -148,7 +149,7 @@ class TestSeparator:
         (test_audio_file.parent / "test_vocals.wav").unlink(missing_ok=True)
         (test_audio_file.parent / "test_drums.wav").unlink(missing_ok=True)
 
-    @patch('audio_separator.separator.Separator')
+    @patch("audio_separator.separator.Separator")
     def test_separate_progress_callback(self, mock_audio_sep, test_audio_file):
         """Teste dass Progress Callback aufgerufen wird"""
         # Mock AudioSeparator
@@ -173,11 +174,7 @@ class TestSeparator:
         sep = Separator()
 
         result = sep._create_error_result(
-            test_audio_file,
-            Path("/tmp"),
-            "Test error",
-            5.0,
-            "demucs"
+            test_audio_file, Path("/tmp"), "Test error", 5.0, "demucs"
         )
 
         assert result.success is False
@@ -185,24 +182,21 @@ class TestSeparator:
         assert result.duration_seconds == 5.0
         assert result.model_used == "demucs"
 
-    @patch('audio_separator.separator.Separator')
+    @patch("audio_separator.separator.Separator")
     def test_run_separation_mock(self, mock_audio_sep, test_audio_file):
         """Teste _run_separation() mit Mock"""
         # Mock AudioSeparator
         mock_instance = MagicMock()
         mock_instance.separate.return_value = [
             str(test_audio_file.parent / "test_vocals.wav"),
-            str(test_audio_file.parent / "test_other.wav")
+            str(test_audio_file.parent / "test_other.wav"),
         ]
         mock_audio_sep.return_value = mock_instance
 
         sep = Separator()
 
         stems = sep._run_separation(
-            test_audio_file,
-            "demucs_6s",
-            test_audio_file.parent,
-            device='cpu'
+            test_audio_file, "demucs_6s", test_audio_file.parent, device="cpu"
         )
 
         # AudioSeparator wurde erstellt
@@ -211,19 +205,15 @@ class TestSeparator:
         # Stems wurden returned
         assert isinstance(stems, dict)
 
-    @patch('audio_separator.separator.Separator', side_effect=ImportError)
+    @patch("audio_separator.separator.Separator", side_effect=ImportError)
     def test_run_separation_import_error(self, mock_audio_sep, test_audio_file):
         """Teste _run_separation() wenn audio-separator nicht installiert"""
         sep = Separator()
 
         with pytest.raises(Exception):  # SeparationError
-            sep._run_separation(
-                test_audio_file,
-                "demucs_6s",
-                test_audio_file.parent
-            )
+            sep._run_separation(test_audio_file, "demucs_6s", test_audio_file.parent)
 
-    @patch('audio_separator.separator.Separator')
+    @patch("audio_separator.separator.Separator")
     def test_run_separation_device_setting(self, mock_audio_sep, test_audio_file):
         """Teste dass Device korrekt gesetzt wird"""
         # Mock AudioSeparator
@@ -233,30 +223,29 @@ class TestSeparator:
 
         sep = Separator()
 
-        with patch.object(sep.device_manager, 'set_device', return_value=True) as mock_set:
+        with patch.object(
+            sep.device_manager, "set_device", return_value=True
+        ) as mock_set:
             try:
                 sep._run_separation(
-                    test_audio_file,
-                    "demucs_6s",
-                    test_audio_file.parent,
-                    device='mps'
+                    test_audio_file, "demucs_6s", test_audio_file.parent, device="mps"
                 )
             except:
                 pass  # Kann fehlschlagen, uns geht's nur um set_device
 
-            mock_set.assert_called_with('mps')
+            mock_set.assert_called_with("mps")
 
     def test_run_separation_device_fail(self, test_audio_file):
         """Teste _run_separation() wenn Device-Setting fehlschlägt"""
         sep = Separator()
 
-        with patch.object(sep.device_manager, 'set_device', return_value=False):
+        with patch.object(sep.device_manager, "set_device", return_value=False):
             with pytest.raises(Exception):
                 sep._run_separation(
                     test_audio_file,
                     "demucs_6s",
                     test_audio_file.parent,
-                    device='invalid'
+                    device="invalid",
                 )
 
     def test_singleton(self):
@@ -267,8 +256,10 @@ class TestSeparator:
         assert sep1 is sep2
         assert isinstance(sep1, Separator)
 
-    @patch('audio_separator.separator.Separator')
-    def test_separate_chunking_decision(self, mock_audio_sep, test_audio_file, long_audio_file):
+    @patch("audio_separator.separator.Separator")
+    def test_separate_chunking_decision(
+        self, mock_audio_sep, test_audio_file, long_audio_file
+    ):
         """Teste dass Chunking-Entscheidung korrekt getroffen wird"""
         # Mock AudioSeparator
         mock_instance = MagicMock()
@@ -278,15 +269,15 @@ class TestSeparator:
         sep = Separator()
 
         # Kurze Datei sollte nicht gechunkt werden
-        with patch.object(sep, '_separate_single', return_value=Mock()) as mock_single:
-            with patch.object(sep, '_separate_with_chunking') as mock_chunking:
+        with patch.object(sep, "_separate_single", return_value=Mock()) as mock_single:
+            with patch.object(sep, "_separate_with_chunking") as mock_chunking:
                 result = sep.separate(test_audio_file)
 
                 # _separate_single sollte aufgerufen werden
                 assert mock_single.called
                 assert not mock_chunking.called
 
-    @patch('audio_separator.separator.Separator')
+    @patch("audio_separator.separator.Separator")
     def test_separate_output_dir_creation(self, mock_audio_sep, test_audio_file):
         """Teste dass Output-Dir erstellt wird"""
         # Mock AudioSeparator
@@ -305,7 +296,7 @@ class TestSeparator:
         # Cleanup
         shutil.rmtree(custom_output.parent)
 
-    @patch('audio_separator.separator.Separator')
+    @patch("audio_separator.separator.Separator")
     def test_separate_uses_default_model(self, mock_audio_sep, test_audio_file):
         """Teste dass Default-Model verwendet wird wenn keins angegeben"""
         # Mock AudioSeparator
@@ -315,7 +306,11 @@ class TestSeparator:
 
         sep = Separator()
 
-        with patch.object(sep, '_separate_single', return_value=Mock(success=True, duration_seconds=1.0)) as mock_sep:
+        with patch.object(
+            sep,
+            "_separate_single",
+            return_value=Mock(success=True, duration_seconds=1.0),
+        ) as mock_sep:
             result = sep.separate(test_audio_file)
 
             # _separate_single wurde mit DEFAULT_MODEL aufgerufen
@@ -326,13 +321,15 @@ class TestSeparator:
         """Teste Exception Handling"""
         sep = Separator()
 
-        with patch.object(sep, '_separate_single', side_effect=RuntimeError("Test error")):
+        with patch.object(
+            sep, "_separate_single", side_effect=RuntimeError("Test error")
+        ):
             result = sep.separate(test_audio_file)
 
             assert result.success is False
             assert "Test error" in result.error_message
 
-    @patch('audio_separator.separator.Separator')
+    @patch("audio_separator.separator.Separator")
     def test_separate_timing(self, mock_audio_sep, test_audio_file):
         """Teste dass Duration korrekt gemessen wird"""
         # Mock AudioSeparator

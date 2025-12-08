@@ -4,22 +4,38 @@ Drum Details Widget - LARS drum separation interface
 PURPOSE: Allow users to separate drum audio into 5 stems using LARS service
 CONTEXT: Displayed in main content area when Drum Details is selected in sidebar
 """
+
 from pathlib import Path
 from typing import Optional
 
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QCheckBox,
-    QPushButton, QComboBox, QFrame, QFileDialog, QMessageBox,
-    QProgressBar, QLineEdit, QSlider, QGroupBox
+    QWidget,
+    QVBoxLayout,
+    QHBoxLayout,
+    QLabel,
+    QCheckBox,
+    QPushButton,
+    QComboBox,
+    QFrame,
+    QFileDialog,
+    QMessageBox,
+    QProgressBar,
+    QLineEdit,
+    QSlider,
+    QGroupBox,
 )
 from PySide6.QtCore import Qt, Signal, Slot, QThread
 
 from ui.app_context import AppContext
 from ui.theme import ThemeManager
 from utils.lars_service_client import (
-    separate_drum_stems, is_lars_service_available,
-    LarsServiceError, LarsServiceTimeout, LarsServiceNotFound,
-    SeparationResult, SUPPORTED_STEMS
+    separate_drum_stems,
+    is_lars_service_available,
+    LarsServiceError,
+    LarsServiceTimeout,
+    LarsServiceNotFound,
+    SeparationResult,
+    SUPPORTED_STEMS,
 )
 
 
@@ -29,13 +45,20 @@ class SeparationWorker(QThread):
 
     Prevents UI blocking during long-running separation tasks.
     """
+
     # Signals
     progress_update = Signal(int, str)  # (percentage, status_message)
     finished = Signal(object)  # SeparationResult
     error = Signal(str)  # error message
 
-    def __init__(self, input_path: Path, output_dir: Path,
-                 stems: list, device: str, wiener_filter: bool):
+    def __init__(
+        self,
+        input_path: Path,
+        output_dir: Path,
+        stems: list,
+        device: str,
+        wiener_filter: bool,
+    ):
         super().__init__()
         self.input_path = input_path
         self.output_dir = output_dir
@@ -56,7 +79,7 @@ class SeparationWorker(QThread):
                 stems=self.stems,
                 device=self.device,
                 wiener_filter=self.wiener_filter,
-                timeout_seconds=300.0
+                timeout_seconds=300.0,
             )
 
             if not self._cancelled:
@@ -85,6 +108,7 @@ class DrumStemControl(QWidget):
     Phase 1: UI-only placeholder (no audio playback)
     Future: Will integrate with audio player for mute/solo/volume
     """
+
     # Signals for future playback integration
     mute_toggled = Signal(str, bool)  # (stem_name, is_muted)
     solo_toggled = Signal(str, bool)  # (stem_name, is_solo)
@@ -139,8 +163,12 @@ class DrumStemControl(QWidget):
         layout.addWidget(self.volume_label)
 
         # Connect signals (for future implementation)
-        self.btn_mute.toggled.connect(lambda checked: self.mute_toggled.emit(self.stem_name, checked))
-        self.btn_solo.toggled.connect(lambda checked: self.solo_toggled.emit(self.stem_name, checked))
+        self.btn_mute.toggled.connect(
+            lambda checked: self.mute_toggled.emit(self.stem_name, checked)
+        )
+        self.btn_solo.toggled.connect(
+            lambda checked: self.solo_toggled.emit(self.stem_name, checked)
+        )
         self.volume_slider.valueChanged.connect(self._on_volume_changed)
 
     def _on_volume_changed(self, value: int):
@@ -401,7 +429,7 @@ class DrumDetailsWidget(QWidget):
             self,
             "Select Drum Audio File",
             str(Path.home()),
-            "Audio Files (*.wav *.flac *.mp3 *.m4a *.ogg);;All Files (*)"
+            "Audio Files (*.wav *.flac *.mp3 *.m4a *.ogg);;All Files (*)",
         )
 
         if file_path:
@@ -414,14 +442,14 @@ class DrumDetailsWidget(QWidget):
         """Handle separate drums button click."""
         if not self.input_file_path or not self.input_file_path.exists():
             QMessageBox.warning(
-                self,
-                "Invalid Input",
-                "Please select a valid audio file."
+                self, "Invalid Input", "Please select a valid audio file."
             )
             return
 
         # Create output directory
-        self.output_dir = self.input_file_path.parent / f"{self.input_file_path.stem}_drums"
+        self.output_dir = (
+            self.input_file_path.parent / f"{self.input_file_path.stem}_drums"
+        )
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
         # Get settings
@@ -449,7 +477,7 @@ class DrumDetailsWidget(QWidget):
             output_dir=self.output_dir,
             stems=SUPPORTED_STEMS,
             device=device,
-            wiener_filter=wiener_filter
+            wiener_filter=wiener_filter,
         )
 
         self.worker.progress_update.connect(self._on_progress_update)
@@ -501,7 +529,7 @@ class DrumDetailsWidget(QWidget):
             f"Drum stems separated successfully!\n\n"
             f"Processing time: {result.processing_time:.1f}s\n"
             f"Backend: {result.backend}\n"
-            f"Output: {self.output_dir}"
+            f"Output: {self.output_dir}",
         )
 
     @Slot(str)
@@ -512,9 +540,7 @@ class DrumDetailsWidget(QWidget):
         self._reset_ui_state()
 
         QMessageBox.critical(
-            self,
-            "Separation Failed",
-            f"Drum separation failed:\n\n{error_message}"
+            self, "Separation Failed", f"Drum separation failed:\n\n{error_message}"
         )
 
     def _reset_ui_state(self, show_success: bool = False):
@@ -536,9 +562,7 @@ class DrumDetailsWidget(QWidget):
         """Handle export button click."""
         if not self.output_dir or not self.output_dir.exists():
             QMessageBox.warning(
-                self,
-                "No Output",
-                "No separated stems available to export."
+                self, "No Output", "No separated stems available to export."
             )
             return
 
@@ -558,9 +582,7 @@ class DrumDetailsWidget(QWidget):
         except Exception as e:
             self.logger.error(f"Failed to open directory: {e}")
             QMessageBox.information(
-                self,
-                "Export Location",
-                f"Stems exported to:\n{self.output_dir}"
+                self, "Export Location", f"Stems exported to:\n{self.output_dir}"
             )
 
     def refresh(self):

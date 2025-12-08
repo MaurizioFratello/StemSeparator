@@ -1,6 +1,7 @@
 """
 Integration Tests for PlayerWidget
 """
+
 import pytest
 import numpy as np
 import soundfile as sf
@@ -110,7 +111,7 @@ class TestStemControl:
 class TestPlayerWidget:
     """Integration tests for PlayerWidget"""
 
-    @patch('core.player.AudioPlayer._import_rtmixer')
+    @patch("core.player.AudioPlayer._import_rtmixer")
     def test_player_widget_initialization(self, mock_soundcard, qtbot):
         """Test player widget initialization"""
         widget = PlayerWidget()
@@ -120,7 +121,7 @@ class TestPlayerWidget:
         assert len(widget.stem_controls) == 0
         assert widget.btn_play.isEnabled() is False
 
-    @patch('core.player.AudioPlayer._import_rtmixer')
+    @patch("core.player.AudioPlayer._import_rtmixer")
     def test_load_stems_from_files(self, mock_soundcard, qtbot, test_audio_files):
         """Test loading stems from file list"""
         widget = PlayerWidget()
@@ -133,8 +134,8 @@ class TestPlayerWidget:
 
         # Check UI state
         assert len(widget.stem_controls) == 2
-        assert 'Vocals' in widget.stem_controls or 'vocals' in widget.stem_controls
-        assert 'Bass' in widget.stem_controls or 'bass' in widget.stem_controls
+        assert "Vocals" in widget.stem_controls or "vocals" in widget.stem_controls
+        assert "Bass" in widget.stem_controls or "bass" in widget.stem_controls
         assert widget.btn_play.isEnabled() is True
         assert widget.btn_export.isEnabled() is True
         assert widget.position_slider.isEnabled() is True
@@ -142,8 +143,10 @@ class TestPlayerWidget:
         # Check player has stems
         assert len(widget.player.stems) == 2
 
-    @patch('core.player.AudioPlayer._import_rtmixer')
-    def test_load_stems_from_directory(self, mock_soundcard, qtbot, test_audio_files, monkeypatch):
+    @patch("core.player.AudioPlayer._import_rtmixer")
+    def test_load_stems_from_directory(
+        self, mock_soundcard, qtbot, test_audio_files, monkeypatch
+    ):
         """Test loading stems from directory"""
         widget = PlayerWidget()
         qtbot.addWidget(widget)
@@ -152,8 +155,8 @@ class TestPlayerWidget:
 
         # Mock QFileDialog
         monkeypatch.setattr(
-            'PySide6.QtWidgets.QFileDialog.getExistingDirectory',
-            lambda *args, **kwargs: str(temp_dir)
+            "PySide6.QtWidgets.QFileDialog.getExistingDirectory",
+            lambda *args, **kwargs: str(temp_dir),
         )
 
         # Trigger load
@@ -162,7 +165,7 @@ class TestPlayerWidget:
         # Check stems loaded
         assert len(widget.stem_controls) >= 2
 
-    @patch('core.player.AudioPlayer._import_rtmixer')
+    @patch("core.player.AudioPlayer._import_rtmixer")
     def test_stem_volume_control(self, mock_soundcard, qtbot, test_audio_files):
         """Test stem volume control"""
         widget = PlayerWidget()
@@ -181,7 +184,7 @@ class TestPlayerWidget:
         # Check player received update
         assert widget.player.stem_settings[stem_name].volume == 0.5
 
-    @patch('core.player.AudioPlayer._import_rtmixer')
+    @patch("core.player.AudioPlayer._import_rtmixer")
     def test_stem_mute_control(self, mock_soundcard, qtbot, test_audio_files):
         """Test stem mute control"""
         widget = PlayerWidget()
@@ -200,7 +203,7 @@ class TestPlayerWidget:
         # Check player received update
         assert widget.player.stem_settings[stem_name].is_muted is True
 
-    @patch('core.player.AudioPlayer._import_rtmixer')
+    @patch("core.player.AudioPlayer._import_rtmixer")
     def test_stem_solo_control(self, mock_soundcard, qtbot, test_audio_files):
         """Test stem solo control"""
         widget = PlayerWidget()
@@ -219,7 +222,7 @@ class TestPlayerWidget:
         # Check player received update
         assert widget.player.stem_settings[stem_name].is_solo is True
 
-    @patch('core.player.AudioPlayer._import_rtmixer')
+    @patch("core.player.AudioPlayer._import_rtmixer")
     def test_master_volume_control(self, mock_soundcard, qtbot, test_audio_files):
         """Test master volume control"""
         widget = PlayerWidget()
@@ -235,7 +238,7 @@ class TestPlayerWidget:
         assert widget.player.master_volume == 0.7
         assert widget.master_label.text() == "70%"
 
-    @patch('core.player.AudioPlayer._import_rtmixer')
+    @patch("core.player.AudioPlayer._import_rtmixer")
     def test_playback_controls_disabled_without_stems(self, mock_soundcard, qtbot):
         """Test playback controls disabled without stems"""
         widget = PlayerWidget()
@@ -246,17 +249,19 @@ class TestPlayerWidget:
         assert widget.btn_stop.isEnabled() is False
         assert widget.btn_export.isEnabled() is False
 
-    @patch('core.player.AudioPlayer._import_rtmixer')
-    @patch('core.player.AudioPlayer.play')
-    @patch('core.player.AudioPlayer.is_playback_available')
-    def test_play_button(self, mock_available, mock_play, mock_rtmixer, qtbot, test_audio_files):
+    @patch("core.player.AudioPlayer._import_rtmixer")
+    @patch("core.player.AudioPlayer.play")
+    @patch("core.player.AudioPlayer.is_playback_available")
+    def test_play_button(
+        self, mock_available, mock_play, mock_rtmixer, qtbot, test_audio_files
+    ):
         """Test play button"""
         mock_play.return_value = True
         mock_available.return_value = (True, "")
 
         widget = PlayerWidget()
         qtbot.addWidget(widget)
-        
+
         # Ensure player thinks it has stems loaded
         widget.player.stems = {"test": "data"}
 
@@ -268,8 +273,8 @@ class TestPlayerWidget:
 
         mock_play.assert_called_once()
 
-    @patch('core.player.AudioPlayer._import_rtmixer')
-    @patch('core.player.AudioPlayer.pause')
+    @patch("core.player.AudioPlayer._import_rtmixer")
+    @patch("core.player.AudioPlayer.pause")
     def test_pause_button(self, mock_pause, mock_soundcard, qtbot, test_audio_files):
         """Test pause button"""
         widget = PlayerWidget()
@@ -287,8 +292,8 @@ class TestPlayerWidget:
 
         mock_pause.assert_called_once()
 
-    @patch('core.player.AudioPlayer._import_rtmixer')
-    @patch('core.player.AudioPlayer.stop')
+    @patch("core.player.AudioPlayer._import_rtmixer")
+    @patch("core.player.AudioPlayer.stop")
     def test_stop_button(self, mock_stop, mock_soundcard, qtbot, test_audio_files):
         """Test stop button"""
         widget = PlayerWidget()
@@ -307,7 +312,7 @@ class TestPlayerWidget:
         mock_stop.assert_called_once()
         assert widget.position_slider.value() == 0
 
-    @patch('core.player.AudioPlayer._import_rtmixer')
+    @patch("core.player.AudioPlayer._import_rtmixer")
     def test_state_changes_update_buttons(self, mock_soundcard, qtbot):
         """Test state changes update button states"""
         widget = PlayerWidget()
@@ -315,7 +320,7 @@ class TestPlayerWidget:
 
         # Load stems
         widget.player.duration_samples = 88200
-        widget.player.stems = {'test': np.zeros((2, 88200))}
+        widget.player.stems = {"test": np.zeros((2, 88200))}
         widget.btn_play.setEnabled(True)
 
         # Playing state
@@ -336,7 +341,7 @@ class TestPlayerWidget:
         assert widget.btn_pause.isEnabled() is False
         assert widget.btn_stop.isEnabled() is False
 
-    @patch('core.player.AudioPlayer._import_rtmixer')
+    @patch("core.player.AudioPlayer._import_rtmixer")
     def test_position_slider_seek(self, mock_soundcard, qtbot, test_audio_files):
         """Test seeking with position slider"""
         widget = PlayerWidget()
@@ -352,7 +357,7 @@ class TestPlayerWidget:
         # Check player position
         assert abs(widget.player.get_position() - 1.0) < 0.1
 
-    @patch('core.player.AudioPlayer._import_rtmixer')
+    @patch("core.player.AudioPlayer._import_rtmixer")
     def test_time_formatting(self, mock_soundcard, qtbot):
         """Test time formatting"""
         widget = PlayerWidget()
@@ -363,9 +368,11 @@ class TestPlayerWidget:
         assert widget._format_time(60) == "01:00"
         assert widget._format_time(125) == "02:05"
 
-    @patch('core.player.AudioPlayer._import_rtmixer')
-    @patch('core.player.AudioPlayer.export_mix')
-    def test_export_mix(self, mock_export, mock_soundcard, qtbot, test_audio_files, monkeypatch):
+    @patch("core.player.AudioPlayer._import_rtmixer")
+    @patch("core.player.AudioPlayer.export_mix")
+    def test_export_mix(
+        self, mock_export, mock_soundcard, qtbot, test_audio_files, monkeypatch
+    ):
         """Test export mixed audio"""
         mock_export.return_value = True
 
@@ -378,8 +385,8 @@ class TestPlayerWidget:
         # Mock save dialog
         output_file = temp_dir / "mixed.wav"
         monkeypatch.setattr(
-            'PySide6.QtWidgets.QFileDialog.getSaveFileName',
-            lambda *args, **kwargs: (str(output_file), "WAV Files (*.wav)")
+            "PySide6.QtWidgets.QFileDialog.getSaveFileName",
+            lambda *args, **kwargs: (str(output_file), "WAV Files (*.wav)"),
         )
 
         # Trigger export
@@ -388,7 +395,7 @@ class TestPlayerWidget:
         # Check export was called
         mock_export.assert_called_once()
 
-    @patch('core.player.AudioPlayer._import_rtmixer')
+    @patch("core.player.AudioPlayer._import_rtmixer")
     def test_load_separation_result(self, mock_soundcard, qtbot, test_audio_files):
         """Test loading from separation result"""
         widget = PlayerWidget()
@@ -397,10 +404,7 @@ class TestPlayerWidget:
         temp_dir, file_paths = test_audio_files
 
         # Create stems dict like separation result
-        stems = {
-            'Vocals': file_paths[0],
-            'Bass': file_paths[1]
-        }
+        stems = {"Vocals": file_paths[0], "Bass": file_paths[1]}
 
         # Load
         widget.load_separation_result(stems)
@@ -408,7 +412,7 @@ class TestPlayerWidget:
         # Check loaded
         assert len(widget.stem_controls) == 2
 
-    @patch('core.player.AudioPlayer._import_rtmixer')
+    @patch("core.player.AudioPlayer._import_rtmixer")
     def test_cleanup_on_close(self, mock_soundcard, qtbot, test_audio_files):
         """Test cleanup when widget closes"""
         widget = PlayerWidget()
@@ -418,13 +422,13 @@ class TestPlayerWidget:
         widget._load_stems(file_paths)
 
         # Mock stop
-        with patch.object(widget.player, 'stop') as mock_stop:
+        with patch.object(widget.player, "stop") as mock_stop:
             # Close widget
             widget.close()
 
             mock_stop.assert_called_once()
 
-    @patch('core.player.AudioPlayer._import_rtmixer')
+    @patch("core.player.AudioPlayer._import_rtmixer")
     def test_interactive_seeking(self, mock_rtmixer, qtbot, test_audio_files):
         """Test interactive seeking with slider"""
         widget = PlayerWidget()
@@ -445,14 +449,14 @@ class TestPlayerWidget:
 
         # Release slider (perform seek)
         widget._on_slider_released()
-        
+
         # Wait for timer to clear flag
         qtbot.wait(100)
-        
+
         assert widget._user_seeking is False
         assert abs(widget.player.get_position() - 1.5) < 0.1
 
-    @patch('core.player.AudioPlayer._import_rtmixer')
+    @patch("core.player.AudioPlayer._import_rtmixer")
     def test_seeking_during_playback(self, mock_soundcard, qtbot, test_audio_files):
         """Test that seeking works during playback"""
         widget = PlayerWidget()
@@ -473,8 +477,10 @@ class TestPlayerWidget:
         # Verify seek happened
         assert abs(widget.player.get_position() - 0.5) < 0.1
 
-    @patch('core.player.AudioPlayer._import_rtmixer')
-    def test_position_updates_blocked_during_seeking(self, mock_rtmixer, qtbot, test_audio_files):
+    @patch("core.player.AudioPlayer._import_rtmixer")
+    def test_position_updates_blocked_during_seeking(
+        self, mock_rtmixer, qtbot, test_audio_files
+    ):
         """Test that automatic position updates don't interfere with seeking"""
         widget = PlayerWidget()
         qtbot.addWidget(widget)
@@ -494,10 +500,10 @@ class TestPlayerWidget:
 
         # Finish seeking
         widget._on_slider_released()
-        
+
         # Wait for timer to clear flag
         qtbot.wait(200)
-        
+
         # Re-set player position because _on_slider_released resets it to slider value
         widget.player.position_samples = 88200
 

@@ -4,6 +4,7 @@ Audio Player - Real-time playback and mixing of separated stems
 PURPOSE: Provides real-time audio playback with per-stem volume/mute/solo controls
 CONTEXT: Uses soundcard for cross-platform audio output
 """
+
 from pathlib import Path
 from typing import Optional, Dict, Callable
 from dataclasses import dataclass
@@ -21,6 +22,7 @@ logger = get_logger()
 
 class PlaybackState(Enum):
     """Playback states"""
+
     STOPPED = "stopped"
     PLAYING = "playing"
     PAUSED = "paused"
@@ -29,6 +31,7 @@ class PlaybackState(Enum):
 @dataclass
 class StemSettings:
     """Settings for individual stem"""
+
     volume: float = 0.75  # 0.0 to 1.0
     is_muted: bool = False
     is_solo: bool = False
@@ -37,6 +40,7 @@ class StemSettings:
 @dataclass
 class PlaybackInfo:
     """Current playback information"""
+
     position_seconds: float
     duration_seconds: float
     state: PlaybackState
@@ -65,7 +69,9 @@ class AudioPlayer:
         self.duration_samples = 0
 
         # Audio data
-        self.stems: Dict[str, np.ndarray] = {}  # stem_name -> audio_data (channels, samples)
+        self.stems: Dict[str, np.ndarray] = (
+            {}
+        )  # stem_name -> audio_data (channels, samples)
         self.stem_settings: Dict[str, StemSettings] = {}
         self.master_volume: float = 1.0
 
@@ -76,7 +82,9 @@ class AudioPlayer:
         self._position_lock = threading.Lock()  # Lock for thread-safe seeking
 
         # Callbacks
-        self.position_callback: Optional[Callable[[float, float], None]] = None  # (position, duration)
+        self.position_callback: Optional[Callable[[float, float], None]] = (
+            None  # (position, duration)
+        )
         self.state_callback: Optional[Callable[[PlaybackState], None]] = None
 
         # Soundcard
@@ -89,6 +97,7 @@ class AudioPlayer:
         """Import soundcard library"""
         try:
             import soundcard as sc
+
             self._soundcard = sc
             self.logger.info("SoundCard library loaded for playback")
             return True
@@ -123,7 +132,9 @@ class AudioPlayer:
                 self.logger.debug(f"Loading stem: {stem_name} from {file_path}")
 
                 # Load audio (ensure float32 for consistent processing)
-                audio_data, file_sr = sf.read(str(file_path), always_2d=True, dtype='float32')
+                audio_data, file_sr = sf.read(
+                    str(file_path), always_2d=True, dtype="float32"
+                )
 
                 self.logger.info(
                     f"Loaded {stem_name}: sample_rate={file_sr} Hz, "
@@ -134,7 +145,9 @@ class AudioPlayer:
                 if detected_sample_rate is None:
                     detected_sample_rate = file_sr
                     self.sample_rate = file_sr
-                    self.logger.info(f"Using sample rate from stems: {self.sample_rate} Hz")
+                    self.logger.info(
+                        f"Using sample rate from stems: {self.sample_rate} Hz"
+                    )
 
                 # Transpose to (channels, samples)
                 audio_data = audio_data.T.astype(np.float32)
@@ -147,13 +160,16 @@ class AudioPlayer:
                     )
                     # Resample using librosa
                     import librosa
+
                     audio_data = librosa.resample(
                         audio_data,
                         orig_sr=file_sr,
                         target_sr=detected_sample_rate,
-                        res_type='kaiser_best'
+                        res_type="kaiser_best",
                     ).astype(np.float32)
-                    self.logger.info(f"Resampled {stem_name} to {detected_sample_rate} Hz")
+                    self.logger.info(
+                        f"Resampled {stem_name} to {detected_sample_rate} Hz"
+                    )
 
                 # Ensure stereo
                 if audio_data.shape[0] == 1:
@@ -181,8 +197,8 @@ class AudioPlayer:
                     self.stems[stem_name] = np.pad(
                         audio_data,
                         ((0, 0), (0, padding)),
-                        mode='constant',
-                        constant_values=0
+                        mode="constant",
+                        constant_values=0,
                     )
                     self.logger.debug(f"Padded {stem_name} with {padding} samples")
 
@@ -224,7 +240,9 @@ class AudioPlayer:
             position_samples = int(position_seconds * self.sample_rate)
             position_samples = max(0, min(position_samples, self.duration_samples))
             self.position_samples = position_samples
-            self.logger.info(f"Seeked to {position_seconds:.2f}s ({position_samples} samples)")
+            self.logger.info(
+                f"Seeked to {position_seconds:.2f}s ({position_samples} samples)"
+            )
 
     def set_stem_volume(self, stem_name: str, volume: float):
         """Set stem volume (0.0 to 1.0)"""
@@ -282,10 +300,7 @@ class AudioPlayer:
             self.state_callback(self.state)
 
         # Start playback thread
-        self.playback_thread = threading.Thread(
-            target=self._playback_loop,
-            daemon=True
-        )
+        self.playback_thread = threading.Thread(target=self._playback_loop, daemon=True)
         self.playback_thread.start()
 
         self.logger.info("Started playback")
@@ -351,10 +366,7 @@ class AudioPlayer:
                     break
 
                 # Calculate buffer bounds
-                end_sample = min(
-                    current_pos + buffer_size,
-                    self.duration_samples
-                )
+                end_sample = min(current_pos + buffer_size, self.duration_samples)
 
                 # Mix audio
                 mixed_audio = self._mix_stems(current_pos, end_sample)
@@ -405,10 +417,7 @@ class AudioPlayer:
         mixed = np.zeros((2, num_samples), dtype=np.float32)
 
         # Check if any stem is solo
-        any_solo = any(
-            settings.is_solo
-            for settings in self.stem_settings.values()
-        )
+        any_solo = any(settings.is_solo for settings in self.stem_settings.values())
 
         # Mix stems
         for stem_name, audio_data in self.stems.items():
@@ -447,10 +456,7 @@ class AudioPlayer:
         return mixed
 
     def export_mix(
-        self,
-        output_file: Path,
-        file_format: str = 'WAV',
-        bit_depth: int = 16
+        self, output_file: Path, file_format: str = "WAV", bit_depth: int = 16
     ) -> bool:
         """
         Export mixed audio to file
@@ -477,12 +483,8 @@ class AudioPlayer:
             audio_to_save = mixed_audio.T
 
             # Determine subtype
-            subtype_map = {
-                16: 'PCM_16',
-                24: 'PCM_24',
-                32: 'PCM_32'
-            }
-            subtype = subtype_map.get(bit_depth, 'PCM_16')
+            subtype_map = {16: "PCM_16", 24: "PCM_24", 32: "PCM_32"}
+            subtype = subtype_map.get(bit_depth, "PCM_16")
 
             # Save file
             sf.write(
@@ -490,7 +492,7 @@ class AudioPlayer:
                 audio_to_save,
                 self.sample_rate,
                 subtype=subtype,
-                format=file_format
+                format=file_format,
             )
 
             self.logger.info(f"Successfully exported mix: {output_file}")

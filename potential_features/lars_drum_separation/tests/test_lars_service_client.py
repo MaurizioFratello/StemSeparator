@@ -4,6 +4,7 @@ Unit tests for LARS service client
 PURPOSE: Test LARS service client functionality
 CONTEXT: Phase 1 basic tests for integration validation
 """
+
 import pytest
 from pathlib import Path
 from unittest.mock import patch, MagicMock
@@ -13,7 +14,7 @@ from utils.lars_service_client import (
     _find_lars_service_binary,
     LarsServiceNotFound,
     LarsServiceError,
-    SUPPORTED_STEMS
+    SUPPORTED_STEMS,
 )
 
 
@@ -27,12 +28,17 @@ class TestBinaryDiscovery:
         fake_binary.write_text("#!/bin/bash\necho test")
         fake_binary.chmod(0o755)
 
-        with patch('utils.lars_service_client._find_lars_service_binary', return_value=fake_binary):
+        with patch(
+            "utils.lars_service_client._find_lars_service_binary",
+            return_value=fake_binary,
+        ):
             assert is_lars_service_available() is True
 
     def test_is_lars_service_available_when_binary_missing(self):
         """Test service availability check when binary is missing"""
-        with patch('utils.lars_service_client._find_lars_service_binary', return_value=None):
+        with patch(
+            "utils.lars_service_client._find_lars_service_binary", return_value=None
+        ):
             assert is_lars_service_available() is False
 
 
@@ -45,10 +51,7 @@ class TestSeparation:
         output_dir = tmp_path / "output"
 
         with pytest.raises(FileNotFoundError):
-            separate_drum_stems(
-                input_path=input_file,
-                output_dir=output_dir
-            )
+            separate_drum_stems(input_path=input_file, output_dir=output_dir)
 
     def test_separate_raises_error_when_binary_not_found(self, tmp_path):
         """Test separation fails when LARS binary not found"""
@@ -57,12 +60,11 @@ class TestSeparation:
         input_file.write_bytes(b"RIFF")  # Fake WAV header
         output_dir = tmp_path / "output"
 
-        with patch('utils.lars_service_client._find_lars_service_binary', return_value=None):
+        with patch(
+            "utils.lars_service_client._find_lars_service_binary", return_value=None
+        ):
             with pytest.raises(LarsServiceNotFound):
-                separate_drum_stems(
-                    input_path=input_file,
-                    output_dir=output_dir
-                )
+                separate_drum_stems(input_path=input_file, output_dir=output_dir)
 
     def test_separate_validates_stem_names(self, tmp_path):
         """Test separation validates stem names"""
@@ -74,12 +76,15 @@ class TestSeparation:
         fake_binary.write_text("#!/bin/bash\necho test")
         fake_binary.chmod(0o755)
 
-        with patch('utils.lars_service_client._find_lars_service_binary', return_value=fake_binary):
+        with patch(
+            "utils.lars_service_client._find_lars_service_binary",
+            return_value=fake_binary,
+        ):
             with pytest.raises(ValueError, match="Invalid stem names"):
                 separate_drum_stems(
                     input_path=input_file,
                     output_dir=output_dir,
-                    stems=["invalid_stem", "another_invalid"]
+                    stems=["invalid_stem", "another_invalid"],
                 )
 
     def test_separate_creates_output_directory(self, tmp_path):
@@ -110,22 +115,23 @@ class TestSeparation:
             "wiener_filter": False,
             "output_format": "wav",
             "sample_rate": 44100,
-            "warnings": []
+            "warnings": [],
         }
 
         mock_process = MagicMock()
         mock_process.returncode = 0
         mock_process.communicate.return_value = (
-            __import__('json').dumps(mock_result),
-            ""
+            __import__("json").dumps(mock_result),
+            "",
         )
 
-        with patch('utils.lars_service_client._find_lars_service_binary', return_value=fake_binary):
-            with patch('subprocess.Popen', return_value=mock_process):
+        with patch(
+            "utils.lars_service_client._find_lars_service_binary",
+            return_value=fake_binary,
+        ):
+            with patch("subprocess.Popen", return_value=mock_process):
                 result = separate_drum_stems(
-                    input_path=input_file,
-                    output_dir=output_dir,
-                    timeout_seconds=10.0
+                    input_path=input_file, output_dir=output_dir, timeout_seconds=10.0
                 )
 
                 # Verify output directory was created

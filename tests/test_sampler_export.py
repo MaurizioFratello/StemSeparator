@@ -1,6 +1,7 @@
 """
 Tests for sampler_export module - Loop export functionality
 """
+
 import pytest
 import numpy as np
 import soundfile as sf
@@ -33,7 +34,7 @@ def temp_audio_file(tmp_path):
 
     # Save to file
     audio_path = tmp_path / "test_audio.wav"
-    sf.write(str(audio_path), audio, sample_rate, subtype='PCM_24')
+    sf.write(str(audio_path), audio, sample_rate, subtype="PCM_24")
 
     return audio_path
 
@@ -51,7 +52,7 @@ def temp_short_audio_file(tmp_path):
     audio = np.sin(2 * np.pi * frequency * t).astype(np.float32)
 
     audio_path = tmp_path / "test_short_audio.wav"
-    sf.write(str(audio_path), audio, sample_rate, subtype='PCM_16')
+    sf.write(str(audio_path), audio, sample_rate, subtype="PCM_16")
 
     return audio_path
 
@@ -70,7 +71,7 @@ class TestExportBasicFunctionality:
             bars=4,  # 4 bars at 120 BPM = 8s, so 10s audio -> 2 chunks
             sample_rate=44100,
             bit_depth=24,
-            channels=2
+            channels=2,
         )
 
         assert result.success is True
@@ -94,7 +95,7 @@ class TestExportBasicFunctionality:
             bars=4,  # 4 bars = 8s > 2s file -> single chunk
             sample_rate=44100,
             bit_depth=16,
-            channels=1
+            channels=1,
         )
 
         assert result.success is True
@@ -117,7 +118,7 @@ class TestExportBasicFunctionality:
             bars=2,  # 2 bars at 150 BPM = 3.2s -> 4 chunks from 10s
             sample_rate=44100,
             bit_depth=24,
-            channels=2
+            channels=2,
         )
 
         assert result.success is True
@@ -143,7 +144,7 @@ class TestExportBasicFunctionality:
             bars=4,
             sample_rate=44100,
             bit_depth=24,
-            channels=2
+            channels=2,
         )
 
         assert result.success is True
@@ -162,7 +163,7 @@ class TestExportValidation:
             bars=4,
             sample_rate=44100,
             bit_depth=24,
-            channels=2
+            channels=2,
         )
 
         assert result.success is False
@@ -178,11 +179,14 @@ class TestExportValidation:
             bars=8,
             sample_rate=44100,
             bit_depth=24,
-            channels=2
+            channels=2,
         )
 
         assert result.success is False
-        assert "invalid" in result.error_message.lower() or "exceed" in result.error_message.lower()
+        assert (
+            "invalid" in result.error_message.lower()
+            or "exceed" in result.error_message.lower()
+        )
 
     def test_bpm_rounding(self, temp_audio_file, tmp_path):
         """Test that float BPM is rounded to integer"""
@@ -193,7 +197,7 @@ class TestExportValidation:
             bars=4,
             sample_rate=44100,
             bit_depth=24,
-            channels=2
+            channels=2,
         )
 
         assert result.success is True
@@ -214,7 +218,7 @@ class TestExportAudioFormats:
             bars=4,
             sample_rate=44100,
             bit_depth=24,
-            channels=1  # Mono
+            channels=1,  # Mono
         )
 
         assert result.success is True
@@ -232,7 +236,7 @@ class TestExportAudioFormats:
             bars=4,
             sample_rate=44100,
             bit_depth=24,
-            channels=2  # Convert to stereo
+            channels=2,  # Convert to stereo
         )
 
         assert result.success is True
@@ -251,14 +255,14 @@ class TestExportAudioFormats:
             bars=4,
             sample_rate=44100,
             bit_depth=16,
-            channels=2
+            channels=2,
         )
 
         assert result.success is True
 
         # Verify file was created with correct bit depth
         info = sf.info(str(result.output_files[0]))
-        assert info.subtype == 'PCM_16'
+        assert info.subtype == "PCM_16"
 
     def test_export_48khz(self, temp_audio_file, tmp_path):
         """Test export with resampling to 48kHz"""
@@ -269,7 +273,7 @@ class TestExportAudioFormats:
             bars=4,
             sample_rate=48000,  # Resample to 48kHz
             bit_depth=24,
-            channels=2
+            channels=2,
         )
 
         assert result.success is True
@@ -288,7 +292,7 @@ class TestExportAudioFormats:
             sample_rate=44100,
             bit_depth=24,
             channels=2,
-            file_format='FLAC'
+            file_format="FLAC",
         )
 
         assert result.success is True
@@ -307,7 +311,7 @@ class TestExportMetadata:
             bars=4,
             sample_rate=44100,
             bit_depth=24,
-            channels=2
+            channels=2,
         )
 
         assert result.success is True
@@ -326,7 +330,7 @@ class TestExportMetadata:
             bars=4,
             sample_rate=44100,
             bit_depth=24,
-            channels=2
+            channels=2,
         )
 
         assert result.success is True
@@ -344,7 +348,7 @@ class TestExportMetadata:
             bars=4,  # 4 bars = 8s
             sample_rate=44100,
             bit_depth=24,
-            channels=2
+            channels=2,
         )
 
         assert result.success is True
@@ -370,7 +374,7 @@ class TestProgressCallback:
             sample_rate=44100,
             bit_depth=24,
             channels=2,
-            progress_callback=progress_callback
+            progress_callback=progress_callback,
         )
 
         assert result.success is True

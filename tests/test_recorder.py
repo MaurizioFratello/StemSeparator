@@ -1,6 +1,7 @@
 """
 Unit Tests für Recorder
 """
+
 import pytest
 import numpy as np
 from pathlib import Path
@@ -35,7 +36,7 @@ class TestRecordingInfo:
             sample_rate=44100,
             channels=2,
             file_path=Path("/test.wav"),
-            peak_level=0.8
+            peak_level=0.8,
         )
 
         assert info.duration_seconds == 10.5
@@ -67,7 +68,7 @@ class TestRecorder:
             assert recorder._import_soundcard() is True
         else:
             # Sonst mocken
-            with patch('core.recorder.sc') as mock_sc:
+            with patch("core.recorder.sc") as mock_sc:
                 recorder._soundcard = None
                 result = recorder._import_soundcard()
                 # Kann True oder False sein je nach Umgebung
@@ -201,7 +202,7 @@ class TestRecorder:
         assert 0.9 < result.duration_seconds < 1.1
         assert result.sample_rate == 44100
 
-    @patch('soundcard.all_microphones')
+    @patch("soundcard.all_microphones")
     def test_get_available_devices(self, mock_all_mics):
         """Teste get_available_devices()"""
         # Mock Devices

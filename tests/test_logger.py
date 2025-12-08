@@ -1,6 +1,7 @@
 """
 Unit Tests für Logger
 """
+
 import pytest
 from pathlib import Path
 from utils.logger import AppLogger, get_logger
@@ -24,11 +25,11 @@ class TestLogger:
     def test_logger_methods(self):
         """Teste ob alle Logger-Methoden existieren"""
         logger = get_logger()
-        assert hasattr(logger, 'debug')
-        assert hasattr(logger, 'info')
-        assert hasattr(logger, 'warning')
-        assert hasattr(logger, 'error')
-        assert hasattr(logger, 'critical')
+        assert hasattr(logger, "debug")
+        assert hasattr(logger, "info")
+        assert hasattr(logger, "warning")
+        assert hasattr(logger, "error")
+        assert hasattr(logger, "critical")
 
     def test_log_separator_task(self):
         """Teste spezialisierte Log-Methode"""
@@ -75,6 +76,7 @@ class TestLogger:
         internal_logger = logger.get_logger()
 
         import logging
+
         assert isinstance(internal_logger, logging.Logger)
 
     def test_convenience_functions(self):

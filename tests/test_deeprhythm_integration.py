@@ -25,20 +25,24 @@ try:
         detect_bpm,
         _detect_bpm_librosa,
         _get_deeprhythm_predictor,
-        DEEPRHYTHM_AVAILABLE
+        DEEPRHYTHM_AVAILABLE,
     )
     from core.sampler_export import detect_audio_bpm
+
     print(f"  ✓ Core imports successful")
     print(f"  ✓ DeepRhythm available: {DEEPRHYTHM_AVAILABLE}")
 
     # Try to import Qt components (may fail in headless environment)
     try:
         from ui.dialogs.loop_export_dialog import BPMDetectionWorker
+
         qt_available = True
         print(f"  ✓ Qt components imported")
     except Exception as e:
         qt_available = False
-        print(f"  ℹ Qt components not available (headless environment): skipping UI tests")
+        print(
+            f"  ℹ Qt components not available (headless environment): skipping UI tests"
+        )
 
 except ImportError as e:
     print(f"  ✗ Import failed: {e}")
@@ -72,7 +76,9 @@ try:
 
     bpm, confidence = result
     assert isinstance(bpm, float), "BPM should be float"
-    assert confidence is None or isinstance(confidence, float), "Confidence should be None or float"
+    assert confidence is None or isinstance(
+        confidence, float
+    ), "Confidence should be None or float"
 
     if confidence is not None:
         assert 0.0 <= confidence <= 1.0, "Confidence should be between 0 and 1"
@@ -94,7 +100,7 @@ try:
     print(f"  ✓ Librosa fallback works: {bpm_librosa:.1f} BPM")
 
     # Test forced librosa method
-    bpm, confidence = detect_bpm(audio_data, sample_rate, method='librosa')
+    bpm, confidence = detect_bpm(audio_data, sample_rate, method="librosa")
     assert confidence is None, "Librosa should return None for confidence"
     print(f"  ✓ Forced librosa method works: {bpm:.1f} BPM")
 
@@ -117,7 +123,9 @@ except Exception as e:
 # Test 6: Edge case - Stereo audio conversion
 print("\n✓ Test 6: Edge case - Stereo audio...")
 try:
-    stereo_audio = np.random.randn(int(sample_rate * duration), 2)  # (samples, channels)
+    stereo_audio = np.random.randn(
+        int(sample_rate * duration), 2
+    )  # (samples, channels)
     bpm, confidence = detect_bpm(stereo_audio, sample_rate)
     assert isinstance(bpm, float), "Should handle stereo audio"
     print(f"  ✓ Stereo audio converted and processed: {bpm:.1f} BPM")
@@ -159,8 +167,8 @@ if qt_available:
         signals = BPMDetectionWorker.Signals()
 
         # Check that finished signal exists and has 4 parameters
-        assert hasattr(signals, 'finished'), "Should have finished signal"
-        assert hasattr(signals, 'error'), "Should have error signal"
+        assert hasattr(signals, "finished"), "Should have finished signal"
+        assert hasattr(signals, "error"), "Should have error signal"
 
         print(f"  ✓ Worker signals properly defined")
         print(f"  ✓ finished signal: (bpm, message, source, confidence)")
@@ -184,7 +192,9 @@ try:
 
     # Test confidence = None (valid for librosa)
     test_confidence = None
-    assert test_confidence is None or (0.0 <= test_confidence <= 1.0), "None should be valid"
+    assert test_confidence is None or (
+        0.0 <= test_confidence <= 1.0
+    ), "None should be valid"
 
     print(f"  ✓ Confidence values properly bounded [0.0, 1.0]")
     print(f"  ✓ None confidence handled for librosa fallback")
@@ -197,17 +207,17 @@ except Exception as e:
 print("\n✓ Test 11: Method selection...")
 try:
     # Test auto method (default)
-    bpm_auto, conf_auto = detect_bpm(audio_data, sample_rate, method='auto')
+    bpm_auto, conf_auto = detect_bpm(audio_data, sample_rate, method="auto")
     print(f"  ✓ Auto method: {bpm_auto:.1f} BPM")
 
     # Test librosa method (forced)
-    bpm_lib, conf_lib = detect_bpm(audio_data, sample_rate, method='librosa')
+    bpm_lib, conf_lib = detect_bpm(audio_data, sample_rate, method="librosa")
     assert conf_lib is None, "Librosa should return None confidence"
     print(f"  ✓ Librosa method: {bpm_lib:.1f} BPM")
 
     # Test deeprhythm method (if available)
     if DEEPRHYTHM_AVAILABLE:
-        bpm_dr, conf_dr = detect_bpm(audio_data, sample_rate, method='deeprhythm')
+        bpm_dr, conf_dr = detect_bpm(audio_data, sample_rate, method="deeprhythm")
         assert conf_dr is not None, "DeepRhythm should return confidence"
         print(f"  ✓ DeepRhythm method: {bpm_dr:.1f} BPM ({conf_dr:.0%})")
     else:
@@ -283,10 +293,11 @@ print("\n✓ Test 15: Device priority (CUDA > MPS > CPU)...")
 try:
     # We can't easily test all devices, but verify the logic exists
     import inspect
+
     source = inspect.getsource(_get_deeprhythm_predictor)
 
-    assert 'torch.cuda.is_available()' in source, "Should check CUDA"
-    assert 'torch.backends.mps' in source, "Should check MPS"
+    assert "torch.cuda.is_available()" in source, "Should check CUDA"
+    assert "torch.backends.mps" in source, "Should check MPS"
     assert "device = 'cuda'" in source, "Should support CUDA"
     assert "device = 'mps'" in source, "Should support MPS"
     assert "device = 'cpu'" in source, "Should fallback to CPU"

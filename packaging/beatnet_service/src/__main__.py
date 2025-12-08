@@ -32,37 +32,33 @@ def parse_args() -> argparse.Namespace:
     """Parse command line arguments."""
     parser = argparse.ArgumentParser(
         prog="beatnet-service",
-        description="BeatNet beat and downbeat detection service"
+        description="BeatNet beat and downbeat detection service",
     )
     parser.add_argument(
-        "--input", "-i",
-        type=Path,
-        required=True,
-        help="Path to audio file"
+        "--input", "-i", type=Path, required=True, help="Path to audio file"
     )
     parser.add_argument(
-        "--output", "-o",
+        "--output",
+        "-o",
         type=str,
         default="-",
-        help="Output path or '-' for stdout (default: -)"
+        help="Output path or '-' for stdout (default: -)",
     )
     parser.add_argument(
         "--max-duration",
         type=float,
         default=None,
-        help="Maximum duration to analyze in seconds"
+        help="Maximum duration to analyze in seconds",
     )
     parser.add_argument(
         "--device",
         type=str,
         choices=["auto", "mps", "cuda", "cpu"],
         default="auto",
-        help="Compute device (default: auto)"
+        help="Compute device (default: auto)",
     )
     parser.add_argument(
-        "--verbose", "-v",
-        action="store_true",
-        help="Enable verbose logging"
+        "--verbose", "-v", action="store_true", help="Enable verbose logging"
     )
     return parser.parse_args()
 
@@ -86,10 +82,7 @@ def output_error(error_type: str, message: str, details: Optional[dict] = None) 
 
 
 def analyze_audio(
-    audio_path: Path,
-    device: str,
-    max_duration: Optional[float],
-    verbose: bool
+    audio_path: Path, device: str, max_duration: Optional[float], verbose: bool
 ) -> dict:
     """
     Run BeatNet analysis on audio file.
@@ -132,11 +125,11 @@ def analyze_audio(
 
     predictor = BeatNet(
         model=1,
-        mode='offline',
-        inference_model='DBN',
+        mode="offline",
+        inference_model="DBN",
         plot=[],
         thread=False,
-        device=device
+        device=device,
     )
 
     log("Running beat detection...", verbose)
@@ -164,19 +157,18 @@ def analyze_audio(
         if is_downbeat == 1:
             current_bar += 1
             beat_in_bar = 1
-            downbeats.append({
-                "time": float(t),
-                "bar": current_bar
-            })
+            downbeats.append({"time": float(t), "bar": current_bar})
         else:
             beat_in_bar += 1
 
-        beats.append({
-            "time": float(t),
-            "index": i,
-            "bar": current_bar if current_bar > 0 else 1,
-            "beat_in_bar": beat_in_bar if beat_in_bar > 0 else 1
-        })
+        beats.append(
+            {
+                "time": float(t),
+                "index": i,
+                "bar": current_bar if current_bar > 0 else 1,
+                "beat_in_bar": beat_in_bar if beat_in_bar > 0 else 1,
+            }
+        )
 
     # Estimate tempo from beat intervals
     if len(beat_times) > 1:
@@ -205,7 +197,7 @@ def analyze_audio(
         "downbeats": downbeats,
         "analysis_duration": round(analysis_duration, 2),
         "audio_duration": round(audio_duration, 2),
-        "warnings": []
+        "warnings": [],
     }
 
 
@@ -218,7 +210,7 @@ def main() -> None:
         output_error(
             "InputError",
             f"Audio file not found: {args.input}",
-            {"path": str(args.input)}
+            {"path": str(args.input)},
         )
 
     # Resolve device
@@ -231,7 +223,7 @@ def main() -> None:
             audio_path=args.input,
             device=device,
             max_duration=args.max_duration,
-            verbose=args.verbose
+            verbose=args.verbose,
         )
 
         # Output result
@@ -248,18 +240,15 @@ def main() -> None:
 
     except ImportError as e:
         output_error(
-            "DependencyError",
-            f"Missing dependency: {e}",
-            {"exception": str(e)}
+            "DependencyError", f"Missing dependency: {e}", {"exception": str(e)}
         )
     except Exception as e:
         output_error(
             "AnalysisError",
             f"Analysis failed: {e}",
-            {"exception": str(e), "type": type(e).__name__}
+            {"exception": str(e), "type": type(e).__name__},
         )
 
 
 if __name__ == "__main__":
     main()
-

@@ -5,6 +5,7 @@ PURPOSE: Wrapper around LarsNet library for drum separation
 CONTEXT: Phase 1 implementation with placeholder logic
 NOTE: Real LarsNet integration requires installing LarsNet package and downloading models
 """
+
 import sys
 import time
 from pathlib import Path
@@ -69,7 +70,7 @@ class LarsProcessor:
         stems: List[str],
         wiener_filter: bool = False,
         output_format: str = "wav",
-        sample_rate: int = 44100
+        sample_rate: int = 44100,
     ) -> Dict[str, Path]:
         """
         Separate drum stems from audio file.
@@ -101,7 +102,7 @@ class LarsProcessor:
             print(
                 f"[LarsProcessor] Audio loaded: {audio_data.shape[0]} samples, "
                 f"{audio_data.shape[1]} channels, {original_sr} Hz",
-                file=sys.stderr
+                file=sys.stderr,
             )
 
         # Resample if needed
@@ -109,18 +110,19 @@ class LarsProcessor:
             if self.verbose:
                 print(
                     f"[LarsProcessor] Resampling from {original_sr} Hz to {sample_rate} Hz",
-                    file=sys.stderr
+                    file=sys.stderr,
                 )
             # Simple resampling using scipy
             try:
                 from scipy import signal
+
                 num_samples = int(len(audio_data) * sample_rate / original_sr)
                 audio_data = signal.resample(audio_data, num_samples)
             except ImportError:
                 if self.verbose:
                     print(
                         "[LarsProcessor] scipy not available, skipping resample",
-                        file=sys.stderr
+                        file=sys.stderr,
                     )
 
         # Phase 1: Placeholder separation logic
@@ -133,9 +135,7 @@ class LarsProcessor:
             # Generate placeholder stem data
             # Future: Replace with actual LarsNet inference
             stem_data = self._generate_placeholder_stem(
-                audio_data=audio_data,
-                stem_name=stem_name,
-                sample_rate=sample_rate
+                audio_data=audio_data, stem_name=stem_name, sample_rate=sample_rate
             )
 
             # Build output filename
@@ -147,13 +147,16 @@ class LarsProcessor:
                 str(output_path),
                 stem_data,
                 sample_rate,
-                subtype='PCM_24' if output_format == 'wav' else None
+                subtype="PCM_24" if output_format == "wav" else None,
             )
 
             stem_paths[stem_name] = output_path
 
             if self.verbose:
-                print(f"[LarsProcessor] Written {stem_name}: {output_path}", file=sys.stderr)
+                print(
+                    f"[LarsProcessor] Written {stem_name}: {output_path}",
+                    file=sys.stderr,
+                )
 
         if self.verbose:
             print(f"[LarsProcessor] Separation complete", file=sys.stderr)
@@ -161,10 +164,7 @@ class LarsProcessor:
         return stem_paths
 
     def _generate_placeholder_stem(
-        self,
-        audio_data: np.ndarray,
-        stem_name: str,
-        sample_rate: int
+        self, audio_data: np.ndarray, stem_name: str, sample_rate: int
     ) -> np.ndarray:
         """
         Generate placeholder stem data for testing.

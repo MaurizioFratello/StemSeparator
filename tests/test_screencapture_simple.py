@@ -7,8 +7,9 @@ import sys
 
 # Check macOS version first
 import platform
+
 mac_version = platform.mac_ver()[0]
-major = int(mac_version.split('.')[0])
+major = int(mac_version.split(".")[0])
 
 if major < 13:
     print(f"ERROR: macOS {mac_version} - ScreenCaptureKit requires 13.0+")
@@ -20,6 +21,7 @@ print()
 # Import
 try:
     import ScreenCaptureKit as SCK
+
     print("✓ ScreenCaptureKit imported")
 except ImportError as e:
     print(f"ERROR: {e}")
@@ -29,7 +31,7 @@ except ImportError as e:
 print("\nSCShareableContent attributes:")
 print("-" * 60)
 for attr in dir(SCK.SCShareableContent):
-    if not attr.startswith('_'):
+    if not attr.startswith("_"):
         print(f"  {attr}")
 
 print("\nTrying to get current process shareable content...")
@@ -42,10 +44,13 @@ try:
     print(f"  Type: {type(content)}")
 
     if content:
-        print(f"  Displays: {len(content.displays()) if hasattr(content, 'displays') else 'N/A'}")
+        print(
+            f"  Displays: {len(content.displays()) if hasattr(content, 'displays') else 'N/A'}"
+        )
 except Exception as e:
     print(f"❌ Error: {e}")
     import traceback
+
     traceback.print_exc()
 
 print("\nTrying getCurrentProcessShareableContent...")
@@ -74,4 +79,3 @@ except ImportError:
     print("Quartz not available for permission check")
 except Exception as e:
     print(f"Permission check error: {e}")
-

@@ -4,6 +4,7 @@ Unit tests for macOS color integration
 PURPOSE: Test macOS system color detection, dark mode detection, and adaptive colors
 CONTEXT: Ensures color system works correctly on macOS and gracefully degrades elsewhere
 """
+
 import pytest
 from unittest.mock import Mock, patch, MagicMock
 import platform
@@ -19,33 +20,33 @@ class TestMacOSColors:
 
     def test_is_macos_on_darwin(self):
         """Test macOS detection returns True on Darwin"""
-        with patch('platform.system', return_value='Darwin'):
+        with patch("platform.system", return_value="Darwin"):
             assert MacOSColors.is_macos() is True
 
     def test_is_macos_on_linux(self):
         """Test macOS detection returns False on Linux"""
-        with patch('platform.system', return_value='Linux'):
+        with patch("platform.system", return_value="Linux"):
             assert MacOSColors.is_macos() is False
 
     def test_is_macos_on_windows(self):
         """Test macOS detection returns False on Windows"""
-        with patch('platform.system', return_value='Windows'):
+        with patch("platform.system", return_value="Windows"):
             assert MacOSColors.is_macos() is False
 
     def test_is_dark_mode_no_app(self):
         """Test dark mode detection defaults to True when no QApplication"""
-        with patch('platform.system', return_value='Darwin'):
-            with patch('PySide6.QtWidgets.QApplication.instance', return_value=None):
+        with patch("platform.system", return_value="Darwin"):
+            with patch("PySide6.QtWidgets.QApplication.instance", return_value=None):
                 assert MacOSColors.is_dark_mode() is True
 
     def test_is_dark_mode_on_non_macos(self):
         """Test dark mode defaults to True on non-macOS systems"""
-        with patch('platform.system', return_value='Linux'):
+        with patch("platform.system", return_value="Linux"):
             assert MacOSColors.is_dark_mode() is True
 
     def test_is_dark_mode_dark_palette(self, qtbot):
         """Test dark mode detection with dark palette"""
-        with patch('platform.system', return_value='Darwin'):
+        with patch("platform.system", return_value="Darwin"):
             # Create mock palette with dark colors
             mock_palette = Mock(spec=QPalette)
             mock_window_color = Mock(spec=QColor)
@@ -55,18 +56,20 @@ class TestMacOSColors:
 
             mock_palette.color.side_effect = lambda role: {
                 QPalette.Window: mock_window_color,
-                QPalette.WindowText: mock_text_color
+                QPalette.WindowText: mock_text_color,
             }.get(role)
 
             mock_app = Mock(spec=QApplication)
             mock_app.palette.return_value = mock_palette
 
-            with patch('PySide6.QtWidgets.QApplication.instance', return_value=mock_app):
+            with patch(
+                "PySide6.QtWidgets.QApplication.instance", return_value=mock_app
+            ):
                 assert MacOSColors.is_dark_mode() is True
 
     def test_is_dark_mode_light_palette(self, qtbot):
         """Test dark mode detection with light palette"""
-        with patch('platform.system', return_value='Darwin'):
+        with patch("platform.system", return_value="Darwin"):
             # Create mock palette with light colors
             mock_palette = Mock(spec=QPalette)
             mock_window_color = Mock(spec=QColor)
@@ -76,13 +79,15 @@ class TestMacOSColors:
 
             mock_palette.color.side_effect = lambda role: {
                 QPalette.Window: mock_window_color,
-                QPalette.WindowText: mock_text_color
+                QPalette.WindowText: mock_text_color,
             }.get(role)
 
             mock_app = Mock(spec=QApplication)
             mock_app.palette.return_value = mock_palette
 
-            with patch('PySide6.QtWidgets.QApplication.instance', return_value=mock_app):
+            with patch(
+                "PySide6.QtWidgets.QApplication.instance", return_value=mock_app
+            ):
                 assert MacOSColors.is_dark_mode() is False
 
     def test_system_accent_color_with_app(self, qtbot):
@@ -94,13 +99,13 @@ class TestMacOSColors:
         mock_app = Mock(spec=QApplication)
         mock_app.palette.return_value = mock_palette
 
-        with patch('PySide6.QtWidgets.QApplication.instance', return_value=mock_app):
+        with patch("PySide6.QtWidgets.QApplication.instance", return_value=mock_app):
             color = MacOSColors.system_accent_color()
             assert isinstance(color, QColor)
 
     def test_system_accent_color_no_app(self):
         """Test system accent color fallback without QApplication"""
-        with patch('PySide6.QtWidgets.QApplication.instance', return_value=None):
+        with patch("PySide6.QtWidgets.QApplication.instance", return_value=None):
             color = MacOSColors.system_accent_color()
             assert isinstance(color, QColor)
             assert color.name() == "#667eea"  # Fallback color
@@ -114,10 +119,10 @@ class TestMacOSColors:
         mock_app = Mock(spec=QApplication)
         mock_app.palette.return_value = mock_palette
 
-        with patch('PySide6.QtWidgets.QApplication.instance', return_value=mock_app):
+        with patch("PySide6.QtWidgets.QApplication.instance", return_value=mock_app):
             hex_color = MacOSColors.system_accent_color_hex()
             assert isinstance(hex_color, str)
-            assert hex_color.startswith('#')
+            assert hex_color.startswith("#")
 
     def test_window_background_returns_palette_string(self):
         """Test window background returns palette reference"""
@@ -146,37 +151,37 @@ class TestMacOSColors:
 
     def test_get_adaptive_background_on_macos(self):
         """Test adaptive background returns palette on macOS"""
-        with patch('platform.system', return_value='Darwin'):
+        with patch("platform.system", return_value="Darwin"):
             result = MacOSColors.get_adaptive_background()
             assert result == "palette(window)"
 
     def test_get_adaptive_background_on_linux(self):
         """Test adaptive background returns fallback on Linux"""
-        with patch('platform.system', return_value='Linux'):
+        with patch("platform.system", return_value="Linux"):
             result = MacOSColors.get_adaptive_background(fallback="#custom")
             assert result == "#custom"
 
     def test_get_adaptive_text_on_macos(self):
         """Test adaptive text returns palette on macOS"""
-        with patch('platform.system', return_value='Darwin'):
+        with patch("platform.system", return_value="Darwin"):
             result = MacOSColors.get_adaptive_text()
             assert result == "palette(window-text)"
 
     def test_get_adaptive_text_on_windows(self):
         """Test adaptive text returns fallback on Windows"""
-        with patch('platform.system', return_value='Windows'):
+        with patch("platform.system", return_value="Windows"):
             result = MacOSColors.get_adaptive_text(fallback="#custom")
             assert result == "#custom"
 
     def test_get_adaptive_accent_on_macos(self):
         """Test adaptive accent returns palette on macOS"""
-        with patch('platform.system', return_value='Darwin'):
+        with patch("platform.system", return_value="Darwin"):
             result = MacOSColors.get_adaptive_accent()
             assert result == "palette(highlight)"
 
     def test_get_adaptive_accent_on_non_macos(self):
         """Test adaptive accent returns fallback on non-macOS"""
-        with patch('platform.system', return_value='Linux'):
+        with patch("platform.system", return_value="Linux"):
             result = MacOSColors.get_adaptive_accent(fallback="#custom")
             assert result == "#custom"
 
@@ -197,18 +202,19 @@ class TestMacOSColors:
 
         for color in colors:
             assert isinstance(color, str)
-            assert color.startswith('#')
+            assert color.startswith("#")
             assert len(color) == 7  # #RRGGBB format
 
     def test_macos_label_colors_exist(self):
         """Test that label colors are defined"""
-        assert hasattr(MacOSColors, 'MACOS_LABEL_PRIMARY')
-        assert hasattr(MacOSColors, 'MACOS_LABEL_PRIMARY_DARK')
-        assert hasattr(MacOSColors, 'MACOS_LABEL_SECONDARY')
-        assert hasattr(MacOSColors, 'MACOS_LABEL_SECONDARY_DARK')
+        assert hasattr(MacOSColors, "MACOS_LABEL_PRIMARY")
+        assert hasattr(MacOSColors, "MACOS_LABEL_PRIMARY_DARK")
+        assert hasattr(MacOSColors, "MACOS_LABEL_SECONDARY")
+        assert hasattr(MacOSColors, "MACOS_LABEL_SECONDARY_DARK")
 
     def test_get_macos_colors_returns_class(self):
         """Test convenience function returns MacOSColors class"""
         from ui.theme.macos_colors import get_macos_colors
+
         result = get_macos_colors()
         assert result is MacOSColors

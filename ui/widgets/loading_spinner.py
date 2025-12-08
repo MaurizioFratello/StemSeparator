@@ -4,6 +4,7 @@ Loading Spinner Widget - Animated loading indicator
 PURPOSE: Provide visual feedback during async operations.
 CONTEXT: Modern replacement for static "Loading..." text.
 """
+
 from PySide6.QtWidgets import QLabel
 from PySide6.QtCore import QTimer, Qt
 from PySide6.QtGui import QFont
@@ -24,7 +25,16 @@ class LoadingSpinner(QLabel):
 
         # Unicode spinner frames (various styles available)
         self.frames = [
-            "⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"  # Dots style
+            "⠋",
+            "⠙",
+            "⠹",
+            "⠸",
+            "⠼",
+            "⠴",
+            "⠦",
+            "⠧",
+            "⠇",
+            "⠏",  # Dots style
             # Alternative: ["◐", "◓", "◑", "◒"]  # Circle style
             # Alternative: ["▁", "▂", "▃", "▄", "▅", "▆", "▇", "█", "▇", "▆", "▅", "▄", "▃", "▂"]  # Bar style
         ]

@@ -4,6 +4,7 @@ Pulse Animation Widget - Pulsing indicator for recording/active states
 PURPOSE: Provide visual feedback for active/recording states.
 CONTEXT: Used in recording widget to show recording in progress.
 """
+
 from PySide6.QtCore import QPropertyAnimation, QEasingCurve, Qt, Property
 from PySide6.QtWidgets import QLabel, QGraphicsOpacityEffect
 from PySide6.QtGui import QFont

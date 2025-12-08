@@ -6,6 +6,7 @@ PURPOSE: Provide core mathematical functions for calculating loop lengths,
 
 CONTEXT: Used by sampler_export to compute exact sample counts for musical loops.
 """
+
 from typing import Tuple
 
 
@@ -38,9 +39,7 @@ def compute_bar_duration_seconds(bpm: int, time_signature_beats: int = 4) -> flo
 
 
 def compute_chunk_duration_seconds(
-    bpm: int,
-    bars: int,
-    time_signature_beats: int = 4
+    bpm: int, bars: int, time_signature_beats: int = 4
 ) -> float:
     """
     Compute the duration of N bars in seconds.
@@ -72,10 +71,7 @@ def compute_chunk_duration_seconds(
 
 
 def compute_samples_per_chunk(
-    bpm: int,
-    bars: int,
-    sample_rate: int,
-    time_signature_beats: int = 4
+    bpm: int, bars: int, sample_rate: int, time_signature_beats: int = 4
 ) -> int:
     """
     Compute the number of samples for N bars at given BPM and sample rate.
@@ -108,10 +104,7 @@ def compute_samples_per_chunk(
 
 
 def is_valid_for_sampler(
-    bpm: int,
-    bars: int,
-    max_seconds: float = 20.0,
-    time_signature_beats: int = 4
+    bpm: int, bars: int, max_seconds: float = 20.0, time_signature_beats: int = 4
 ) -> Tuple[bool, str]:
     """
     Check if BPM + bars combination fits within sampler's maximum duration.
@@ -154,9 +147,7 @@ def is_valid_for_sampler(
 
 
 def get_minimum_bpm(
-    bars: int,
-    max_seconds: float = 20.0,
-    time_signature_beats: int = 4
+    bars: int, max_seconds: float = 20.0, time_signature_beats: int = 4
 ) -> int:
     """
     Calculate the minimum BPM required for N bars to fit within max_seconds.

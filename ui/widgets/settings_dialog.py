@@ -4,11 +4,24 @@ Settings Dialog - User preferences configuration
 PURPOSE: Provide GUI for modifying application settings.
 CONTEXT: Settings dialog accessible from main menu.
 """
+
 from pathlib import Path
 from PySide6.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QTabWidget, QWidget,
-    QPushButton, QLabel, QComboBox, QCheckBox, QSpinBox,
-    QLineEdit, QGroupBox, QFileDialog, QMessageBox, QFrame
+    QDialog,
+    QVBoxLayout,
+    QHBoxLayout,
+    QTabWidget,
+    QWidget,
+    QPushButton,
+    QLabel,
+    QComboBox,
+    QCheckBox,
+    QSpinBox,
+    QLineEdit,
+    QGroupBox,
+    QFileDialog,
+    QMessageBox,
+    QFrame,
 )
 from PySide6.QtCore import Qt, Signal, Slot, QUrl, QRunnable, QThreadPool, QObject
 from PySide6.QtGui import QDesktopServices
@@ -39,10 +52,13 @@ class BlackHoleInstallWorker(QRunnable):
     def run(self):
         """Execute installation in background"""
         try:
+
             def progress_callback(message: str):
                 self.signals.progress.emit(message)
 
-            success, error_msg = self.blackhole_installer.install_blackhole(progress_callback)
+            success, error_msg = self.blackhole_installer.install_blackhole(
+                progress_callback
+            )
             self.signals.finished.emit(success, error_msg or "")
         except Exception as e:
             self.signals.finished.emit(False, str(e))
@@ -60,10 +76,10 @@ class SettingsDialog(QDialog):
     - Recording settings
     - Diagnostics (log file access)
     """
-    
+
     # Signal emitted when settings are saved
     settings_changed = Signal()
-    
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.ctx = AppContext()
@@ -82,49 +98,49 @@ class SettingsDialog(QDialog):
         self._connect_signals()
 
         self.ctx.logger().info("SettingsDialog initialized")
-    
+
     def _create_card(self, title: str) -> tuple[QFrame, QVBoxLayout]:
         """Create a styled card frame with header"""
         card = QFrame()
         card.setObjectName("card")
-        
+
         layout = QVBoxLayout(card)
         layout.setContentsMargins(20, 20, 20, 20)
         layout.setSpacing(15)
-        
+
         header = QLabel(title)
         header.setObjectName("card_header")
         layout.addWidget(header)
-        
+
         return card, layout
-    
+
     def _setup_ui(self):
         """Setup dialog layout"""
         layout = QVBoxLayout(self)
-        
+
         # Tab widget for categories
         self.tabs = QTabWidget()
-        
+
         self.tabs.addTab(self._create_general_tab(), "General")
         self.tabs.addTab(self._create_performance_tab(), "Performance")
         self.tabs.addTab(self._create_audio_tab(), "Audio")
         self.tabs.addTab(self._create_advanced_tab(), "Advanced")
-        
+
         layout.addWidget(self.tabs)
-        
+
         # Buttons
         buttons_layout = QHBoxLayout()
         self.btn_save = QPushButton("Save")
         self.btn_cancel = QPushButton("Cancel")
         self.btn_reset = QPushButton("Reset to Defaults")
-        
+
         buttons_layout.addWidget(self.btn_reset)
         buttons_layout.addStretch()
         buttons_layout.addWidget(self.btn_cancel)
         buttons_layout.addWidget(self.btn_save)
-        
+
         layout.addLayout(buttons_layout)
-    
+
     def _create_general_tab(self) -> QWidget:
         """Create general settings tab"""
         widget = QWidget()
@@ -132,28 +148,27 @@ class SettingsDialog(QDialog):
 
         # Default Model Card
         model_card, model_layout = self._create_card("Default Model")
-        
+
         model_select = QHBoxLayout()
         model_select.addWidget(QLabel("Model:"))
         self.model_combo = QComboBox()
-        
+
         # Load models
         model_manager = self.ctx.model_manager()
         for model_id, model_info in model_manager.available_models.items():
             self.model_combo.addItem(
-                f"{model_info.name} ({model_info.stems} stems)",
-                userData=model_id
+                f"{model_info.name} ({model_info.stems} stems)", userData=model_id
             )
-        
+
         model_select.addWidget(self.model_combo)
         model_select.addStretch()
         model_layout.addLayout(model_select)
-        
+
         layout.addWidget(model_card)
-        
+
         # Output Directory Card
         output_card, output_layout = self._create_card("Output Directory")
-        
+
         output_select = QHBoxLayout()
         output_select.addWidget(QLabel("Directory:"))
         self.output_path = QLineEdit()
@@ -161,37 +176,39 @@ class SettingsDialog(QDialog):
         self.btn_browse_output = QPushButton("Browse...")
         output_select.addWidget(self.btn_browse_output)
         output_layout.addLayout(output_select)
-        
+
         layout.addWidget(output_card)
-        
+
         layout.addStretch()
         return widget
-    
+
     def _create_performance_tab(self) -> QWidget:
         """Create performance settings tab"""
         widget = QWidget()
         layout = QVBoxLayout(widget)
-        
+
         # GPU Settings Card
         gpu_card, gpu_layout = self._create_card("GPU Acceleration")
-        
+
         self.gpu_checkbox = QCheckBox("Use GPU if available (MPS/CUDA)")
         gpu_layout.addWidget(self.gpu_checkbox)
-        
+
         # Device info
         device_mgr = self.ctx.device_manager()
         current_device = device_mgr.get_device()
         device_info = device_mgr.get_device_info(current_device)
-        
+
         if device_info:
-            info_text = f"Current device: {device_info.name} - {device_info.description}"
+            info_text = (
+                f"Current device: {device_info.name} - {device_info.description}"
+            )
         else:
             info_text = "Current device: CPU"
-        
+
         device_label = QLabel(info_text)
         device_label.setStyleSheet("color: gray; font-size: 10pt;")
         gpu_layout.addWidget(device_label)
-        
+
         layout.addWidget(gpu_card)
 
         # Quality Settings Card
@@ -205,7 +222,7 @@ class SettingsDialog(QDialog):
         for preset_id, preset_info in QUALITY_PRESETS.items():
             self.quality_combo.addItem(
                 f"{preset_info['name']} - {preset_info['description']}",
-                userData=preset_id
+                userData=preset_id,
             )
 
         quality_select.addWidget(self.quality_combo)
@@ -226,7 +243,7 @@ class SettingsDialog(QDialog):
 
         # Chunking Settings Card
         chunk_card, chunk_layout = self._create_card("Audio Chunking")
-        
+
         chunk_select = QHBoxLayout()
         chunk_select.addWidget(QLabel("Chunk Length:"))
         self.chunk_spinbox = QSpinBox()
@@ -236,7 +253,7 @@ class SettingsDialog(QDialog):
         chunk_select.addWidget(self.chunk_spinbox)
         chunk_select.addStretch()
         chunk_layout.addLayout(chunk_select)
-        
+
         chunk_info = QLabel(
             "Larger chunks require more memory but reduce processing overhead.\n"
             "Smaller chunks are safer for limited memory systems."
@@ -244,20 +261,20 @@ class SettingsDialog(QDialog):
         chunk_info.setStyleSheet("color: gray; font-size: 10pt;")
         chunk_info.setWordWrap(True)
         chunk_layout.addWidget(chunk_info)
-        
+
         layout.addWidget(chunk_card)
-        
+
         layout.addStretch()
         return widget
-    
+
     def _create_audio_tab(self) -> QWidget:
         """Create audio settings tab"""
         widget = QWidget()
         layout = QVBoxLayout(widget)
-        
+
         # Recording Settings Card
         rec_card, rec_layout = self._create_card("Recording")
-        
+
         # Sample rate
         sr_select = QHBoxLayout()
         sr_select.addWidget(QLabel("Sample Rate:"))
@@ -268,7 +285,7 @@ class SettingsDialog(QDialog):
         sr_select.addWidget(self.sample_rate_combo)
         sr_select.addStretch()
         rec_layout.addLayout(sr_select)
-        
+
         # Channels
         ch_select = QHBoxLayout()
         ch_select.addWidget(QLabel("Channels:"))
@@ -280,10 +297,10 @@ class SettingsDialog(QDialog):
         rec_layout.addLayout(ch_select)
 
         layout.addWidget(rec_card)
-        
+
         layout.addStretch()
         return widget
-    
+
     def _create_advanced_tab(self) -> QWidget:
         """Create advanced settings tab"""
         widget = QWidget()
@@ -298,9 +315,13 @@ class SettingsDialog(QDialog):
 
         blackhole_buttons = QHBoxLayout()
         self.btn_install_blackhole = QPushButton("⬇️ Install BlackHole")
-        ThemeManager.set_widget_property(self.btn_install_blackhole, "buttonStyle", "secondary")
+        ThemeManager.set_widget_property(
+            self.btn_install_blackhole, "buttonStyle", "secondary"
+        )
         self.btn_setup_instructions = QPushButton("ℹ️  Setup Instructions")
-        ThemeManager.set_widget_property(self.btn_setup_instructions, "buttonStyle", "secondary")
+        ThemeManager.set_widget_property(
+            self.btn_setup_instructions, "buttonStyle", "secondary"
+        )
         blackhole_buttons.addWidget(self.btn_install_blackhole)
         blackhole_buttons.addWidget(self.btn_setup_instructions)
         blackhole_buttons.addStretch()
@@ -322,9 +343,7 @@ class SettingsDialog(QDialog):
         self.btn_open_logs.setMaximumWidth(200)
         diag_layout.addWidget(self.btn_open_logs)
 
-        log_info = QLabel(
-            "View application logs for debugging and diagnostics."
-        )
+        log_info = QLabel("View application logs for debugging and diagnostics.")
         log_info.setStyleSheet("color: gray; font-size: 10pt;")
         log_info.setWordWrap(True)
         diag_layout.addWidget(log_info)
@@ -349,7 +368,7 @@ class SettingsDialog(QDialog):
         self._check_blackhole_status()
 
         return widget
-    
+
     def _connect_signals(self):
         """Connect signals"""
         self.btn_save.clicked.connect(self._on_save)
@@ -359,7 +378,7 @@ class SettingsDialog(QDialog):
         self.btn_open_logs.clicked.connect(self._on_open_logs)
         self.btn_install_blackhole.clicked.connect(self._on_install_blackhole)
         self.btn_setup_instructions.clicked.connect(self._on_setup_instructions)
-    
+
     def _load_current_settings(self):
         """Load current settings into UI controls"""
         # Model
@@ -368,7 +387,7 @@ class SettingsDialog(QDialog):
             if self.model_combo.itemData(i) == model:
                 self.model_combo.setCurrentIndex(i)
                 break
-        
+
         # GPU
         self.gpu_checkbox.setChecked(self.settings_mgr.get_use_gpu())
 
@@ -381,36 +400,36 @@ class SettingsDialog(QDialog):
 
         # Chunk length
         self.chunk_spinbox.setValue(self.settings_mgr.get_chunk_length())
-        
+
         # Output directory
         self.output_path.setText(str(self.settings_mgr.get_output_directory()))
-        
+
         # Sample rate
-        sr = self.settings_mgr.get('recording_sample_rate', 44100)
+        sr = self.settings_mgr.get("recording_sample_rate", 44100)
         for i in range(self.sample_rate_combo.count()):
             if self.sample_rate_combo.itemData(i) == sr:
                 self.sample_rate_combo.setCurrentIndex(i)
                 break
-        
+
         # Channels
-        ch = self.settings_mgr.get('recording_channels', 2)
+        ch = self.settings_mgr.get("recording_channels", 2)
         for i in range(self.channels_combo.count()):
             if self.channels_combo.itemData(i) == ch:
                 self.channels_combo.setCurrentIndex(i)
                 break
-    
+
     @Slot()
     def _on_browse_output(self):
         """Browse for output directory"""
         directory = QFileDialog.getExistingDirectory(
             self,
             "Select Output Directory",
-            str(self.settings_mgr.get_output_directory())
+            str(self.settings_mgr.get_output_directory()),
         )
-        
+
         if directory:
             self.output_path.setText(directory)
-    
+
     @Slot()
     def _on_save(self):
         """Save settings"""
@@ -420,8 +439,10 @@ class SettingsDialog(QDialog):
         self.settings_mgr.set_use_gpu(self.gpu_checkbox.isChecked())
         self.settings_mgr.set_chunk_length(self.chunk_spinbox.value())
         self.settings_mgr.set_output_directory(Path(self.output_path.text()))
-        self.settings_mgr.set('recording_sample_rate', self.sample_rate_combo.currentData())
-        self.settings_mgr.set('recording_channels', self.channels_combo.currentData())
+        self.settings_mgr.set(
+            "recording_sample_rate", self.sample_rate_combo.currentData()
+        )
+        self.settings_mgr.set("recording_channels", self.channels_combo.currentData())
 
         # Persist to file
         if self.settings_mgr.save():
@@ -429,18 +450,16 @@ class SettingsDialog(QDialog):
                 self,
                 "Settings Saved",
                 "Settings have been saved successfully.\n\n"
-                "Some changes may require application restart."
+                "Some changes may require application restart.",
             )
-            
+
             self.settings_changed.emit()
             self.accept()
         else:
             QMessageBox.critical(
-                self,
-                "Save Failed",
-                "Failed to save settings. Check logs for details."
+                self, "Save Failed", "Failed to save settings. Check logs for details."
             )
-    
+
     @Slot()
     def _on_reset(self):
         """Reset settings to defaults"""
@@ -448,7 +467,7 @@ class SettingsDialog(QDialog):
             self,
             "Reset Settings",
             "Reset all settings to default values?",
-            QMessageBox.Yes | QMessageBox.No
+            QMessageBox.Yes | QMessageBox.No,
         )
 
         if reply == QMessageBox.Yes:
@@ -461,11 +480,7 @@ class SettingsDialog(QDialog):
         log_path: Path = self.ctx.log_file()
         if not log_path.exists():
             self.ctx.logger().warning("Log file %s does not exist yet", log_path)
-            QMessageBox.information(
-                self,
-                "Log File",
-                "Log file not created yet."
-            )
+            QMessageBox.information(self, "Log File", "Log file not created yet.")
             return
 
         opened = QDesktopServices.openUrl(QUrl.fromLocalFile(str(log_path)))
@@ -474,7 +489,7 @@ class SettingsDialog(QDialog):
             QMessageBox.warning(
                 self,
                 "Log File",
-                "Could not open the log file. Please open it manually."
+                "Could not open the log file. Please open it manually.",
             )
 
     def _check_blackhole_status(self):
@@ -514,7 +529,7 @@ class SettingsDialog(QDialog):
             "This will install BlackHole via Homebrew.\n\n"
             "This may take a few minutes and requires admin privileges.\n\n"
             "Continue?",
-            QMessageBox.Yes | QMessageBox.No
+            QMessageBox.Yes | QMessageBox.No,
         )
 
         if reply != QMessageBox.Yes:
@@ -554,7 +569,7 @@ class SettingsDialog(QDialog):
                 "After installation:\n"
                 "1. Restart this application\n"
                 "2. Refresh device list\n"
-                "3. Follow setup instructions"
+                "3. Follow setup instructions",
             )
             self._check_blackhole_status()
         else:
@@ -566,7 +581,7 @@ class SettingsDialog(QDialog):
                     "BlackHole installation requires admin privileges.\n\n"
                     "Please install manually via Terminal:\n\n"
                     "    brew install --cask blackhole-2ch\n\n"
-                    "After installation, restart this app and refresh devices."
+                    "After installation, restart this app and refresh devices.",
                 )
             else:
                 QMessageBox.critical(
@@ -574,7 +589,7 @@ class SettingsDialog(QDialog):
                     "Installation Failed",
                     f"Failed to install BlackHole:\n{error_msg}\n\n"
                     "You may need to install it manually:\n"
-                    "brew install --cask blackhole-2ch"
+                    "brew install --cask blackhole-2ch",
                 )
             self.blackhole_status_label.setText("❌ Manual installation required")
 
@@ -585,7 +600,9 @@ class SettingsDialog(QDialog):
 
         msg = QMessageBox(self)
         msg.setWindowTitle("BlackHole Setup")
-        msg.setText("Follow these steps to configure BlackHole for system audio recording:")
+        msg.setText(
+            "Follow these steps to configure BlackHole for system audio recording:"
+        )
         msg.setDetailedText(instructions)
         msg.setIcon(QMessageBox.Information)
 
@@ -598,4 +615,3 @@ class SettingsDialog(QDialog):
         # Check if user clicked the open button
         if msg.clickedButton() == open_btn:
             self.blackhole_installer.open_audio_midi_setup()
-

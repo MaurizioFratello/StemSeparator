@@ -5,6 +5,7 @@ PURPOSE: Provides deep integration with macOS-specific features and behaviors.
 CONTEXT: Native macOS apps integrate with system services, conventions, and APIs.
          This module provides those integrations for Qt apps on macOS.
 """
+
 from __future__ import annotations
 
 import platform
@@ -51,17 +52,13 @@ class MacOSIntegration(QObject):
         try:
             # Use AppleScript to reveal file in Finder
             script = f'tell application "Finder" to reveal POSIX file "{file_path}"'
-            subprocess.run(
-                ['osascript', '-e', script],
-                capture_output=True,
-                check=True
-            )
+            subprocess.run(["osascript", "-e", script], capture_output=True, check=True)
 
             # Bring Finder to front
             subprocess.run(
-                ['osascript', '-e', 'tell application "Finder" to activate'],
+                ["osascript", "-e", 'tell application "Finder" to activate'],
                 capture_output=True,
-                check=False  # Don't fail if this part doesn't work
+                check=False,  # Don't fail if this part doesn't work
             )
 
             return True
@@ -89,11 +86,7 @@ class MacOSIntegration(QObject):
             return QDesktopServices.openUrl(QUrl.fromLocalFile(str(file_path)))
 
         try:
-            subprocess.run(
-                ['open', str(file_path)],
-                capture_output=True,
-                check=True
-            )
+            subprocess.run(["open", str(file_path)], capture_output=True, check=True)
             return True
         except Exception:
             return False
@@ -117,13 +110,13 @@ class MacOSIntegration(QObject):
 
         try:
             result = subprocess.run(
-                ['sw_vers', '-productVersion'],
+                ["sw_vers", "-productVersion"],
                 capture_output=True,
                 text=True,
-                check=True
+                check=True,
             )
             version_str = result.stdout.strip()
-            parts = version_str.split('.')
+            parts = version_str.split(".")
 
             major = int(parts[0]) if len(parts) > 0 else 0
             minor = int(parts[1]) if len(parts) > 1 else 0
@@ -149,12 +142,12 @@ class MacOSIntegration(QObject):
 
         try:
             result = subprocess.run(
-                ['defaults', 'read', '-g', 'AppleInterfaceStyle'],
+                ["defaults", "read", "-g", "AppleInterfaceStyle"],
                 capture_output=True,
                 text=True,
-                check=False  # Will fail if not in dark mode
+                check=False,  # Will fail if not in dark mode
             )
-            return 'Dark' in result.stdout
+            return "Dark" in result.stdout
         except Exception:
             return False
 
@@ -214,16 +207,12 @@ class MacOSIntegration(QObject):
 
         try:
             # Use osascript to move to trash
-            script = f'''
+            script = f"""
             tell application "Finder"
                 delete POSIX file "{file_path}"
             end tell
-            '''
-            subprocess.run(
-                ['osascript', '-e', script],
-                capture_output=True,
-                check=True
-            )
+            """
+            subprocess.run(["osascript", "-e", script], capture_output=True, check=True)
             return True
         except Exception:
             return False

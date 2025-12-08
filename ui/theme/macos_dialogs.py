@@ -4,6 +4,7 @@ macOS-styled dialogs and message boxes
 PURPOSE: Provide native-feeling dialogs that match macOS design language
 CONTEXT: Qt's default dialogs look generic; this module applies macOS-specific styling
 """
+
 from __future__ import annotations
 
 import platform
@@ -104,10 +105,10 @@ class MacOSDialogs:
 
             # Set window flags for sheet-like appearance
             dialog.setWindowFlags(
-                Qt.Dialog |
-                Qt.CustomizeWindowHint |
-                Qt.WindowTitleHint |
-                Qt.WindowCloseButtonHint
+                Qt.Dialog
+                | Qt.CustomizeWindowHint
+                | Qt.WindowTitleHint
+                | Qt.WindowCloseButtonHint
             )
 
         except Exception as e:
@@ -121,7 +122,7 @@ class MacOSDialogs:
         title: str,
         text: str,
         buttons: QMessageBox.StandardButton = QMessageBox.Ok,
-        default_button: QMessageBox.StandardButton = QMessageBox.Ok
+        default_button: QMessageBox.StandardButton = QMessageBox.Ok,
     ) -> QMessageBox.StandardButton:
         """
         Show macOS-styled information dialog
@@ -154,7 +155,7 @@ class MacOSDialogs:
         title: str,
         text: str,
         buttons: QMessageBox.StandardButton = QMessageBox.Ok,
-        default_button: QMessageBox.StandardButton = QMessageBox.Ok
+        default_button: QMessageBox.StandardButton = QMessageBox.Ok,
     ) -> QMessageBox.StandardButton:
         """
         Show macOS-styled warning dialog
@@ -187,7 +188,7 @@ class MacOSDialogs:
         title: str,
         text: str,
         buttons: QMessageBox.StandardButton = QMessageBox.Yes | QMessageBox.No,
-        default_button: QMessageBox.StandardButton = QMessageBox.No
+        default_button: QMessageBox.StandardButton = QMessageBox.No,
     ) -> QMessageBox.StandardButton:
         """
         Show macOS-styled question dialog
@@ -220,7 +221,7 @@ class MacOSDialogs:
         title: str,
         text: str,
         buttons: QMessageBox.StandardButton = QMessageBox.Ok,
-        default_button: QMessageBox.StandardButton = QMessageBox.Ok
+        default_button: QMessageBox.StandardButton = QMessageBox.Ok,
     ) -> QMessageBox.StandardButton:
         """
         Show macOS-styled critical error dialog
@@ -247,12 +248,7 @@ class MacOSDialogs:
         return dialog.exec()
 
     @classmethod
-    def about(
-        cls,
-        parent: Optional[QWidget],
-        title: str,
-        text: str
-    ) -> None:
+    def about(cls, parent: Optional[QWidget], title: str, text: str) -> None:
         """
         Show macOS-styled about dialog
 

@@ -33,6 +33,7 @@ FUTURE EXTENSION POINT: alignToTempoGrid()
     This would enable fully automatic loop extraction from arbitrary audio positions,
     but is intentionally omitted from v1 to keep scope manageable.
 """
+
 from pathlib import Path
 from typing import Optional, List, Callable, Tuple
 from dataclasses import dataclass
@@ -44,7 +45,7 @@ from utils.loop_math import (
     compute_samples_per_chunk,
     compute_chunk_duration_seconds,
     is_valid_for_sampler,
-    get_minimum_bpm
+    get_minimum_bpm,
 )
 from utils.audio_processing import (
     detect_bpm,
@@ -52,7 +53,7 @@ from utils.audio_processing import (
     resample_audio,
     apply_tpdf_dither,
     stereo_to_mono,
-    find_nearest_zero_crossing
+    find_nearest_zero_crossing,
 )
 
 logger = get_logger()
@@ -73,6 +74,7 @@ class ExportResult:
         zero_crossing_shifts: List of zero-crossing adjustments per chunk (in samples)
         effective_durations_sec: Actual duration of each exported chunk (in seconds)
     """
+
     success: bool
     error_message: Optional[str] = None
     warning_messages: List[str] = None
@@ -102,11 +104,11 @@ def export_sampler_loops(
     sample_rate: int = 44100,
     bit_depth: int = 24,
     channels: int = 2,
-    file_format: str = 'WAV',
+    file_format: str = "WAV",
     max_duration_seconds: float = 20.0,
     progress_callback: Optional[Callable[[str, int], None]] = None,
     common_filename: Optional[str] = None,
-    stem_name: Optional[str] = None
+    stem_name: Optional[str] = None,
 ) -> ExportResult:
     """
     Export audio as musically-timed sampler loops.
@@ -174,6 +176,7 @@ def export_sampler_loops(
         ...     for file in result.output_files:
         ...         print(f"  - {file.name}")
     """
+
     # Report progress helper
     def report_progress(message: str, percent: int):
         logger.debug(f"Export progress: {message} ({percent}%)")
@@ -183,21 +186,18 @@ def export_sampler_loops(
     # Validate inputs
     if not input_path.exists():
         return ExportResult(
-            success=False,
-            error_message=f"Input file not found: {input_path}"
+            success=False, error_message=f"Input file not found: {input_path}"
         )
 
     # Round BPM to integer (as specified in requirements)
     bpm = round(bpm)
 
     # Validate BPM + bars combination against sampler limit
-    is_valid, validation_error = is_valid_for_sampler(
-        bpm, bars, max_duration_seconds
-    )
+    is_valid, validation_error = is_valid_for_sampler(bpm, bars, max_duration_seconds)
     if not is_valid:
         return ExportResult(
             success=False,
-            error_message=f"Invalid BPM/bars combination: {validation_error}"
+            error_message=f"Invalid BPM/bars combination: {validation_error}",
         )
 
     report_progress("Loading audio file", 5)
@@ -211,10 +211,7 @@ def export_sampler_loops(
         )
 
     except Exception as e:
-        return ExportResult(
-            success=False,
-            error_message=f"Failed to load audio: {e}"
-        )
+        return ExportResult(success=False, error_message=f"Failed to load audio: {e}")
 
     report_progress("Processing audio (resample, normalize)", 15)
 
@@ -237,8 +234,7 @@ def export_sampler_loops(
 
     except Exception as e:
         return ExportResult(
-            success=False,
-            error_message=f"Audio processing failed: {e}"
+            success=False, error_message=f"Audio processing failed: {e}"
         )
 
     report_progress("Calculating chunk parameters", 25)
@@ -255,8 +251,7 @@ def export_sampler_loops(
 
     except Exception as e:
         return ExportResult(
-            success=False,
-            error_message=f"Chunk calculation failed: {e}"
+            success=False, error_message=f"Chunk calculation failed: {e}"
         )
 
     # Prepare for chunking
@@ -284,7 +279,7 @@ def export_sampler_loops(
 
     # Setup output directory and file naming
     output_dir.mkdir(parents=True, exist_ok=True)
-    
+
     # Use common_filename if provided, otherwise fall back to input_path.stem
     if common_filename:
         base_name = common_filename
@@ -292,16 +287,12 @@ def export_sampler_loops(
             base_name = f"{common_filename}_{stem_name}"
     else:
         base_name = input_path.stem  # Fallback to input filename
-    
+
     extension = f".{file_format.lower()}"
 
     # Determine soundfile subtype
-    subtype_map = {
-        16: 'PCM_16',
-        24: 'PCM_24',
-        32: 'PCM_32'
-    }
-    subtype = subtype_map.get(bit_depth, 'PCM_24')
+    subtype_map = {16: "PCM_16", 24: "PCM_24", 32: "PCM_32"}
+    subtype = subtype_map.get(bit_depth, "PCM_24")
 
     report_progress(f"Exporting {num_chunks} chunk(s)", 35)
 
@@ -310,10 +301,7 @@ def export_sampler_loops(
     for chunk_idx in range(num_chunks):
         # Calculate progress (35% to 95%, leaving 5% for finalization)
         chunk_progress = 35 + int((chunk_idx / num_chunks) * 60)
-        report_progress(
-            f"Exporting chunk {chunk_idx + 1}/{num_chunks}",
-            chunk_progress
-        )
+        report_progress(f"Exporting chunk {chunk_idx + 1}/{num_chunks}", chunk_progress)
 
         # Calculate ideal chunk end
         ideal_end = min(current_pos + samples_per_chunk, total_samples)
@@ -325,7 +313,7 @@ def export_sampler_loops(
                 audio_data,
                 ideal_end,
                 sample_rate,
-                max_search_duration=0.050  # 50ms search window (spec allows ±5 samples)
+                max_search_duration=0.050,  # 50ms search window (spec allows ±5 samples)
             )
 
             # Validate zero-crossing is within acceptable range
@@ -375,13 +363,15 @@ def export_sampler_loops(
         # WHY: Consistent format with BPM suffix, 4T format for bars, and two-digit numbering
         bpm_str = f"{bpm}BPM"
         bars_str = f"{bars}T"
-        
+
         if num_chunks == 1:
             # Single chunk: <name>_<BPM>BPM_<bars>T.<ext>
             filename = f"{base_name}_{bpm_str}_{bars_str}{extension}"
         else:
             # Multiple chunks: <name>_<BPM>BPM_<bars>T_<NN>.<ext>
-            filename = f"{base_name}_{bpm_str}_{bars_str}_{chunk_idx + 1:02d}{extension}"
+            filename = (
+                f"{base_name}_{bpm_str}_{bars_str}_{chunk_idx + 1:02d}{extension}"
+            )
 
         output_path = output_dir / filename
 
@@ -392,7 +382,7 @@ def export_sampler_loops(
                 chunk_data,
                 sample_rate,
                 subtype=subtype,
-                format=file_format
+                format=file_format,
             )
 
             logger.info(
@@ -410,7 +400,7 @@ def export_sampler_loops(
                 success=False,
                 error_message=f"Failed to export chunk {chunk_idx + 1}: {e}",
                 warning_messages=warnings,
-                output_files=output_files  # Return what we managed to export
+                output_files=output_files,  # Return what we managed to export
             )
 
         # Move to next chunk (no gaps, no overlaps)
@@ -429,7 +419,7 @@ def export_sampler_loops(
         chunk_count=len(output_files),
         samples_per_chunk=samples_per_chunk,
         zero_crossing_shifts=zero_crossing_shifts,
-        effective_durations_sec=effective_durations
+        effective_durations_sec=effective_durations,
     )
 
 
@@ -465,7 +455,11 @@ def detect_audio_bpm(audio_path: Path) -> Tuple[float, str, Optional[float]]:
             return bpm, "Detection failed, using default 120 BPM", None
         elif confidence is not None:
             # DeepRhythm with confidence
-            return bpm, f"Detected successfully ({confidence:.0%} confident)", confidence
+            return (
+                bpm,
+                f"Detected successfully ({confidence:.0%} confident)",
+                confidence,
+            )
         else:
             # Librosa without confidence
             return bpm, "Detected successfully (librosa)", None
@@ -483,7 +477,7 @@ def export_padded_intro(
     sample_rate: int = 44100,
     bit_depth: int = 24,
     channels: int = 2,
-    file_format: str = 'WAV'
+    file_format: str = "WAV",
 ) -> bool:
     """
     Export intro loop with silence padding at the beginning.
@@ -529,11 +523,13 @@ def export_padded_intro(
         # Resample if needed
         if original_sr != sample_rate:
             from utils.audio_processing import resample_audio
+
             audio_data = resample_audio(audio_data, original_sr, sample_rate)
 
         # Handle channel conversion
         if channels == 1 and audio_data.ndim > 1:
             from utils.audio_processing import stereo_to_mono
+
             audio_data = stereo_to_mono(audio_data)
         elif channels == 2 and audio_data.ndim == 1:
             # Convert mono to stereo
@@ -541,6 +537,7 @@ def export_padded_intro(
 
         # Normalize
         from utils.audio_processing import normalize_peak_to_dbfs
+
         audio_data = normalize_peak_to_dbfs(audio_data, target_dbfs=-1.0)
 
         # Calculate sample positions
@@ -578,15 +575,12 @@ def export_padded_intro(
         # Apply dither for 16-bit
         if bit_depth == 16:
             from utils.audio_processing import apply_tpdf_dither
+
             padded_intro = apply_tpdf_dither(padded_intro, bit_depth)
 
         # Determine soundfile subtype
-        subtype_map = {
-            16: 'PCM_16',
-            24: 'PCM_24',
-            32: 'PCM_32'
-        }
-        subtype = subtype_map.get(bit_depth, 'PCM_24')
+        subtype_map = {16: "PCM_16", 24: "PCM_24", 32: "PCM_32"}
+        subtype = subtype_map.get(bit_depth, "PCM_24")
 
         # Ensure output directory exists
         output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -597,7 +591,7 @@ def export_padded_intro(
             padded_intro,
             sample_rate,
             subtype=subtype,
-            format=file_format
+            format=file_format,
         )
 
         logger.info(f"Exported padded intro: {output_path.name}")

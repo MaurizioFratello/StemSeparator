@@ -1,6 +1,7 @@
 """
 Unit Tests für File Manager
 """
+
 import pytest
 from pathlib import Path
 import tempfile
@@ -80,12 +81,12 @@ class TestFileManager:
         info = fm.get_audio_info(wav_file)
 
         assert info is not None
-        assert 'duration' in info
-        assert 'sample_rate' in info
-        assert 'channels' in info
-        assert info['sample_rate'] == 44100
-        assert info['channels'] == 2
-        assert 0.9 < info['duration'] < 1.1  # ~1 Sekunde
+        assert "duration" in info
+        assert "sample_rate" in info
+        assert "channels" in info
+        assert info["sample_rate"] == 44100
+        assert info["channels"] == 2
+        assert 0.9 < info["duration"] < 1.1  # ~1 Sekunde
 
     def test_get_audio_info_invalid_file(self, temp_audio_dir):
         """Teste Audio-Info für ungültige Datei"""
@@ -145,9 +146,9 @@ class TestFileManager:
 
         # Sollte WAV finden (MP3 ist leer und könnte Probleme machen)
         assert len(audio_files) >= 1
-        assert any(f.suffix == '.wav' for f in audio_files)
+        assert any(f.suffix == ".wav" for f in audio_files)
         # Sollte keine .txt Dateien enthalten
-        assert not any(f.suffix == '.txt' for f in audio_files)
+        assert not any(f.suffix == ".txt" for f in audio_files)
 
     def test_list_audio_files_empty_dir(self):
         """Teste Auflistung in leerem Verzeichnis"""
@@ -187,12 +188,13 @@ class TestFileManager:
     def test_validate_audio_file_corrupted(self, temp_audio_dir):
         """Teste Validierung mit korrupter Audio-Datei"""
         from unittest.mock import patch
+
         fm = get_file_manager()
 
         audio_file = temp_audio_dir / "test.wav"
 
         # Mock get_audio_info um None zurückzugeben (simuliert korrupte Datei)
-        with patch.object(fm, 'get_audio_info', return_value=None):
+        with patch.object(fm, "get_audio_info", return_value=None):
             is_valid, error_msg = fm.validate_audio_file(audio_file)
             assert is_valid is False
             assert error_msg == "Could not read audio file"
@@ -200,10 +202,11 @@ class TestFileManager:
     def test_cleanup_temp_files_error_handling(self):
         """Teste Error Handling in cleanup_temp_files"""
         from unittest.mock import patch
+
         fm = get_file_manager()
 
         # Mock shutil.rmtree um einen Error zu werfen
-        with patch('shutil.rmtree', side_effect=PermissionError("Access denied")):
+        with patch("shutil.rmtree", side_effect=PermissionError("Access denied")):
             # Sollte nicht crashen, nur loggen
             fm.cleanup_temp_files()
             # Temp dir sollte noch existieren

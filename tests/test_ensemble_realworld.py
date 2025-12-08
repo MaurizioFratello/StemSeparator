@@ -21,7 +21,7 @@ import argparse
 import time
 
 # Add project to path
-sys.path.insert(0, '/home/user/StemSeparator')
+sys.path.insert(0, "/home/user/StemSeparator")
 
 from core.ensemble_separator import get_ensemble_separator
 from config import ENSEMBLE_CONFIGS, MODELS
@@ -29,11 +29,12 @@ from config import ENSEMBLE_CONFIGS, MODELS
 
 def check_models_available():
     """Check which models are downloaded"""
-    print("\n" + "="*70)
+    print("\n" + "=" * 70)
     print("CHECKING MODEL AVAILABILITY")
-    print("="*70)
+    print("=" * 70)
 
     from core.model_manager import get_model_manager
+
     manager = get_model_manager()
 
     available_models = []
@@ -60,7 +61,7 @@ def check_models_available():
 def check_ensemble_config_compatible(config_name, available_models):
     """Check if ensemble config can run with available models"""
     config = ENSEMBLE_CONFIGS[config_name]
-    required_models = config['models']
+    required_models = config["models"]
 
     missing = [m for m in required_models if m not in available_models]
 
@@ -76,11 +77,11 @@ def check_ensemble_config_compatible(config_name, available_models):
     return True
 
 
-def run_ensemble_separation(audio_file: Path, config_name: str = 'balanced'):
+def run_ensemble_separation(audio_file: Path, config_name: str = "balanced"):
     """Run actual ensemble separation"""
-    print("\n" + "="*70)
+    print("\n" + "=" * 70)
     print(f"RUNNING ENSEMBLE SEPARATION: {config_name.upper()}")
-    print("="*70)
+    print("=" * 70)
 
     # Check models
     available_models = check_models_available()
@@ -107,8 +108,8 @@ def run_ensemble_separation(audio_file: Path, config_name: str = 'balanced'):
     def progress(msg, pct):
         bar_length = 40
         filled = int(bar_length * pct / 100)
-        bar = '█' * filled + '░' * (bar_length - filled)
-        print(f"\r  [{bar}] {pct:3d}% - {msg}", end='', flush=True)
+        bar = "█" * filled + "░" * (bar_length - filled)
+        print(f"\r  [{bar}] {pct:3d}% - {msg}", end="", flush=True)
 
     # Run separation
     print("\n\n🚀 Starting ensemble separation...")
@@ -120,7 +121,7 @@ def run_ensemble_separation(audio_file: Path, config_name: str = 'balanced'):
         result = separator.separate_ensemble(
             audio_file=audio_file,
             ensemble_config=config_name,
-            progress_callback=progress
+            progress_callback=progress,
         )
 
         elapsed = time.time() - start_time
@@ -128,9 +129,9 @@ def run_ensemble_separation(audio_file: Path, config_name: str = 'balanced'):
         print("\n")  # New line after progress bar
 
         if result.success:
-            print("\n" + "="*70)
+            print("\n" + "=" * 70)
             print("✅ ENSEMBLE SEPARATION SUCCESSFUL!")
-            print("="*70)
+            print("=" * 70)
 
             print(f"\n⏱️  Time: {elapsed:.1f} seconds ({elapsed/60:.1f} minutes)")
             print(f"📊 Model: {result.model_used}")
@@ -152,9 +153,9 @@ def run_ensemble_separation(audio_file: Path, config_name: str = 'balanced'):
 
             return True
         else:
-            print("\n" + "="*70)
+            print("\n" + "=" * 70)
             print("❌ ENSEMBLE SEPARATION FAILED")
-            print("="*70)
+            print("=" * 70)
             print(f"\nError: {result.error_message}")
             return False
 
@@ -162,15 +163,16 @@ def run_ensemble_separation(audio_file: Path, config_name: str = 'balanced'):
         print("\n\n❌ EXCEPTION DURING SEPARATION")
         print(f"Error: {e}")
         import traceback
+
         traceback.print_exc()
         return False
 
 
 def list_ensemble_configs():
     """List all available ensemble configurations"""
-    print("\n" + "="*70)
+    print("\n" + "=" * 70)
     print("AVAILABLE ENSEMBLE CONFIGURATIONS")
-    print("="*70)
+    print("=" * 70)
 
     for config_name, config in ENSEMBLE_CONFIGS.items():
         print(f"\n📦 {config['name']} (--config {config_name})")
@@ -183,7 +185,7 @@ def list_ensemble_configs():
 def main():
     """Main entry point"""
     parser = argparse.ArgumentParser(
-        description='Test ensemble separation with real audio and models',
+        description="Test ensemble separation with real audio and models",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
@@ -191,31 +193,31 @@ Examples:
   python test_ensemble_realworld.py song.wav --config balanced
   python test_ensemble_realworld.py song.flac --config quality
   python test_ensemble_realworld.py --list-configs
-        """
+        """,
     )
     parser.add_argument(
-        'audio_file',
-        nargs='?',
+        "audio_file",
+        nargs="?",
         type=Path,
-        help='Audio file to separate (MP3, WAV, FLAC, etc.)'
+        help="Audio file to separate (MP3, WAV, FLAC, etc.)",
     )
     parser.add_argument(
-        '--config',
+        "--config",
         choices=list(ENSEMBLE_CONFIGS.keys()),
-        default='balanced',
-        help='Ensemble configuration (default: balanced)'
+        default="balanced",
+        help="Ensemble configuration (default: balanced)",
     )
     parser.add_argument(
-        '--list-configs',
-        action='store_true',
-        help='List all available ensemble configurations'
+        "--list-configs",
+        action="store_true",
+        help="List all available ensemble configurations",
     )
 
     args = parser.parse_args()
 
-    print("="*70)
+    print("=" * 70)
     print("REAL-WORLD ENSEMBLE SEPARATION TEST")
-    print("="*70)
+    print("=" * 70)
 
     if args.list_configs:
         list_ensemble_configs()
@@ -236,5 +238,5 @@ Examples:
         return 1
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     sys.exit(main())

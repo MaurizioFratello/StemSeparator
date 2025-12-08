@@ -4,6 +4,7 @@ Theme Manager for StemSeparator GUI
 PURPOSE: Centralized theme management and stylesheet loading.
 CONTEXT: Provides a singleton for applying consistent theming across the application.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -60,7 +61,7 @@ class ThemeManager(QObject):
         if not stylesheet_path.exists():
             raise FileNotFoundError(f"Stylesheet not found: {stylesheet_path}")
 
-        with open(stylesheet_path, 'r', encoding='utf-8') as f:
+        with open(stylesheet_path, "r", encoding="utf-8") as f:
             self._current_stylesheet = f.read()
 
         return self._current_stylesheet

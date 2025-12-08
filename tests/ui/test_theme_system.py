@@ -4,6 +4,7 @@ Unit Tests for Theme System
 PURPOSE: Test theme foundation components (colors, typography, spacing, theme manager).
 CONTEXT: Ensures theme system works correctly and provides consistent styling.
 """
+
 import pytest
 from pathlib import Path
 
@@ -16,16 +17,16 @@ class TestColorPalette:
     def test_color_values_are_valid_hex(self):
         """Test that all color constants are valid hex colors"""
         # Primary colors
-        assert ColorPalette.BACKGROUND_PRIMARY.startswith('#')
+        assert ColorPalette.BACKGROUND_PRIMARY.startswith("#")
         assert len(ColorPalette.BACKGROUND_PRIMARY) == 7  # #RRGGBB format
 
-        assert ColorPalette.ACCENT_PRIMARY.startswith('#')
+        assert ColorPalette.ACCENT_PRIMARY.startswith("#")
         assert len(ColorPalette.ACCENT_PRIMARY) == 7
 
         # Test a few more
-        assert ColorPalette.SUCCESS.startswith('#')
-        assert ColorPalette.ERROR.startswith('#')
-        assert ColorPalette.WARNING.startswith('#')
+        assert ColorPalette.SUCCESS.startswith("#")
+        assert ColorPalette.ERROR.startswith("#")
+        assert ColorPalette.WARNING.startswith("#")
 
     def test_with_alpha_conversion(self):
         """Test converting hex colors to rgba with alpha"""
@@ -59,17 +60,17 @@ class TestColorPalette:
 
     def test_semantic_colors_exist(self):
         """Test that semantic colors are defined"""
-        assert hasattr(ColorPalette, 'SUCCESS')
-        assert hasattr(ColorPalette, 'WARNING')
-        assert hasattr(ColorPalette, 'ERROR')
-        assert hasattr(ColorPalette, 'INFO')
+        assert hasattr(ColorPalette, "SUCCESS")
+        assert hasattr(ColorPalette, "WARNING")
+        assert hasattr(ColorPalette, "ERROR")
+        assert hasattr(ColorPalette, "INFO")
 
     def test_audio_colors_exist(self):
         """Test that audio-specific colors are defined"""
-        assert hasattr(ColorPalette, 'LEVEL_SAFE')
-        assert hasattr(ColorPalette, 'LEVEL_CAUTION')
-        assert hasattr(ColorPalette, 'LEVEL_DANGER')
-        assert hasattr(ColorPalette, 'WAVEFORM_PRIMARY')
+        assert hasattr(ColorPalette, "LEVEL_SAFE")
+        assert hasattr(ColorPalette, "LEVEL_CAUTION")
+        assert hasattr(ColorPalette, "LEVEL_DANGER")
+        assert hasattr(ColorPalette, "WAVEFORM_PRIMARY")
 
 
 class TestTypography:
@@ -249,8 +250,8 @@ class TestThemeConsistency:
         secondary = ColorPalette.ACCENT_SECONDARY
 
         # Both should be valid hex colors
-        assert primary.startswith('#')
-        assert secondary.startswith('#')
+        assert primary.startswith("#")
+        assert secondary.startswith("#")
 
     def test_background_colors_progression(self):
         """Test that background colors progress from dark to light"""

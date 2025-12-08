@@ -4,6 +4,7 @@ Integration Tests for Styled UI Components
 PURPOSE: Test that theme system integrates correctly with UI widgets.
 CONTEXT: Ensures styled components render correctly and maintain theme consistency.
 """
+
 import pytest
 from pathlib import Path
 from unittest.mock import Mock, patch

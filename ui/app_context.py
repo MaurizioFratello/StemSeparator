@@ -1,6 +1,7 @@
 """
 App context utilities for the GUI layer.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -171,4 +172,3 @@ def get_app_context() -> AppContext:
     """
 
     return _APP_CONTEXT
-

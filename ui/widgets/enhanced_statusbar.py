@@ -9,6 +9,7 @@ Displays:
 WHY aggregate: Main app spawns subprocesses for separation and beat detection.
 User should see total resource usage, not just main process.
 """
+
 from PySide6.QtWidgets import QStatusBar, QLabel
 from PySide6.QtCore import QTimer
 from typing import Dict, Set
@@ -72,6 +73,7 @@ class EnhancedStatusBar(QStatusBar):
         """Find the application log file"""
         try:
             from config import LOG_FILE
+
             if LOG_FILE.exists():
                 self._log_file = LOG_FILE
                 # Start reading from end
@@ -140,12 +142,12 @@ class EnhancedStatusBar(QStatusBar):
 
                             # Detect workload type from command line
                             cmdline = child.cmdline()
-                            cmdline_str = ' '.join(cmdline) if cmdline else ''
+                            cmdline_str = " ".join(cmdline) if cmdline else ""
 
-                            if '--separation-subprocess' in cmdline_str:
+                            if "--separation-subprocess" in cmdline_str:
                                 if not active_workload or cpu > 10:
                                     active_workload = "Separation"
-                            elif 'beatnet-service' in cmdline_str:
+                            elif "beatnet-service" in cmdline_str:
                                 if not active_workload or cpu > 10:
                                     active_workload = "BeatNet"
 
@@ -157,16 +159,15 @@ class EnhancedStatusBar(QStatusBar):
             # 3. External beatnet-service processes (may not be direct children)
             # WHY: beatnet-service is a standalone binary, might be orphaned
             try:
-                for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
+                for proc in psutil.process_iter(["pid", "name", "cmdline"]):
                     try:
-                        pid = proc.info['pid']
-                        name = proc.info['name'] or ''
-                        cmdline = proc.info['cmdline'] or []
+                        pid = proc.info["pid"]
+                        name = proc.info["name"] or ""
+                        cmdline = proc.info["cmdline"] or []
 
                         # Check if it's a beatnet-service process
-                        is_beatnet = (
-                            'beatnet-service' in name or
-                            any('beatnet-service' in arg for arg in cmdline)
+                        is_beatnet = "beatnet-service" in name or any(
+                            "beatnet-service" in arg for arg in cmdline
                         )
 
                         if is_beatnet and pid not in current_pids:
@@ -208,7 +209,7 @@ class EnhancedStatusBar(QStatusBar):
 
             if current_size > self._log_position:
                 # Read new content
-                with open(self._log_file, 'r', encoding='utf-8') as f:
+                with open(self._log_file, "r", encoding="utf-8") as f:
                     f.seek(self._log_position)
                     new_lines = f.readlines()
                     self._log_position = current_size
@@ -219,9 +220,9 @@ class EnhancedStatusBar(QStatusBar):
                         if line:
                             # Extract just the message part (after log prefix)
                             # Format: "2025-12-05 10:30:45 - StemSeparator - INFO - file.py:line - message"
-                            parts = line.split(' - ')
+                            parts = line.split(" - ")
                             if len(parts) >= 5:
-                                message = ' - '.join(parts[4:])
+                                message = " - ".join(parts[4:])
                             else:
                                 message = line
 

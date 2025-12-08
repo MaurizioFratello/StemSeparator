@@ -15,7 +15,9 @@ sys.path.insert(0, str(Path(__file__).parent))
 from utils.audio_processing import detect_bpm
 
 
-def create_test_audio(bpm: float, duration_seconds: float = 10.0, sample_rate: int = 44100):
+def create_test_audio(
+    bpm: float, duration_seconds: float = 10.0, sample_rate: int = 44100
+):
     """
     Create synthetic audio with a specific BPM for testing.
 
@@ -35,25 +37,25 @@ def create_test_audio(bpm: float, duration_seconds: float = 10.0, sample_rate: i
             click_length = min(100, total_samples - i)
             # Exponential decay envelope
             envelope = np.exp(-np.linspace(0, 5, click_length))
-            audio[i:i+click_length] = envelope * 0.8
+            audio[i : i + click_length] = envelope * 0.8
 
     return audio
 
 
 def test_bpm_detection():
     """Test BPM detection with different tempos"""
-    print("="*60)
+    print("=" * 60)
     print("TESTING IMPROVED BPM DETECTION")
-    print("="*60)
+    print("=" * 60)
     print()
 
     # Test cases: (actual_bpm, expected_range)
     test_cases = [
         (104.0, (102.0, 106.0)),  # User's example
         (120.0, (118.0, 122.0)),  # Standard tempo
-        (80.0, (78.0, 82.0)),      # Slower tempo
-        (140.0, (138.0, 142.0)),   # Faster tempo
-        (90.0, (88.0, 92.0)),      # Common tempo
+        (80.0, (78.0, 82.0)),  # Slower tempo
+        (140.0, (138.0, 142.0)),  # Faster tempo
+        (90.0, (88.0, 92.0)),  # Common tempo
     ]
 
     sample_rate = 44100
@@ -85,22 +87,24 @@ def test_bpm_detection():
         print(f"  Status:        {'✓ PASS' if is_accurate else '✗ FAIL'}")
         print()
 
-        results.append({
-            'actual': actual_bpm,
-            'detected': detected_bpm,
-            'error': error,
-            'error_percent': error_percent,
-            'accurate': is_accurate
-        })
+        results.append(
+            {
+                "actual": actual_bpm,
+                "detected": detected_bpm,
+                "error": error,
+                "error_percent": error_percent,
+                "accurate": is_accurate,
+            }
+        )
 
     # Summary
-    print("="*60)
+    print("=" * 60)
     print("SUMMARY")
-    print("="*60)
-    passed = sum(1 for r in results if r['accurate'])
+    print("=" * 60)
+    passed = sum(1 for r in results if r["accurate"])
     total = len(results)
-    avg_error = np.mean([r['error'] for r in results])
-    avg_error_percent = np.mean([r['error_percent'] for r in results])
+    avg_error = np.mean([r["error"] for r in results])
+    avg_error_percent = np.mean([r["error_percent"] for r in results])
 
     print(f"Passed:          {passed}/{total} ({(passed/total)*100:.0f}%)")
     print(f"Average error:   {avg_error:.2f} BPM ({avg_error_percent:.2f}%)")
@@ -124,5 +128,6 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"\n✗ Error during testing: {e}")
         import traceback
+
         traceback.print_exc()
         sys.exit(1)

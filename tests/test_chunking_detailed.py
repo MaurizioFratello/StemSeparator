@@ -12,11 +12,12 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from core.chunk_processor import ChunkProcessor
 
+
 def test_edge_case():
     """Test the specific edge case where chunks can be shorter than overlap"""
-    print("\n" + "="*70)
+    print("\n" + "=" * 70)
     print("Testing EDGE CASE: Short chunks that trigger the bug")
-    print("="*70)
+    print("=" * 70)
 
     # Create audio that will produce a very short last chunk
     sample_rate = 44100
@@ -37,7 +38,7 @@ def test_edge_case():
     audio_data = np.sin(2 * np.pi * 440 * t)
     stereo_data = np.column_stack([audio_data, audio_data])
 
-    temp_file = Path(tempfile.mktemp(suffix='.wav'))
+    temp_file = Path(tempfile.mktemp(suffix=".wav"))
     sf.write(str(temp_file), stereo_data, sample_rate)
 
     print(f"Created test audio: {duration}s at {sample_rate}Hz = {samples} samples")
@@ -60,7 +61,9 @@ def test_edge_case():
             is_short = chunk_samples < overlap_samples
             warning = " ⚠️  SHORTER THAN OVERLAP!" if is_short else ""
 
-            print(f"  Chunk {i}: {chunk_samples} samples ({chunk_duration:.3f}s){warning}")
+            print(
+                f"  Chunk {i}: {chunk_samples} samples ({chunk_duration:.3f}s){warning}"
+            )
 
         # Try to merge - this is where the bug would occur
         print("\n--- Merging chunks ---")
@@ -91,6 +94,7 @@ def test_edge_case():
     except Exception as e:
         print(f"\n❌ ERROR: {e}")
         import traceback
+
         traceback.print_exc()
         return False
     finally:
@@ -98,11 +102,12 @@ def test_edge_case():
             temp_file.unlink()
         cp.cleanup_chunk_files()
 
+
 def test_multiple_edge_cases():
     """Test various edge cases"""
-    print("\n" + "="*70)
+    print("\n" + "=" * 70)
     print("Testing MULTIPLE EDGE CASES")
-    print("="*70)
+    print("=" * 70)
 
     test_cases = [
         # (duration, chunk_length, overlap, description)
@@ -123,11 +128,13 @@ def test_multiple_edge_cases():
         audio_data = np.sin(2 * np.pi * 440 * t)
         stereo_data = np.column_stack([audio_data, audio_data])
 
-        temp_file = Path(tempfile.mktemp(suffix='.wav'))
+        temp_file = Path(tempfile.mktemp(suffix=".wav"))
         sf.write(str(temp_file), stereo_data, sample_rate)
 
         try:
-            cp = ChunkProcessor(chunk_length_seconds=chunk_length, overlap_seconds=overlap)
+            cp = ChunkProcessor(
+                chunk_length_seconds=chunk_length, overlap_seconds=overlap
+            )
             chunks = cp.chunk_audio(temp_file)
 
             print(f"    Created {len(chunks)} chunks")
@@ -154,9 +161,9 @@ def test_multiple_edge_cases():
             cp.cleanup_chunk_files()
 
     # Summary
-    print("\n" + "="*70)
+    print("\n" + "=" * 70)
     print("SUMMARY")
-    print("="*70)
+    print("=" * 70)
     for description, success in results:
         status = "✅ PASS" if success else "❌ FAIL"
         print(f"{status}: {description}")
@@ -169,17 +176,18 @@ def test_multiple_edge_cases():
         print(f"\n❌ {failed}/{len(results)} tests failed!")
         return False
 
+
 if __name__ == "__main__":
     success1 = test_edge_case()
     success2 = test_multiple_edge_cases()
 
     if success1 and success2:
-        print("\n" + "="*70)
+        print("\n" + "=" * 70)
         print("🎉 ALL TESTS PASSED! The chunking bug is fixed.")
-        print("="*70)
+        print("=" * 70)
         sys.exit(0)
     else:
-        print("\n" + "="*70)
+        print("\n" + "=" * 70)
         print("❌ SOME TESTS FAILED")
-        print("="*70)
+        print("=" * 70)
         sys.exit(1)

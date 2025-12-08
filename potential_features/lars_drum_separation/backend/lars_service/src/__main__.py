@@ -36,36 +36,44 @@ multiprocessing.freeze_support()
 # Set multiprocessing start method (required for PyInstaller on macOS)
 if __name__ == "__main__":
     try:
-        multiprocessing.set_start_method('spawn', force=True)
+        multiprocessing.set_start_method("spawn", force=True)
     except RuntimeError:
         pass  # Already set
 
 try:
     from device import resolve_device
+
     # Try to use actual LarsNet processor first (BEST)
     try:
         from lars_processor_larsnet import LarsProcessorLarsNet as LarsProcessor
+
         SEPARATION_BACKEND = "LarsNet (5 U-Nets)"
     except (ImportError, RuntimeError, Exception) as e:
         # Fall back to Demucs-based processor (GOOD)
         try:
             from lars_processor_demucs import LarsProcessorDemucs as LarsProcessor
+
             SEPARATION_BACKEND = "Demucs (workaround)"
         except (ImportError, Exception):
             # Fall back to placeholder if nothing else available (PLACEHOLDER)
             from lars_processor import LarsProcessor
+
             SEPARATION_BACKEND = "Placeholder (gain-based)"
 except ImportError:
     from src.device import resolve_device
+
     try:
         from src.lars_processor_larsnet import LarsProcessorLarsNet as LarsProcessor
+
         SEPARATION_BACKEND = "LarsNet (5 U-Nets)"
     except (ImportError, RuntimeError, Exception):
         try:
             from src.lars_processor_demucs import LarsProcessorDemucs as LarsProcessor
+
             SEPARATION_BACKEND = "Demucs (workaround)"
         except (ImportError, Exception):
             from src.lars_processor import LarsProcessor
+
             SEPARATION_BACKEND = "Placeholder (gain-based)"
 
 
@@ -77,8 +85,7 @@ DEFAULT_STEMS = SUPPORTED_STEMS
 def parse_args() -> argparse.Namespace:
     """Parse command line arguments."""
     parser = argparse.ArgumentParser(
-        prog="lars-service",
-        description="LARS drum separation service"
+        prog="lars-service", description="LARS drum separation service"
     )
 
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -86,52 +93,48 @@ def parse_args() -> argparse.Namespace:
     # Separate command
     separate_parser = subparsers.add_parser("separate", help="Separate drum stems")
     separate_parser.add_argument(
-        "--input", "-i",
-        type=Path,
-        required=True,
-        help="Path to input audio file"
+        "--input", "-i", type=Path, required=True, help="Path to input audio file"
     )
     separate_parser.add_argument(
-        "--output-dir", "-o",
+        "--output-dir",
+        "-o",
         type=Path,
         required=True,
-        help="Output directory for separated stems"
+        help="Output directory for separated stems",
     )
     separate_parser.add_argument(
         "--stems",
         type=str,
         default=",".join(DEFAULT_STEMS),
-        help=f"Comma-separated list of stems to extract (default: all)"
+        help=f"Comma-separated list of stems to extract (default: all)",
     )
     separate_parser.add_argument(
         "--device",
         type=str,
         choices=["auto", "mps", "cuda", "cpu"],
         default="auto",
-        help="Compute device (default: auto)"
+        help="Compute device (default: auto)",
     )
     separate_parser.add_argument(
         "--wiener-filter",
         action="store_true",
-        help="Enable Wiener filtering for better quality"
+        help="Enable Wiener filtering for better quality",
     )
     separate_parser.add_argument(
         "--format",
         type=str,
         choices=["wav", "flac", "mp3"],
         default="wav",
-        help="Output audio format (default: wav)"
+        help="Output audio format (default: wav)",
     )
     separate_parser.add_argument(
         "--sample-rate",
         type=int,
         default=44100,
-        help="Output sample rate in Hz (default: 44100)"
+        help="Output sample rate in Hz (default: 44100)",
     )
     separate_parser.add_argument(
-        "--verbose", "-v",
-        action="store_true",
-        help="Enable verbose logging"
+        "--verbose", "-v", action="store_true", help="Enable verbose logging"
     )
 
     return parser.parse_args()
@@ -194,7 +197,7 @@ def separate_drums(
     wiener_filter: bool,
     output_format: str,
     sample_rate: int,
-    verbose: bool
+    verbose: bool,
 ) -> dict:
     """
     Separate drum stems from audio file.
@@ -233,7 +236,7 @@ def separate_drums(
         stems=stems,
         wiener_filter=wiener_filter,
         output_format=output_format,
-        sample_rate=sample_rate
+        sample_rate=sample_rate,
     )
 
     processing_time = time.time() - start_time
@@ -244,14 +247,12 @@ def separate_drums(
         "version": "1.0.0",
         "model": "LARS",
         "backend": device,
-        "stems": {
-            stem: str(path) for stem, path in stem_paths.items()
-        },
+        "stems": {stem: str(path) for stem, path in stem_paths.items()},
         "wiener_filter": wiener_filter,
         "output_format": output_format,
         "sample_rate": sample_rate,
         "processing_time": round(processing_time, 2),
-        "warnings": []
+        "warnings": [],
     }
 
     return result
@@ -267,18 +268,14 @@ def main() -> None:
             output_error(
                 "InputError",
                 f"Audio file not found: {args.input}",
-                {"path": str(args.input)}
+                {"path": str(args.input)},
             )
 
         # Parse and validate stems list
         try:
             stems = parse_stems_list(args.stems)
         except ValueError as e:
-            output_error(
-                "ValidationError",
-                str(e),
-                {"stems": args.stems}
-            )
+            output_error("ValidationError", str(e), {"stems": args.stems})
 
         # Resolve device
         device = resolve_device(args.device)
@@ -294,7 +291,7 @@ def main() -> None:
                 wiener_filter=args.wiener_filter,
                 output_format=args.format,
                 sample_rate=args.sample_rate,
-                verbose=args.verbose
+                verbose=args.verbose,
             )
 
             # Output result
@@ -303,15 +300,13 @@ def main() -> None:
 
         except ImportError as e:
             output_error(
-                "DependencyError",
-                f"Missing dependency: {e}",
-                {"exception": str(e)}
+                "DependencyError", f"Missing dependency: {e}", {"exception": str(e)}
             )
         except Exception as e:
             output_error(
                 "SeparationError",
                 f"Separation failed: {e}",
-                {"exception": str(e), "type": type(e).__name__}
+                {"exception": str(e), "type": type(e).__name__},
             )
 
 

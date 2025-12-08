@@ -4,6 +4,7 @@ User Behavior Tests for Themed UI
 PURPOSE: Test user interactions with themed UI components.
 CONTEXT: Simulates real user behavior to ensure theme doesn't break functionality.
 """
+
 import pytest
 from pathlib import Path
 from unittest.mock import Mock, patch, MagicMock
@@ -24,11 +25,11 @@ class TestMainWindowUserInteractions:
     @pytest.fixture
     def main_window(self, qtbot, qapp):
         """Create main window with theme applied"""
-        with patch('ui.main_window.get_app_context') as mock_get_ctx:
+        with patch("ui.main_window.get_app_context") as mock_get_ctx:
             mock_ctx = MagicMock()
             mock_ctx.translate.return_value = "Test Translation"
             mock_get_ctx.return_value = mock_ctx
-            
+
             window = MainWindow()
             qtbot.addWidget(window)
             return window
@@ -42,13 +43,13 @@ class TestMainWindowUserInteractions:
     def test_user_can_switch_tabs(self, main_window, qtbot):
         """Test that user can switch between views"""
         stack = main_window._content_stack
-        
+
         # User clicks on sidebar buttons
         buttons = main_window._nav_group.buttons()
         for i, btn in enumerate(buttons):
             qtbot.mouseClick(btn, Qt.LeftButton)
             qtbot.wait(50)  # Small delay to mimic user behavior
-            
+
             assert stack.currentIndex() == i
 
     def test_user_sees_styled_sidebar(self, main_window, qtbot):
@@ -76,7 +77,7 @@ class TestUploadWidgetUserInteractions:
     @pytest.fixture
     def upload_widget(self, qtbot):
         """Create upload widget"""
-        with patch('ui.widgets.upload_widget.AppContext'):
+        with patch("ui.widgets.upload_widget.AppContext"):
             widget = UploadWidget()
             qtbot.addWidget(widget)
             return widget
@@ -100,7 +101,7 @@ class TestUploadWidgetUserInteractions:
         assert browse_btn.isEnabled()
 
         # Simulate click (will open file dialog, so we mock it)
-        with patch('PySide6.QtWidgets.QFileDialog.exec', return_value=False):
+        with patch("PySide6.QtWidgets.QFileDialog.exec", return_value=False):
             qtbot.mouseClick(browse_btn, Qt.LeftButton)
 
     def test_user_sees_disabled_start_button_initially(self, upload_widget, qtbot):
@@ -128,8 +129,8 @@ class TestPlayerWidgetUserInteractions:
     @pytest.fixture
     def player_widget(self, qtbot):
         """Create player widget"""
-        with patch('ui.widgets.player_widget.AppContext'):
-            with patch('ui.widgets.player_widget.get_player'):
+        with patch("ui.widgets.player_widget.AppContext"):
+            with patch("ui.widgets.player_widget.get_player"):
                 widget = PlayerWidget()
                 qtbot.addWidget(widget)
                 return widget
@@ -205,7 +206,7 @@ class TestRecordingWidgetUserInteractions:
     @pytest.fixture
     def recording_widget(self, qtbot):
         """Create recording widget"""
-        with patch('ui.widgets.recording_widget.AppContext'):
+        with patch("ui.widgets.recording_widget.AppContext"):
             widget = RecordingWidget()
             qtbot.addWidget(widget)
             return widget
@@ -255,7 +256,7 @@ class TestQueueWidgetUserInteractions:
     @pytest.fixture
     def queue_widget(self, qtbot):
         """Create queue widget"""
-        with patch('ui.widgets.queue_widget.AppContext'):
+        with patch("ui.widgets.queue_widget.AppContext"):
             widget = QueueWidget()
             qtbot.addWidget(widget)
             return widget
@@ -386,8 +387,8 @@ class TestAccessibilityWithTheme:
         from ui.theme import ColorPalette
 
         # Text on dark background should be light
-        assert ColorPalette.TEXT_PRIMARY.startswith('#')
-        assert ColorPalette.BACKGROUND_PRIMARY.startswith('#')
+        assert ColorPalette.TEXT_PRIMARY.startswith("#")
+        assert ColorPalette.BACKGROUND_PRIMARY.startswith("#")
 
         # These are different colors (basic check)
         assert ColorPalette.TEXT_PRIMARY != ColorPalette.BACKGROUND_PRIMARY
@@ -399,11 +400,11 @@ class TestResponsiveLayout:
     @pytest.fixture
     def main_window(self, qtbot):
         """Create main window"""
-        with patch('ui.main_window.get_app_context') as mock_get_ctx:
+        with patch("ui.main_window.get_app_context") as mock_get_ctx:
             mock_ctx = MagicMock()
             mock_ctx.translate.return_value = "Test Translation"
             mock_get_ctx.return_value = mock_ctx
-            
+
             window = MainWindow()
             qtbot.addWidget(window)
             return window

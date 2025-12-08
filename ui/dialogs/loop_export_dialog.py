@@ -4,12 +4,23 @@ Loop Export Dialog - Configure sampler loop export settings
 PURPOSE: Allow users to configure BPM-based loop export for samplers
 CONTEXT: Used when exporting audio from Player as musical loops (2/4/8 bars)
 """
+
 from pathlib import Path
 from typing import Optional, NamedTuple
 from PySide6.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QLabel, QSpinBox,
-    QComboBox, QPushButton, QRadioButton, QButtonGroup,
-    QFrame, QMessageBox, QApplication, QProgressBar
+    QDialog,
+    QVBoxLayout,
+    QHBoxLayout,
+    QLabel,
+    QSpinBox,
+    QComboBox,
+    QPushButton,
+    QRadioButton,
+    QButtonGroup,
+    QFrame,
+    QMessageBox,
+    QApplication,
+    QProgressBar,
 )
 from PySide6.QtCore import Qt, Signal, QRunnable, QThreadPool, QObject
 
@@ -18,6 +29,7 @@ from utils.loop_math import get_minimum_bpm, is_valid_for_sampler
 
 class LoopExportSettings(NamedTuple):
     """Loop export settings data"""
+
     bpm: int  # Beats per minute (integer)
     bars: int  # Number of bars (2, 4, or 8)
     sample_rate: int  # Target sample rate (44100 or 48000)
@@ -36,7 +48,9 @@ class BPMDetectionWorker(QRunnable):
     """
 
     class Signals(QObject):
-        finished = Signal(float, str, str, float)  # detected_bpm, message, source_description, confidence
+        finished = Signal(
+            float, str, str, float
+        )  # detected_bpm, message, source_description, confidence
         error = Signal(str)  # error_message
 
     def __init__(self, audio_path: Path, source_description: str, logger):
@@ -59,7 +73,9 @@ class BPMDetectionWorker(QRunnable):
 
             # Emit confidence (use 0.0 if None for signal compatibility)
             confidence_value = confidence if confidence is not None else 0.0
-            self.signals.finished.emit(detected_bpm, bpm_message, self.source_description, confidence_value)
+            self.signals.finished.emit(
+                detected_bpm, bpm_message, self.source_description, confidence_value
+            )
 
         except Exception as e:
             self.logger.error(f"BPM detection error: {e}", exc_info=True)
@@ -88,7 +104,7 @@ class LoopExportDialog(QDialog):
         num_stems: int = 1,
         preset_bpm: Optional[float] = None,
         preset_bars: Optional[int] = None,
-        parent=None
+        parent=None,
     ):
         """
         Initialize loop export dialog.
@@ -107,13 +123,15 @@ class LoopExportDialog(QDialog):
         self.num_stems = num_stems
         self.preset_bpm = preset_bpm
         self.preset_bars = preset_bars
-        self.detected_bpm = int(preset_bpm) if preset_bpm else 120  # Use preset or default
+        self.detected_bpm = (
+            int(preset_bpm) if preset_bpm else 120
+        )  # Use preset or default
         self.temp_bpm_file = None  # Track temp file for cleanup
         self.thread_pool = QThreadPool()
 
         self.setWindowTitle("Sampler Loop Export")
         self.setModal(True)
-        
+
         # Set dimensions to use screen height minus 10%
         # WHY: Configure dialog to use 90% of screen height for better field visibility
         # while leaving small margin for system UI elements
@@ -121,10 +139,12 @@ class LoopExportDialog(QDialog):
         screen_height = screen.height()
         default_width = 780  # Keep current width
         default_height = int(screen_height * 0.9)  # Screen height minus 10%
-        
+
         self.setMinimumWidth(default_width)
         self.setMinimumHeight(default_height)
-        self.resize(default_width, default_height)  # Set default size to full screen height
+        self.resize(
+            default_width, default_height
+        )  # Set default size to full screen height
 
         self._setup_ui()
         self._connect_signals()
@@ -151,7 +171,7 @@ class LoopExportDialog(QDialog):
     def _setup_ui(self):
         """
         Setup dialog UI with horizontal layout for compact arrangement.
-        
+
         WHY: Reduces window height by arranging elements horizontally:
         - Row 1: BPM + Loop Length (side by side)
         - Row 2: Export Mode + Audio Format (side by side)
@@ -171,7 +191,9 @@ class LoopExportDialog(QDialog):
                 preset_parts.append(f"{self.preset_bpm:.1f} BPM")
             if self.preset_bars:
                 preset_parts.append(f"{self.preset_bars} bars")
-            preset_info.setText(f"✓ Using Loop Preview settings: {', '.join(preset_parts)}")
+            preset_info.setText(
+                f"✓ Using Loop Preview settings: {', '.join(preset_parts)}"
+            )
             preset_info.setStyleSheet(
                 "color: #10b981; font-size: 11pt; padding: 8px; "
                 "background: rgba(16, 185, 129, 0.1); border-radius: 6px;"
@@ -220,8 +242,12 @@ class LoopExportDialog(QDialog):
             self.bpm_info_label = QLabel("✓ BPM from Loop Preview (editable)")
             self.bpm_info_label.setStyleSheet("color: #10b981; font-size: 11pt;")
         else:
-            self.bpm_info_label = QLabel("💡 Click 'Detect BPM' for automatic detection")
-            self.bpm_info_label.setStyleSheet("color: rgba(255, 255, 255, 0.6); font-size: 11pt;")
+            self.bpm_info_label = QLabel(
+                "💡 Click 'Detect BPM' for automatic detection"
+            )
+            self.bpm_info_label.setStyleSheet(
+                "color: rgba(255, 255, 255, 0.6); font-size: 11pt;"
+            )
         bpm_container.addWidget(self.bpm_info_label)
 
         # Progress bar (hidden by default)
@@ -300,7 +326,9 @@ class LoopExportDialog(QDialog):
         self.mode_button_group.addButton(self.mode_mixed)
         mode_options_col.addWidget(self.mode_mixed)
 
-        self.mode_individual = QRadioButton(f"Individual Stems ({self.num_stems} separate sets)")
+        self.mode_individual = QRadioButton(
+            f"Individual Stems ({self.num_stems} separate sets)"
+        )
         self.mode_button_group.addButton(self.mode_individual)
         mode_options_col.addWidget(self.mode_individual)
 
@@ -377,7 +405,9 @@ class LoopExportDialog(QDialog):
         self.preview_label = QLabel()
         self.preview_label.setWordWrap(True)
         self.preview_label.setMinimumHeight(60)
-        self.preview_label.setStyleSheet("padding: 5px; color: rgba(255, 255, 255, 0.9);")
+        self.preview_label.setStyleSheet(
+            "padding: 5px; color: rgba(255, 255, 255, 0.9);"
+        )
         preview_layout.addWidget(self.preview_label)
 
         main_layout.addWidget(preview_card)
@@ -415,7 +445,9 @@ class LoopExportDialog(QDialog):
     def _connect_signals(self):
         """Connect UI signals"""
         self.bpm_spin.valueChanged.connect(self._on_settings_changed)
-        self.bars_combo.currentIndexChanged.connect(self._on_settings_changed)  # Changed from button group
+        self.bars_combo.currentIndexChanged.connect(
+            self._on_settings_changed
+        )  # Changed from button group
         self.mode_button_group.buttonToggled.connect(self._on_settings_changed)
         self.sample_rate_combo.currentIndexChanged.connect(self._on_settings_changed)
         self.bit_depth_combo.currentIndexChanged.connect(self._on_settings_changed)
@@ -435,13 +467,15 @@ class LoopExportDialog(QDialog):
     def _get_selected_bars(self) -> int:
         """
         Get currently selected bar count from ComboBox.
-        
+
         WHY: Changed from radio buttons to ComboBox for compact horizontal layout.
         ComboBox index maps to bar values: 0=2 bars, 1=4 bars, 2=8 bars
         """
         index = self.bars_combo.currentIndex()
         bar_values = [2, 4, 8]
-        return bar_values[index] if 0 <= index < len(bar_values) else 4  # Default to 4 bars
+        return (
+            bar_values[index] if 0 <= index < len(bar_values) else 4
+        )  # Default to 4 bars
 
     def _update_validation(self):
         """Update BPM+bars validation display"""
@@ -453,6 +487,7 @@ class LoopExportDialog(QDialog):
         if is_valid:
             # Valid combination
             from utils.loop_math import compute_chunk_duration_seconds
+
             duration = compute_chunk_duration_seconds(bpm, bars)
 
             self.validation_label.setText(
@@ -468,8 +503,7 @@ class LoopExportDialog(QDialog):
             min_bpm = get_minimum_bpm(bars, max_seconds=20.0)
 
             self.validation_label.setText(
-                f"⚠ {error_msg}\n"
-                f"Minimum BPM for {bars} bars: {min_bpm}"
+                f"⚠ {error_msg}\n" f"Minimum BPM for {bars} bars: {min_bpm}"
             )
             self.validation_label.setStyleSheet(
                 "color: rgba(255, 100, 100, 0.9); padding: 5px;"
@@ -488,7 +522,10 @@ class LoopExportDialog(QDialog):
             self.preview_label.setText("Configure settings above to see preview")
             return
 
-        from utils.loop_math import compute_chunk_duration_seconds, compute_samples_per_chunk
+        from utils.loop_math import (
+            compute_chunk_duration_seconds,
+            compute_samples_per_chunk,
+        )
 
         chunk_duration = compute_chunk_duration_seconds(bpm, bars)
 
@@ -562,7 +599,7 @@ class LoopExportDialog(QDialog):
             QMessageBox.warning(
                 self,
                 "Detection Unavailable",
-                "BPM detection is not available in this context."
+                "BPM detection is not available in this context.",
             )
             return
 
@@ -573,10 +610,12 @@ class LoopExportDialog(QDialog):
             self.bpm_info_label.setText("🔄 Detecting BPM from audio...")
 
             # Get audio source for BPM detection
-            bpm_source_file, source_description = self.player_widget._get_audio_for_bpm_detection()
+            bpm_source_file, source_description = (
+                self.player_widget._get_audio_for_bpm_detection()
+            )
 
             # Track temp file for cleanup
-            if 'bpm_detect_' in str(bpm_source_file):
+            if "bpm_detect_" in str(bpm_source_file):
                 self.temp_bpm_file = bpm_source_file
 
             # Get logger from player widget context
@@ -592,7 +631,13 @@ class LoopExportDialog(QDialog):
         except Exception as e:
             self._on_bpm_error(str(e))
 
-    def _on_bpm_detected(self, detected_bpm: float, message: str, source_description: str, confidence: float):
+    def _on_bpm_detected(
+        self,
+        detected_bpm: float,
+        message: str,
+        source_description: str,
+        confidence: float,
+    ):
         """Handle successful BPM detection"""
         # Update UI
         self.detected_bpm = round(detected_bpm)
@@ -620,7 +665,9 @@ class LoopExportDialog(QDialog):
             self.bpm_info_label.setText(
                 f"✓ Detected: {self.detected_bpm} BPM from {source_description} (librosa)"
             )
-            self.bpm_info_label.setStyleSheet("color: rgba(255, 255, 255, 0.7); font-size: 11pt;")
+            self.bpm_info_label.setStyleSheet(
+                "color: rgba(255, 255, 255, 0.7); font-size: 11pt;"
+            )
 
         self.bpm_progress.setVisible(False)
         self.detect_bpm_btn.setEnabled(True)
@@ -644,7 +691,7 @@ class LoopExportDialog(QDialog):
         QMessageBox.warning(
             self,
             "BPM Detection Failed",
-            f"Could not detect BPM:\n{error_message}\n\nPlease enter BPM manually."
+            f"Could not detect BPM:\n{error_message}\n\nPlease enter BPM manually.",
         )
 
     def _cleanup_temp_bpm_file(self):
@@ -685,7 +732,7 @@ class LoopExportDialog(QDialog):
         channels = 2 if self.channels_combo.currentText() == "Stereo" else 1
 
         # Get export mode
-        export_mode = 'individual' if self.mode_individual.isChecked() else 'mixed'
+        export_mode = "individual" if self.mode_individual.isChecked() else "mixed"
 
         return LoopExportSettings(
             bpm=self.bpm_spin.value(),
@@ -694,7 +741,7 @@ class LoopExportDialog(QDialog):
             bit_depth=bit_depth,
             channels=channels,
             file_format=self.format_combo.currentText(),
-            export_mode=export_mode
+            export_mode=export_mode,
         )
 
 

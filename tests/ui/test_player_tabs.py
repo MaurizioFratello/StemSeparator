@@ -7,6 +7,7 @@ Test Coverage:
 - Tab state management
 - Event signals
 """
+
 import pytest
 from PySide6.QtWidgets import QWidget, QTabWidget
 from PySide6.QtCore import Qt
@@ -25,9 +26,10 @@ def player_widget(qapp):
 # Tab Structure Tests
 # ============================================================================
 
+
 def test_player_widget_has_tabs(player_widget):
     """Test that PlayerWidget has a tab widget"""
-    assert hasattr(player_widget, 'tab_widget')
+    assert hasattr(player_widget, "tab_widget")
     assert isinstance(player_widget.tab_widget, QTabWidget)
 
 
@@ -50,19 +52,20 @@ def test_tab_names(player_widget):
 
 def test_playback_tab_exists(player_widget):
     """Test that playback tab exists and is a widget"""
-    assert hasattr(player_widget, 'playback_tab')
+    assert hasattr(player_widget, "playback_tab")
     assert isinstance(player_widget.playback_tab, QWidget)
 
 
 def test_loop_preview_tab_exists(player_widget):
     """Test that loop preview tab exists and is a widget"""
-    assert hasattr(player_widget, 'loop_preview_tab')
+    assert hasattr(player_widget, "loop_preview_tab")
     assert isinstance(player_widget.loop_preview_tab, QWidget)
 
 
 # ============================================================================
 # Tab Switching Tests
 # ============================================================================
+
 
 def test_initial_tab_is_playback(player_widget):
     """Test that Playback tab is selected by default"""
@@ -84,7 +87,9 @@ def test_switch_back_to_playback_tab(player_widget):
 
 def test_tab_change_signal_emitted(player_widget, qtbot):
     """Test that tab change signal is emitted"""
-    with qtbot.waitSignal(player_widget.tab_widget.currentChanged, timeout=1000) as blocker:
+    with qtbot.waitSignal(
+        player_widget.tab_widget.currentChanged, timeout=1000
+    ) as blocker:
         player_widget.tab_widget.setCurrentIndex(1)
 
     assert blocker.args[0] == 1  # Index of Loop Preview tab
@@ -92,13 +97,13 @@ def test_tab_change_signal_emitted(player_widget, qtbot):
 
 def test_on_tab_changed_method_exists(player_widget):
     """Test that _on_tab_changed method exists"""
-    assert hasattr(player_widget, '_on_tab_changed')
+    assert hasattr(player_widget, "_on_tab_changed")
     assert callable(player_widget._on_tab_changed)
 
 
 def test_prepare_loop_preview_method_exists(player_widget):
     """Test that _prepare_loop_preview method exists (placeholder)"""
-    assert hasattr(player_widget, '_prepare_loop_preview')
+    assert hasattr(player_widget, "_prepare_loop_preview")
     assert callable(player_widget._prepare_loop_preview)
 
 
@@ -106,36 +111,38 @@ def test_prepare_loop_preview_method_exists(player_widget):
 # Playback Tab Content Tests
 # ============================================================================
 
+
 def test_playback_tab_has_load_card(player_widget):
     """Test that playback tab contains file loading controls"""
-    assert hasattr(player_widget, 'btn_load_dir')
-    assert hasattr(player_widget, 'btn_load_files')
-    assert hasattr(player_widget, 'stems_list')
+    assert hasattr(player_widget, "btn_load_dir")
+    assert hasattr(player_widget, "btn_load_files")
+    assert hasattr(player_widget, "stems_list")
 
 
 def test_playback_tab_has_mixer_controls(player_widget):
     """Test that playback tab contains mixer controls"""
-    assert hasattr(player_widget, 'stems_scroll')
-    assert hasattr(player_widget, 'master_slider')
+    assert hasattr(player_widget, "stems_scroll")
+    assert hasattr(player_widget, "master_slider")
 
 
 def test_playback_tab_has_playback_controls(player_widget):
     """Test that playback tab contains playback controls"""
-    assert hasattr(player_widget, 'btn_play')
-    assert hasattr(player_widget, 'btn_pause')
-    assert hasattr(player_widget, 'btn_stop')
-    assert hasattr(player_widget, 'position_slider')
+    assert hasattr(player_widget, "btn_play")
+    assert hasattr(player_widget, "btn_pause")
+    assert hasattr(player_widget, "btn_stop")
+    assert hasattr(player_widget, "position_slider")
 
 
 def test_playback_tab_has_export_buttons(player_widget):
     """Test that playback tab contains export buttons"""
-    assert hasattr(player_widget, 'btn_export')
-    assert hasattr(player_widget, 'btn_export_loops')
+    assert hasattr(player_widget, "btn_export")
+    assert hasattr(player_widget, "btn_export_loops")
 
 
 # ============================================================================
 # Loop Preview Tab Content Tests
 # ============================================================================
+
 
 def test_loop_preview_tab_has_placeholder(player_widget):
     """Test that loop preview tab contains placeholder"""
@@ -160,14 +167,15 @@ def test_loop_preview_tab_is_visible_when_selected(player_widget):
 # Integration Tests
 # ============================================================================
 
+
 def test_tab_switching_preserves_playback_state(player_widget):
     """Test that switching tabs doesn't affect playback state"""
     # Switch to loop preview
     player_widget.tab_widget.setCurrentIndex(1)
 
     # Playback controls should still exist
-    assert hasattr(player_widget, 'btn_play')
-    assert hasattr(player_widget, 'player')
+    assert hasattr(player_widget, "btn_play")
+    assert hasattr(player_widget, "player")
 
 
 def test_tab_switching_multiple_times(player_widget):
@@ -187,6 +195,7 @@ def test_tab_object_name(player_widget):
 # ============================================================================
 # Edge Cases
 # ============================================================================
+
 
 def test_invalid_tab_index_clamped(player_widget):
     """Test that invalid tab indices are handled"""
@@ -211,8 +220,10 @@ def test_negative_tab_index_handled(player_widget):
 # Performance Tests
 # ============================================================================
 
+
 def test_tab_creation_is_fast(qapp, benchmark):
     """Test that tab creation is performant"""
+
     def create_widget():
         widget = PlayerWidget()
         return widget
@@ -224,6 +235,7 @@ def test_tab_creation_is_fast(qapp, benchmark):
 
 def test_tab_switching_is_instant(player_widget, benchmark):
     """Test that tab switching is performant"""
+
     def switch_tab():
         player_widget.tab_widget.setCurrentIndex(1)
         player_widget.tab_widget.setCurrentIndex(0)
@@ -233,4 +245,6 @@ def test_tab_switching_is_instant(player_widget, benchmark):
 
 
 if __name__ == "__main__":
-    pytest.main([__file__, "-v", "--cov=ui.widgets.player_widget", "--cov-report=term-missing"])
+    pytest.main(
+        [__file__, "-v", "--cov=ui.widgets.player_widget", "--cov-report=term-missing"]
+    )

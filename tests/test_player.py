@@ -1,6 +1,7 @@
 """
 Unit Tests for Audio Player
 """
+
 import pytest
 import numpy as np
 import soundfile as sf
@@ -14,7 +15,7 @@ from core.player import (
     PlaybackState,
     StemSettings,
     PlaybackInfo,
-    get_player
+    get_player,
 )
 
 
@@ -50,11 +51,7 @@ def test_audio_files():
     sf.write(str(bass_file), bass_stereo, sample_rate)
     sf.write(str(drums_file), drums_stereo, sample_rate)
 
-    yield {
-        'vocals': vocals_file,
-        'bass': bass_file,
-        'drums': drums_file
-    }
+    yield {"vocals": vocals_file, "bass": bass_file, "drums": drums_file}
 
     # Cleanup
     shutil.rmtree(temp_dir)
@@ -63,7 +60,7 @@ def test_audio_files():
 @pytest.fixture
 def mock_rtmixer():
     """Mock rtmixer module"""
-    with patch('core.player.logger') as mock_logger:
+    with patch("core.player.logger") as mock_logger:
         player = AudioPlayer()
         # Mock rtmixer
         mock_mixer = MagicMock()
@@ -116,9 +113,9 @@ class TestAudioPlayer:
 
         assert success is True
         assert len(player.stems) == 3
-        assert 'vocals' in player.stems
-        assert 'bass' in player.stems
-        assert 'drums' in player.stems
+        assert "vocals" in player.stems
+        assert "bass" in player.stems
+        assert "drums" in player.stems
 
         # Check all stems have same length
         lengths = [audio.shape[1] for audio in player.stems.values()]
@@ -147,7 +144,7 @@ class TestAudioPlayer:
     def test_load_stems_padding(self, test_audio_files):
         """Test that stems are padded to same length"""
         # Create a shorter stem
-        temp_dir = test_audio_files['vocals'].parent
+        temp_dir = test_audio_files["vocals"].parent
         short_file = temp_dir / "short.wav"
 
         # Create 1 second file
@@ -160,7 +157,7 @@ class TestAudioPlayer:
 
         # Load with other stems
         stems = test_audio_files.copy()
-        stems['short'] = short_file
+        stems["short"] = short_file
 
         player = AudioPlayer()
         player.load_stems(stems)
@@ -197,37 +194,37 @@ class TestAudioPlayer:
         player = AudioPlayer()
         player.load_stems(test_audio_files)
 
-        player.set_stem_volume('vocals', 0.5)
-        assert player.stem_settings['vocals'].volume == 0.5
+        player.set_stem_volume("vocals", 0.5)
+        assert player.stem_settings["vocals"].volume == 0.5
 
         # Test clamping
-        player.set_stem_volume('vocals', 1.5)
-        assert player.stem_settings['vocals'].volume == 1.0
+        player.set_stem_volume("vocals", 1.5)
+        assert player.stem_settings["vocals"].volume == 1.0
 
-        player.set_stem_volume('vocals', -0.5)
-        assert player.stem_settings['vocals'].volume == 0.0
+        player.set_stem_volume("vocals", -0.5)
+        assert player.stem_settings["vocals"].volume == 0.0
 
     def test_set_stem_mute(self, test_audio_files):
         """Test set stem mute"""
         player = AudioPlayer()
         player.load_stems(test_audio_files)
 
-        player.set_stem_mute('vocals', True)
-        assert player.stem_settings['vocals'].is_muted is True
+        player.set_stem_mute("vocals", True)
+        assert player.stem_settings["vocals"].is_muted is True
 
-        player.set_stem_mute('vocals', False)
-        assert player.stem_settings['vocals'].is_muted is False
+        player.set_stem_mute("vocals", False)
+        assert player.stem_settings["vocals"].is_muted is False
 
     def test_set_stem_solo(self, test_audio_files):
         """Test set stem solo"""
         player = AudioPlayer()
         player.load_stems(test_audio_files)
 
-        player.set_stem_solo('vocals', True)
-        assert player.stem_settings['vocals'].is_solo is True
+        player.set_stem_solo("vocals", True)
+        assert player.stem_settings["vocals"].is_solo is True
 
-        player.set_stem_solo('vocals', False)
-        assert player.stem_settings['vocals'].is_solo is False
+        player.set_stem_solo("vocals", False)
+        assert player.stem_settings["vocals"].is_solo is False
 
     def test_set_master_volume(self):
         """Test set master volume"""
@@ -261,13 +258,13 @@ class TestAudioPlayer:
         player.load_stems(test_audio_files)
 
         # Mute all but vocals
-        player.set_stem_mute('bass', True)
-        player.set_stem_mute('drums', True)
+        player.set_stem_mute("bass", True)
+        player.set_stem_mute("drums", True)
 
         mixed = player._mix_stems(0, 44100)
 
         # Should only contain vocals (scaled by volume)
-        expected = player.stems['vocals'][:, :44100] * 0.75  # default volume
+        expected = player.stems["vocals"][:, :44100] * 0.75  # default volume
         np.testing.assert_array_almost_equal(mixed, expected, decimal=5)
 
     def test_mix_stems_with_solo(self, test_audio_files):
@@ -276,12 +273,12 @@ class TestAudioPlayer:
         player.load_stems(test_audio_files)
 
         # Solo vocals
-        player.set_stem_solo('vocals', True)
+        player.set_stem_solo("vocals", True)
 
         mixed = player._mix_stems(0, 44100)
 
         # Should only contain vocals
-        expected = player.stems['vocals'][:, :44100] * 0.75  # default volume
+        expected = player.stems["vocals"][:, :44100] * 0.75  # default volume
         np.testing.assert_array_almost_equal(mixed, expected, decimal=5)
 
     def test_mix_stems_master_volume(self, test_audio_files):
@@ -376,6 +373,7 @@ class TestAudioPlayer:
         player.play()
         # Give it a moment to start
         import time
+
         time.sleep(0.1)
         player.stop()
 
@@ -389,7 +387,7 @@ class TestAudioPlayer:
         player.load_stems(test_audio_files)
 
         # Export to temp file
-        output_file = Path(tempfile.mktemp(suffix='.wav'))
+        output_file = Path(tempfile.mktemp(suffix=".wav"))
 
         try:
             success = player.export_mix(output_file)
@@ -410,7 +408,7 @@ class TestAudioPlayer:
     def test_export_mix_without_stems(self):
         """Test export without loaded stems"""
         player = AudioPlayer()
-        output_file = Path(tempfile.mktemp(suffix='.wav'))
+        output_file = Path(tempfile.mktemp(suffix=".wav"))
 
         success = player.export_mix(output_file)
 

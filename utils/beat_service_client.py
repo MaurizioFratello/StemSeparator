@@ -7,6 +7,7 @@ CONTEXT: Runs beat-service as subprocess, handles JSON I/O, timeouts, errors
 The beat-service binary is a separate executable built with PyInstaller
 from a Python 3.8/3.9 environment (required for BeatNet/numba compatibility).
 """
+
 import sys
 import os
 import json
@@ -28,11 +29,13 @@ BeatBackend = Literal["cpu", "mps", "cuda", "auto"]
 # Data Classes (PRD Section 4.3.1)
 # ============================================================================
 
+
 @dataclass
 class Beat:
     """A single beat in the track."""
-    time: float               # Seconds from track start
-    index: int                # Running beat index (0-based)
+
+    time: float  # Seconds from track start
+    index: int  # Running beat index (0-based)
     bar: Optional[int] = None  # Bar number (1-based), if known
     beat_in_bar: Optional[int] = None  # Position in bar (e.g., 1..4 for 4/4)
 
@@ -40,13 +43,15 @@ class Beat:
 @dataclass
 class Downbeat:
     """Start of a bar (downbeat)."""
-    time: float               # Seconds
-    bar: int                  # Bar number (1-based)
+
+    time: float  # Seconds
+    bar: int  # Bar number (1-based)
 
 
 @dataclass
 class BeatAnalysisResult:
     """Result of BeatNet analysis."""
+
     tempo: float
     tempo_confidence: float
     time_signature: str
@@ -54,7 +59,7 @@ class BeatAnalysisResult:
     downbeats: List[Downbeat]
     analysis_duration: float
     audio_duration: Optional[float] = None
-    backend: Optional[str] = None      # cpu/mps/cuda
+    backend: Optional[str] = None  # cpu/mps/cuda
     warnings: Optional[List[str]] = None
 
 
@@ -62,24 +67,29 @@ class BeatAnalysisResult:
 # Exceptions (PRD Section 4.3.2)
 # ============================================================================
 
+
 class BeatServiceError(Exception):
     """General error from beat service."""
+
     pass
 
 
 class BeatServiceTimeout(BeatServiceError):
     """Timeout waiting for beat service."""
+
     pass
 
 
 class BeatServiceNotFound(BeatServiceError):
     """Beat service binary not found."""
+
     pass
 
 
 # ============================================================================
 # Binary Discovery
 # ============================================================================
+
 
 def _find_beat_service_binary() -> Optional[Path]:
     """
@@ -98,17 +108,19 @@ def _find_beat_service_binary() -> Optional[Path]:
     search_paths = []
 
     # 1. PyInstaller bundle (when running as packaged app)
-    if hasattr(sys, '_MEIPASS'):
+    if hasattr(sys, "_MEIPASS"):
         search_paths.append(Path(sys._MEIPASS) / binary_name)
         search_paths.append(Path(sys._MEIPASS) / "Frameworks" / binary_name)
 
     # 2. Development: relative to project root
     # Assuming this file is at utils/beat_service_client.py
     project_root = Path(__file__).parent.parent
-    search_paths.extend([
-        project_root / "packaging" / "beatnet_service" / "dist" / binary_name,
-        project_root / "resources" / "beatnet" / binary_name,
-    ])
+    search_paths.extend(
+        [
+            project_root / "packaging" / "beatnet_service" / "dist" / binary_name,
+            project_root / "resources" / "beatnet" / binary_name,
+        ]
+    )
 
     # 3. Check PATH
     path_dirs = os.environ.get("PATH", "").split(os.pathsep)
@@ -141,6 +153,7 @@ def is_beat_service_available() -> bool:
 # ============================================================================
 # Main API (PRD Section 4.3.2)
 # ============================================================================
+
 
 def analyze_beats(
     audio_path: Path,
@@ -188,9 +201,12 @@ def analyze_beats(
     # Build command
     cmd = [
         str(binary_path),
-        "--input", str(audio_path.absolute()),
-        "--output", "-",  # stdout
-        "--device", device,
+        "--input",
+        str(audio_path.absolute()),
+        "--output",
+        "-",  # stdout
+        "--device",
+        device,
     ]
 
     if max_duration is not None:
@@ -214,7 +230,7 @@ def analyze_beats(
 
         # Log stderr (for debugging)
         if stderr:
-            for line in stderr.strip().split('\n'):
+            for line in stderr.strip().split("\n"):
                 logger.debug(f"[beatnet-service] {line}")
 
         # Check exit code
@@ -281,9 +297,7 @@ def analyze_beats(
         # Kill process on timeout
         if process:
             _terminate_process(process)
-        raise BeatServiceTimeout(
-            f"Beat analysis timed out after {timeout_seconds}s"
-        )
+        raise BeatServiceTimeout(f"Beat analysis timed out after {timeout_seconds}s")
 
     except BeatServiceError:
         raise
@@ -324,4 +338,3 @@ def _terminate_process(process: subprocess.Popen) -> None:
 
     except Exception as e:
         logger.warning(f"Error terminating beat service process: {e}")
-

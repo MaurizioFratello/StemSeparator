@@ -1,6 +1,7 @@
 """
 Unit Tests für Model Manager
 """
+
 import pytest
 from pathlib import Path
 import tempfile
@@ -22,7 +23,7 @@ def temp_models_dir():
 def model_manager_with_temp_dir(temp_models_dir, monkeypatch):
     """ModelManager mit temporärem Verzeichnis"""
     # Setze MODELS_DIR auf temp dir
-    monkeypatch.setattr('core.model_manager.MODELS_DIR', temp_models_dir)
+    monkeypatch.setattr("core.model_manager.MODELS_DIR", temp_models_dir)
 
     # Erstelle neue ModelManager-Instanz
     manager = ModelManager()
@@ -41,7 +42,7 @@ class TestModelInfo:
             size_mb=100,
             description="Test",
             model_filename="test_model.onnx",
-            backend="test_backend"
+            backend="test_backend",
         )
 
         assert info.name == "Test Model"
@@ -80,13 +81,13 @@ class TestModelManager:
 
         assert info is not None
         assert isinstance(info, ModelInfo)
-        assert info.name == MODELS[first_model_id]['name']
+        assert info.name == MODELS[first_model_id]["name"]
 
     def test_get_model_info_nonexistent(self, model_manager_with_temp_dir):
         """Teste get_model_info für nicht-existierendes Modell"""
         manager = model_manager_with_temp_dir
 
-        info = manager.get_model_info('nonexistent_model')
+        info = manager.get_model_info("nonexistent_model")
         assert info is None
 
     def test_list_models(self, model_manager_with_temp_dir):
@@ -184,7 +185,7 @@ class TestModelManager:
         """Teste download_model für unbekanntes Modell"""
         manager = model_manager_with_temp_dir
 
-        result = manager.download_model('unknown_model')
+        result = manager.download_model("unknown_model")
         assert result is False
 
     def test_download_all_models(self, model_manager_with_temp_dir):
@@ -258,7 +259,7 @@ class TestModelManager:
         total_size = manager.get_total_size_mb()
 
         # Sollte Summe aller Modell-Größen sein
-        expected_size = sum(m['size_mb'] for m in MODELS.values())
+        expected_size = sum(m["size_mb"] for m in MODELS.values())
         assert total_size == expected_size
 
     def test_get_downloaded_size_mb(self, model_manager_with_temp_dir):
@@ -272,7 +273,7 @@ class TestModelManager:
         first_model_id = list(MODELS.keys())[0]
         manager.download_model(first_model_id)
 
-        expected_size = MODELS[first_model_id]['size_mb']
+        expected_size = MODELS[first_model_id]["size_mb"]
         assert manager.get_downloaded_size_mb() == expected_size
 
     def test_get_model_manager_singleton(self):
