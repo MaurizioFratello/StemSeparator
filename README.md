@@ -35,7 +35,7 @@ Stem Separator is a professional macOS application for AI-powered separation of 
 
 ### Audio Processing
 - **Audio File Upload**: Drag & drop or file browser
-- **System Audio Recording**: Record system audio (macOS with BlackHole)
+- **System Audio Recording**: Native macOS system audio recording (ScreenCaptureKit on macOS 13+, BlackHole fallback)
 - **Automatic Chunking**: Large files (>30min) automatically split into 5-minute chunks
 - **Intelligent Error Handling**: Automatic CPU fallback on GPU issues
 
@@ -52,10 +52,9 @@ Stem Separator is a professional macOS application for AI-powered separation of 
 - **Demucs v4 (4-stem)** (~160 MB): Fast 4-stem separation
 
 ### Ensemble Separation 🆕
-- **Balanced Ensemble**: BS-RoFormer + Demucs (2x slower, +0.5-0.7 dB SDR)
-- **Quality Ensemble**: Mel-RoFormer + BS-RoFormer + Demucs (3x slower, +0.8-1.0 dB SDR)
-- **Vocals Focus**: Mel-RoFormer + BS-RoFormer (optimal for karaoke)
-- **MDX + Demucs (Vocal Focus)**: MDX-Net Vocals + Demucs (mask blend, fewer artifacts)
+- **Balanced Ensemble**: Staged approach - Mel-RoFormer + MDX Vocals + Demucs (vocals), then Demucs (residual) (~2x slower, +0.5-0.7 dB SDR)
+- **Quality Ensemble**: Staged approach - Mel-RoFormer + MDX Vocals + Demucs (vocals), then Demucs + BS-RoFormer (residual) (~2.5x slower, +0.8 dB SDR)
+- **Ultra Ensemble**: Maximum quality staged processing (~3.5x slower, +1.0 dB SDR)
 
 ### Stem Player
 - **Live Playback**: Real-time mixing of separated stems
@@ -85,8 +84,9 @@ Stem Separator is a professional macOS application for AI-powered separation of 
 - **RAM**: 16 GB
 - **GPU**: Apple Silicon (M1/M2/M3) for MPS acceleration or NVIDIA GPU for CUDA
 
-### Optional (for System Audio Recording)
-- **BlackHole 2ch**: Virtual audio device (automatically installed)
+### Optional (for System Audio Recording on older macOS)
+- **BlackHole 2ch**: Virtual audio device (fallback for macOS < 13.0, automatically installed if needed)
+- **Screen Recording Permission**: Required for ScreenCaptureKit on macOS 13+ (native, no driver needed)
 
 ---
 
@@ -96,9 +96,9 @@ Stem Separator is a professional macOS application for AI-powered separation of 
 
 **No Python installation required!** Download a pre-built application:
 
-1. Download the appropriate DMG file for your Mac from the [Releases page](https://github.com/MaurizioFratello/StemSeparator/releases):
-   - **Intel Macs**: `StemSeparator-intel.dmg`
+1. Download the DMG file for your Mac from the [Releases page](https://github.com/MaurizioFratello/StemSeparator/releases):
    - **Apple Silicon (M1/M2/M3)**: `StemSeparator-arm64.dmg`
+   - **Intel Macs**: Currently not available (Intel build in development)
 
 2. Open the DMG file and drag "Stem Separator" to the Applications folder
 
@@ -172,10 +172,12 @@ python main.py
 
 1. Select **"Ensemble Mode"** in the upload widget
 2. Choose an ensemble configuration:
-   - **Balanced**: Best balance between quality and speed
-   - **Quality**: Maximum quality (slower)
-   - **Vocals Focus**: Optimal for karaoke
+   - **Balanced**: Recommended - Good quality, reasonable processing time (~2x)
+   - **Quality**: Professional quality - Best balance of quality/time (~2.5x)
+   - **Ultra**: Maximum quality for critical applications (~3.5x)
 3. Start separation
+
+**Note:** Ensemble separation uses a staged approach: vocals are separated first using multiple models, then residual stems (drums, bass, other) are processed separately for optimal quality.
 
 ### Stem Player
 
@@ -193,12 +195,21 @@ python main.py
 
 ### System Audio Recording
 
+**macOS 13+ (Ventura and later):**
 1. Switch to the **"Recording"** tab
-2. Select **"In: BlackHole 2ch"** as input device
+2. Grant **Screen Recording permission** when prompted (System Settings → Privacy & Security)
+3. Click **"Start Recording"** (uses native ScreenCaptureKit - no driver needed)
+4. Play audio on your Mac
+5. Click **"Stop & Save"** when finished
+
+**macOS 12 and earlier:**
+1. Switch to the **"Recording"** tab
+2. Select **"In: BlackHole 2ch"** as input device (BlackHole will be installed automatically if needed)
 3. Click **"Start Recording"**
 4. Play audio on your Mac
 5. Click **"Stop & Save"** when finished
-6. The recorded file can be directly used for separation
+
+The recorded file can be directly used for separation.
 
 ---
 
@@ -214,10 +225,13 @@ StemSeparator/
 │   ├── separator.py        # Stem separation engine
 │   ├── ensemble_separator.py # Ensemble separation
 │   ├── recorder.py         # System audio recording
+│   ├── screencapture_recorder.py # ScreenCaptureKit recording
 │   ├── player.py           # Stem player (sounddevice)
 │   ├── model_manager.py    # Model management
 │   ├── chunk_processor.py  # Audio chunking
 │   ├── device_manager.py   # GPU/CPU detection
+│   ├── separation_subprocess.py # Subprocess separation
+│   ├── sampler_export.py   # Loop/sampler export
 │   └── blackhole_installer.py
 │
 ├── ui/                     # GUI components (PySide6)
@@ -228,13 +242,19 @@ StemSeparator/
 │       ├── upload_widget.py
 │       ├── recording_widget.py
 │       ├── queue_widget.py
-│       └── player_widget.py
+│       ├── player_widget.py
+│       ├── export_loops_widget.py
+│       ├── export_mixed_widget.py
+│       └── settings_dialog.py
 │
 ├── utils/                  # Utilities
 │   ├── logger.py           # Logging system
 │   ├── error_handler.py    # Error handling & retry
 │   ├── i18n.py             # Internationalization
-│   └── file_manager.py     # File operations
+│   ├── file_manager.py     # File operations
+│   ├── beat_detection.py  # Beat detection
+│   ├── audio_processing.py # Audio utilities
+│   └── macos_integration.py # macOS-specific features
 │
 ├── tests/                  # Unit & integration tests
 │   ├── test_*.py           # Backend tests
@@ -259,8 +279,8 @@ StemSeparator/
 Main configuration is located in `config.py`:
 
 - **Chunk Size**: `CHUNK_LENGTH_SECONDS = 300` (5 minutes)
-- **Default Model**: `DEFAULT_MODEL = 'mel-roformer'`
-- **Default Ensemble**: `DEFAULT_ENSEMBLE_CONFIG = 'balanced'`
+- **Default Model**: `DEFAULT_MODEL = 'demucs_6s'`
+- **Default Ensemble**: `DEFAULT_ENSEMBLE_CONFIG = 'balanced_staged'`
 - **GPU Usage**: `USE_GPU = True`
 - **Log Level**: `LOG_LEVEL = "INFO"`
 - **Default Language**: `DEFAULT_LANGUAGE = "de"` (change to `"en"` for English)
@@ -303,11 +323,15 @@ pytest tests/ui/
 
 ## 🔧 Troubleshooting
 
-### "BlackHole not installed"
-```bash
-brew install blackhole-2ch
-```
-The app can also install BlackHole automatically.
+### "No recording backend available"
+
+**For macOS 13+ (Ventura and later):**
+- Grant **Screen Recording permission** in System Settings → Privacy & Security → Screen Recording
+- The app uses native ScreenCaptureKit (no driver installation needed)
+
+**For macOS 12 and earlier:**
+- Install BlackHole: `brew install blackhole-2ch`
+- The app can also install BlackHole automatically
 
 ### "GPU out of memory"
 The app automatically switches to CPU mode. Alternatively:
