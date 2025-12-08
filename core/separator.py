@@ -548,15 +548,43 @@ class Separator:
                 raise SeparationError(error_msg)
 
             # Parse result from stdout
+            # WHY: Subprocess may output multiple JSON objects (one per attempt/retry)
+            # We need to parse them line-by-line and find the successful one
+            result = None
+            successful_results = []
+
             try:
+                # Try parsing as a single JSON object first (most common case)
                 result = json.loads(stdout)
-            except json.JSONDecodeError as e:
-                error_msg = f"Failed to parse subprocess output: {e}\nOutput: {stdout}"
+                if result['success']:
+                    successful_results.append(result)
+            except json.JSONDecodeError:
+                # If single parse fails, try parsing line-by-line
+                # WHY: Subprocess may output multiple JSON objects on separate lines
+                for line in stdout.strip().split('\n'):
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        line_result = json.loads(line)
+                        if line_result.get('success'):
+                            successful_results.append(line_result)
+                    except json.JSONDecodeError:
+                        # Skip unparseable lines
+                        continue
+
+            # Use the first successful result if available
+            if successful_results:
+                result = successful_results[0]
+                self.logger.info(f"Found {len(successful_results)} successful result(s) in subprocess output")
+            elif result is None:
+                error_msg = f"Failed to parse any valid JSON from subprocess output.\nOutput: {stdout}"
                 self.logger.error(error_msg)
                 raise SeparationError(error_msg)
 
-            if not result['success']:
-                error_msg = f"Separation failed: {result['error']}"
+            # Check if result indicates failure
+            if not result.get('success'):
+                error_msg = f"Separation failed: {result.get('error', 'Unknown error')}"
                 self.logger.error(error_msg)
                 raise SeparationError(error_msg)
 
