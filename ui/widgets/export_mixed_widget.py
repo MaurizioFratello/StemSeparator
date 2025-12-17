@@ -5,6 +5,8 @@ PURPOSE: Allow users to configure export settings and export mixed/individual st
 CONTEXT: Displayed in main content area when Export Mixed is selected in sidebar
 """
 
+from __future__ import annotations
+
 from pathlib import Path
 from typing import Optional, NamedTuple
 

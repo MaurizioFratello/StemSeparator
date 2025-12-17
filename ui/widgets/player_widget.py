@@ -5,6 +5,8 @@ PURPOSE: Allow users to play back separated stems with individual volume/mute/so
 CONTEXT: Provides mixing interface for separated audio stems with real-time playback.
 """
 
+from __future__ import annotations
+
 from pathlib import Path
 from typing import Optional, Dict, List, Tuple
 import numpy as np

@@ -5,7 +5,7 @@
 **AI-Powered Audio Stem Separation with State-of-the-Art Open Source Models**
 
 [![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)](https://github.com/MaurizioFratello/StemSeparator)
-[![Python](https://img.shields.io/badge/python-3.9%2B-blue.svg)](https://www.python.org/)
+[![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
 [![Platform](https://img.shields.io/badge/platform-macOS-lightgrey.svg)](https://www.apple.com/macos/)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
@@ -75,7 +75,7 @@ Stem Separator is a professional macOS application for AI-powered separation of 
 
 ### Minimum
 - **Operating System**: macOS 10.15 (Catalina) or newer
-- **Python**: 3.9+ (3.11 recommended)
+- **Python**: 3.10+ (3.11 recommended, 3.9 supported with compatibility layer)
 - **RAM**: 8 GB
 - **Storage**: ~1.5 GB for models
 

@@ -5,6 +5,8 @@ PURPOSE: Provide a single slider control with two handles (start and end).
 CONTEXT: Used in Audio Trim widget to replace two separate sliders and save space.
 """
 
+from __future__ import annotations
+
 from typing import Optional
 from PySide6.QtWidgets import QWidget
 from PySide6.QtCore import Qt, Signal, QPointF

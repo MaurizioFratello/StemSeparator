@@ -5,6 +5,8 @@ PURPOSE: Provide GUI for modifying application settings.
 CONTEXT: Settings dialog accessible from main menu.
 """
 
+from __future__ import annotations
+
 from pathlib import Path
 from PySide6.QtWidgets import (
     QDialog,

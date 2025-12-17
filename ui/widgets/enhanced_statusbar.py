@@ -10,6 +10,8 @@ WHY aggregate: Main app spawns subprocesses for separation and beat detection.
 User should see total resource usage, not just main process.
 """
 
+from __future__ import annotations
+
 from PySide6.QtWidgets import QStatusBar, QLabel
 from PySide6.QtCore import QTimer
 from typing import Dict, Set

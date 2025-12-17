@@ -5,6 +5,8 @@ PURPOSE: Enable users to record system audio via BlackHole and control recording
 CONTEXT: Integrates core.recorder.Recorder with thread-safe GUI updates.
 """
 
+from __future__ import annotations
+
 from pathlib import Path
 from typing import Optional
 import math

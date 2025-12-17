@@ -5,6 +5,8 @@ PURPOSE: Allow users to configure export settings including chunk splitting for 
 CONTEXT: Used when exporting mixed or individual stems from the Player
 """
 
+from __future__ import annotations
+
 from pathlib import Path
 from typing import Optional, NamedTuple
 from PySide6.QtWidgets import (

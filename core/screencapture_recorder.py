@@ -5,6 +5,8 @@ This module provides a Python interface to the Swift ScreenCaptureKit tool
 for recording system audio on macOS 13.0+ without requiring BlackHole.
 """
 
+from __future__ import annotations
+
 import subprocess
 import platform
 import sys

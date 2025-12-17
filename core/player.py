@@ -6,6 +6,8 @@ CONTEXT: Uses sounddevice for simple, reliable audio playback of pre-loaded audi
 MIGRATION: Migrated from rtmixer to sounddevice.play() for simpler implementation
 """
 
+from __future__ import annotations
+
 from pathlib import Path
 from typing import Optional, Dict, Callable
 from dataclasses import dataclass

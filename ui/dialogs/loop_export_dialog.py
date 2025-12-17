@@ -5,6 +5,8 @@ PURPOSE: Allow users to configure BPM-based loop export for samplers
 CONTEXT: Used when exporting audio from Player as musical loops (2/4/8 bars)
 """
 
+from __future__ import annotations
+
 from pathlib import Path
 from typing import Optional, NamedTuple
 from PySide6.QtWidgets import (

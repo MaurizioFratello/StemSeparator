@@ -2,6 +2,8 @@
 Device Manager für GPU/CPU Detection und Management
 """
 
+from __future__ import annotations
+
 import platform
 from typing import Optional, Dict
 from dataclasses import dataclass

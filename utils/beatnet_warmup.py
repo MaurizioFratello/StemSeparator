@@ -9,6 +9,8 @@ WHY: First real beat detection will run at full speed (~30s for 33s audio)
      instead of timing out or taking 46+ seconds due to XProtect scanning.
 """
 
+from __future__ import annotations
+
 from pathlib import Path
 import tempfile
 import threading

@@ -5,6 +5,8 @@ PURPOSE: Allow users to configure BPM-based loop export for samplers
 CONTEXT: Displayed in main content area when Export Loops is selected in sidebar
 """
 
+from __future__ import annotations
+
 from pathlib import Path
 from typing import Optional, NamedTuple, List
 import tempfile

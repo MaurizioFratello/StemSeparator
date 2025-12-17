@@ -5,6 +5,8 @@ PURPOSE: Allow users to select audio files, choose separation model, and initiat
 CONTEXT: Primary workflow entry point for file-based separation.
 """
 
+from __future__ import annotations
+
 from pathlib import Path
 from typing import Optional, Dict, List
 import soundfile as sf

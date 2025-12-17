@@ -5,6 +5,8 @@ PURPOSE: Allow users to queue multiple files for sequential processing.
 CONTEXT: Manages separation tasks and shows progress for each queued item.
 """
 
+from __future__ import annotations
+
 from pathlib import Path
 from typing import Optional, List
 from dataclasses import dataclass
