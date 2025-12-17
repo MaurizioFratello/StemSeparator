@@ -27,6 +27,7 @@ from PySide6.QtWidgets import (
     QFrame,
     QStackedWidget,
     QSpinBox,
+    QCheckBox,
 )
 from PySide6.QtCore import Qt, Signal, Slot, QTimer, QRunnable, QThreadPool, QObject
 from PySide6.QtGui import QDragEnterEvent, QDropEvent
@@ -37,6 +38,11 @@ from ui.theme import ThemeManager
 from ui.dialogs import ExportSettingsDialog, LoopExportDialog
 from ui.widgets.loop_waveform_widget import LoopWaveformWidget
 from utils import beat_detection
+
+# Forward reference for type hinting
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from core.background_stretch_manager import BackgroundStretchManager
 
 
 class DragDropListWidget(QListWidget):
@@ -332,6 +338,12 @@ class PlayerWidget(QWidget):
         # Beat analysis worker (for async detection)
         self._beat_analysis_worker: Optional[BeatAnalysisWorker] = None
         self._thread_pool = QThreadPool()
+
+        # Time-stretching state
+        self.time_stretch_enabled: bool = False
+        self.time_stretch_target_bpm: int = 120
+        self.stretch_manager: Optional['BackgroundStretchManager'] = None
+        self._loop_index_mapping: Dict[int, int] = {}  # Maps original loop index to filtered index
 
         # Beat analysis countdown timer
         self._beat_analysis_timer = QTimer(self)
@@ -783,6 +795,42 @@ class PlayerWidget(QWidget):
         self.loop_playback_info_label.setStyleSheet("color: #888; font-size: 10pt;")
         playback_layout.addWidget(self.loop_playback_info_label)
 
+        # Time-Stretching Controls
+        time_stretch_row = QHBoxLayout()
+        time_stretch_row.setSpacing(10)
+
+        self.time_stretch_checkbox = QCheckBox("Enable Time Stretching")
+        self.time_stretch_checkbox.setChecked(False)
+        time_stretch_row.addWidget(self.time_stretch_checkbox)
+
+        time_stretch_row.addWidget(QLabel("Target BPM:"))
+
+        self.target_bpm_spin = QSpinBox()
+        self.target_bpm_spin.setMinimum(1)
+        self.target_bpm_spin.setMaximum(999)
+        self.target_bpm_spin.setValue(120)
+        self.target_bpm_spin.setSuffix(" BPM")
+        self.target_bpm_spin.setEnabled(False)  # Disabled until checkbox checked
+        time_stretch_row.addWidget(self.target_bpm_spin)
+
+        self.btn_start_stretch_processing = QPushButton("Start Processing")
+        ThemeManager.set_widget_property(self.btn_start_stretch_processing, "buttonStyle", "primary")
+        self.btn_start_stretch_processing.setEnabled(False)
+        time_stretch_row.addWidget(self.btn_start_stretch_processing)
+
+        time_stretch_row.addStretch()
+        playback_layout.addLayout(time_stretch_row)
+
+        # Progress bar (initially hidden)
+        self.stretch_progress_bar = QProgressBar()
+        self.stretch_progress_bar.setVisible(False)
+        self.stretch_progress_bar.setMinimum(0)
+        self.stretch_progress_bar.setMaximum(100)
+        self.stretch_progress_bar.setValue(0)
+        self.stretch_progress_bar.setTextVisible(True)
+        self.stretch_progress_bar.setFormat("Ready")
+        playback_layout.addWidget(self.stretch_progress_bar)
+
         layout.addWidget(playback_card)
 
         # Connect signals
@@ -797,6 +845,11 @@ class PlayerWidget(QWidget):
         self.btn_play_loop.clicked.connect(self._on_play_loop_clicked)
         self.btn_play_loop_repeat.clicked.connect(self._on_play_loop_repeat_clicked)
         self.btn_stop_loop.clicked.connect(self._on_stop_loop_clicked)
+
+        # Time-stretching signals
+        self.time_stretch_checkbox.toggled.connect(self._on_time_stretch_enabled_changed)
+        self.target_bpm_spin.valueChanged.connect(self._on_target_bpm_changed)
+        self.btn_start_stretch_processing.clicked.connect(self._on_start_stretch_processing_clicked)
 
         # Manual Grid Definition signals
         self.btn_place_downbeat.toggled.connect(self._on_place_downbeat_toggled)
@@ -1232,6 +1285,12 @@ class PlayerWidget(QWidget):
             # Update header info above waveform: "BPM (conf) • X loops detected • Y bars total"
             self.loop_waveform_widget.set_summary_prefix(bpm_prefix)
 
+            # Enable time-stretch start button if time-stretching is enabled
+            if self.time_stretch_enabled:
+                self.btn_start_stretch_processing.setEnabled(
+                    len(self.detected_loop_segments) > 0 and len(self.stem_files) > 0
+                )
+
             # Initialize correction UIs after successful detection
             if calculated_bpm:
                 detected_bpm_value = calculated_bpm
@@ -1407,7 +1466,7 @@ class PlayerWidget(QWidget):
     def _on_manual_grid_bpm_changed(self, value: int):
         """Handle BPM spinbox value change."""
         has_downbeat = self.manual_downbeat_anchor is not None
-        bpm_changed = self.detected_bpm and abs(value - self.detected_bpm) > 0.5
+        bpm_changed = bool(self.detected_bpm and abs(value - self.detected_bpm) > 0.5)
         # Enable Apply Grid if EITHER downbeat is placed OR BPM is changed
         self.btn_apply_grid.setEnabled(has_downbeat or bpm_changed)
         self._update_manual_grid_ui()
@@ -1436,7 +1495,8 @@ class PlayerWidget(QWidget):
 
         self.btn_clear_downbeat.setEnabled(has_downbeat)
         # Enable Apply Grid if EITHER downbeat is placed OR BPM is changed
-        self.btn_apply_grid.setEnabled(has_downbeat or bpm_changed)
+        bpm_changed_bool = bool(self.detected_bpm and abs(self.manual_grid_bpm_spin.value() - self.detected_bpm) > 0.5)
+        self.btn_apply_grid.setEnabled(has_downbeat or bpm_changed_bool)
 
         # Update message based on current state
         if has_downbeat and bpm_changed:
@@ -1710,6 +1770,12 @@ class PlayerWidget(QWidget):
         else:
             self.loop_waveform_widget.set_loop_segments(self.detected_loop_segments)
 
+        # Enable time-stretch start button if time-stretching is enabled
+        if self.time_stretch_enabled:
+            self.btn_start_stretch_processing.setEnabled(
+                len(self.detected_loop_segments) > 0 and len(self.stem_files) > 0
+            )
+
         # Update status
         if self.song_start_downbeat_index is not None:
             if intro_loops:
@@ -1819,7 +1885,13 @@ class PlayerWidget(QWidget):
         # Stop position timer for Playback tab (loop playback shouldn't update it)
         self.position_timer.stop()
 
-        # Play loop segment once (no repeat)
+        # Check if time-stretching is enabled and processing is complete
+        if self.time_stretch_enabled and self.stretch_manager:
+            # Play stretched version
+            self._play_stretched_loop_segment(self.selected_loop_index, repeat=False)
+            return
+
+        # Play loop segment once (no repeat) - normal playback
         success = self.player.play_loop_segment(start_time, end_time, repeat=False)
 
         if success:
@@ -1858,7 +1930,13 @@ class PlayerWidget(QWidget):
         # Stop position timer for Playback tab (loop playback shouldn't update it)
         self.position_timer.stop()
 
-        # Play loop segment with repeat
+        # Check if time-stretching is enabled and processing is complete
+        if self.time_stretch_enabled and self.stretch_manager:
+            # Play stretched version
+            self._play_stretched_loop_segment(self.selected_loop_index, repeat=True)
+            return
+
+        # Play loop segment with repeat - normal playback
         success = self.player.play_loop_segment(start_time, end_time, repeat=True)
 
         if success:
@@ -1879,7 +1957,16 @@ class PlayerWidget(QWidget):
 
     def _on_stop_loop_clicked(self):
         """Handle 'Stop' button click for loop playback"""
+        # Stop normal playback
         self.player.stop()
+        
+        # Stop stretched playback if active
+        try:
+            import sounddevice as sd
+            sd.stop()
+        except Exception:
+            pass  # sounddevice might not be available
+        
         self.btn_stop_loop.setEnabled(False)
 
         if self.selected_loop_index >= 0:
@@ -1890,6 +1977,475 @@ class PlayerWidget(QWidget):
             self.loop_playback_info_label.setText("Playback stopped")
 
         self.ctx.logger().info("Loop playback stopped")
+
+    @Slot(bool)
+    def _on_time_stretch_enabled_changed(self, enabled: bool):
+        """Handle time-stretching checkbox toggle."""
+        self.time_stretch_enabled = enabled
+        self.target_bpm_spin.setEnabled(enabled)
+        self.btn_start_stretch_processing.setEnabled(
+            enabled and len(self.detected_loop_segments) > 0 and len(self.stem_files) > 0
+        )
+        
+        if not enabled:
+            # Cancel processing and clear manager if disabled
+            if self.stretch_manager:
+                self.stretch_manager.cancel()
+            self.stretch_manager = None
+            self.stretch_progress_bar.setVisible(False)
+
+    @Slot(int)
+    def _on_target_bpm_changed(self, value: int):
+        """Handle target BPM change."""
+        self.time_stretch_target_bpm = value
+        # Update button enabled state if needed
+        if self.time_stretch_enabled:
+            self.btn_start_stretch_processing.setEnabled(
+                len(self.detected_loop_segments) > 0 and len(self.stem_files) > 0
+            )
+
+    @Slot()
+    def _on_start_stretch_processing_clicked(self):
+        """Start background time-stretching processing."""
+        # Get original BPM from detected BPM (fallback: 120.0)
+        original_bpm = self.detected_bpm if self.detected_bpm else 120.0
+        
+        # Get all loop segments (intro loops + main loops)
+        all_loops = self._get_all_loop_segments()
+        
+        if not all_loops:
+            QMessageBox.warning(self, "No Loops", "Please detect loops first.")
+            return
+        
+        if not self.stem_files:
+            QMessageBox.warning(self, "No Stems", "Please load stems first.")
+            return
+        
+        # Filter out loops with negative start times (leading loops with padding)
+        # WHY: Leading loops with negative start times contain silence padding that
+        #      cannot be time-stretched. Only process loops with valid (non-negative) start times.
+        valid_loops = []
+        self._loop_index_mapping = {}  # Clear previous mapping
+        
+        for orig_idx, (start, end) in enumerate(all_loops):
+            if start >= 0.0 and end > start:
+                # Valid loop - add to valid_loops and create mapping
+                filtered_idx = len(valid_loops)
+                valid_loops.append((start, end))
+                self._loop_index_mapping[orig_idx] = filtered_idx
+        
+        if not valid_loops:
+            QMessageBox.warning(
+                self,
+                "No Valid Loops",
+                "No loops with valid start times found. Leading loops with padding cannot be time-stretched."
+            )
+            return
+        
+        # Log if some loops were filtered out
+        filtered_count = len(all_loops) - len(valid_loops)
+        if filtered_count > 0:
+            self.ctx.logger().warning(
+                f"Filtered out {filtered_count} loop(s) with negative start times "
+                f"(leading loops with padding cannot be time-stretched). "
+                f"Only {len(valid_loops)} loop(s) will be processed."
+            )
+        
+        # Initialize stretch manager if needed
+        if not self.stretch_manager:
+            from core.background_stretch_manager import BackgroundStretchManager, get_optimal_worker_count
+            self.stretch_manager = BackgroundStretchManager(max_workers=get_optimal_worker_count())
+            self.stretch_manager.progress_updated.connect(self._on_stretch_progress_updated)
+            self.stretch_manager.all_completed.connect(self._on_stretch_all_completed)
+        
+        # Start batch processing
+        self.stretch_progress_bar.setVisible(True)
+        self.stretch_progress_bar.setValue(0)
+        self.stretch_progress_bar.setFormat("Starting...")
+        self.btn_start_stretch_processing.setEnabled(False)
+        
+        self.stretch_manager.start_batch(
+            stem_files=self.stem_files,
+            loop_segments=valid_loops,
+            original_bpm=original_bpm,
+            target_bpm=float(self.time_stretch_target_bpm),
+            sample_rate=44100
+        )
+        
+        self.ctx.logger().info(
+            f"Started time-stretching: {original_bpm} → {self.time_stretch_target_bpm} BPM, "
+            f"{len(all_loops)} loops, {len(self.stem_files)} stems"
+        )
+
+    @Slot(int, int)
+    def _on_stretch_progress_updated(self, completed: int, total: int):
+        """Handle stretch progress update."""
+        if total > 0:
+            percentage = int((completed / total) * 100)
+            self.stretch_progress_bar.setValue(percentage)
+            self.stretch_progress_bar.setFormat(f"{completed} / {total} loops ({percentage}%)")
+            
+            # Update info label with progress
+            self.loop_playback_info_label.setText(
+                f"Processing time-stretching: {completed} / {total} loops ({percentage}%)"
+            )
+
+    @Slot()
+    def _on_stretch_all_completed(self):
+        """Handle stretch completion."""
+        self.stretch_progress_bar.setVisible(False)
+        self.btn_start_stretch_processing.setEnabled(True)
+        
+        # Validate that all expected loops are available (if manager exists)
+        if self.stretch_manager and self.stem_files:
+            missing_loops = []
+            all_loops = self._get_all_loop_segments()
+            valid_loops = [(start, end) for start, end in all_loops if start >= 0.0]
+            
+            # Check each valid loop and stem combination
+            for loop_idx in range(len(valid_loops)):
+                for stem_name in self.stem_files.keys():
+                    stem_name_lower = stem_name.lower()
+                    if not self.stretch_manager.is_loop_ready(
+                        stem_name_lower, loop_idx, self.time_stretch_target_bpm
+                    ):
+                        # Map back to original loop index if mapping exists
+                        if self._loop_index_mapping:
+                            orig_idx = None
+                            for orig, filtered in self._loop_index_mapping.items():
+                                if filtered == loop_idx:
+                                    orig_idx = orig
+                                    break
+                            if orig_idx is not None:
+                                missing_loops.append(f"{stem_name} Loop {orig_idx + 1}")
+                            else:
+                                missing_loops.append(f"{stem_name} Loop {loop_idx + 1} (filtered)")
+                        else:
+                            missing_loops.append(f"{stem_name} Loop {loop_idx + 1}")
+            
+            if missing_loops:
+                failed_count = len(missing_loops)
+                total_expected = len(valid_loops) * len(self.stem_files)
+                success_count = total_expected - failed_count
+                
+                self.ctx.logger().warning(
+                    f"Time-stretching completed with {failed_count} failed loops "
+                    f"({success_count}/{total_expected} successful). "
+                    f"Failed: {missing_loops[:5]}{'...' if len(missing_loops) > 5 else ''}"
+                )
+                
+                self.loop_playback_info_label.setText(
+                    f"⚠️ Processing completed: {success_count}/{total_expected} loops ready. "
+                    f"Some loops may not be available."
+                )
+            else:
+                self.ctx.logger().info(
+                    f"Time-stretching completed successfully: "
+                    f"{len(valid_loops)} loops × {len(self.stem_files)} stems = "
+                    f"{len(valid_loops) * len(self.stem_files)} total loops ready"
+                )
+                
+                self.loop_playback_info_label.setText(
+                    "✅ Time-stretching completed. Ready to play stretched loops."
+                )
+        else:
+            # Fallback if manager or stems not available
+            self.loop_playback_info_label.setText(
+                "Time-stretching completed. Ready to play stretched loops."
+            )
+        self.ctx.logger().info("Time-stretching processing completed")
+
+    def _mix_stretched_stems(self, stretched_loops: Dict[str, np.ndarray]) -> np.ndarray:
+        """
+        Mix stretched loop segments with current stem settings.
+        
+        Similar to AudioPlayer._mix_stems() but for pre-stretched audio.
+        
+        Args:
+            stretched_loops: Dict mapping stem names to stretched audio arrays
+            
+        Returns:
+            Mixed audio (channels, samples) as float32
+        """
+        # Find the length of the longest stretched loop
+        if not stretched_loops:
+            return np.zeros((2, 0), dtype=np.float32)
+        
+        max_length = max(len(audio) for audio in stretched_loops.values())
+        
+        # Initialize output (stereo)
+        mixed = np.zeros((2, max_length), dtype=np.float32)
+        
+        # Check if any stem is solo
+        any_solo = any(
+            settings.is_solo 
+            for settings in self.player.stem_settings.values()
+        )
+        
+        # Mix stretched loops
+        for stem_name, stretched_audio in stretched_loops.items():
+            # Get stem settings from player
+            if stem_name not in self.player.stem_settings:
+                continue
+                
+            settings = self.player.stem_settings[stem_name]
+            
+            # Skip if muted
+            if settings.is_muted:
+                continue
+            
+            # Skip if not solo and another stem is solo
+            if any_solo and not settings.is_solo:
+                continue
+            
+            # Ensure stereo
+            if stretched_audio.ndim == 1:
+                audio_stereo = np.stack([stretched_audio, stretched_audio], axis=1)
+            else:
+                audio_stereo = stretched_audio
+            
+            # Ensure same length (pad if necessary)
+            if len(audio_stereo) < max_length:
+                padding = max_length - len(audio_stereo)
+                audio_stereo = np.pad(audio_stereo, ((0, padding), (0, 0)), mode='constant')
+            elif len(audio_stereo) > max_length:
+                audio_stereo = audio_stereo[:max_length]
+            
+            # Transpose to (channels, samples) format
+            audio_stereo = audio_stereo.T
+            
+            # Apply volume
+            audio_stereo = audio_stereo * settings.volume
+            
+            # Add to mix
+            mixed += audio_stereo
+        
+        # Apply master volume
+        mixed = mixed * self.player.master_volume
+        
+        # Soft clipping to prevent harsh distortion
+        peak = np.max(np.abs(mixed))
+        if peak > 1.0:
+            # Normalize to prevent clipping, with some headroom
+            mixed = mixed * (0.95 / peak)
+        
+        # Final safety clip
+        mixed = np.clip(mixed, -1.0, 1.0)
+        
+        return mixed
+
+    def _play_stretched_loop_segment(self, loop_index: int, repeat: bool = False):
+        """
+        Play time-stretched loop segment.
+        
+        Args:
+            loop_index: Index of loop in combined list (intro + main)
+            repeat: If True, loop repeats continuously
+        """
+        if not self.stretch_manager:
+            QMessageBox.warning(
+                self, 
+                "Not Ready", 
+                "Time-stretching processing not complete. Please start processing first."
+            )
+            return
+        
+        # Map original loop index to filtered index
+        # WHY: Some loops (with negative start times) were filtered out during processing,
+        #      so we need to map the original index to the filtered index used by BackgroundStretchManager
+        if self._loop_index_mapping:
+            # Mapping exists - some loops were filtered out
+            if loop_index not in self._loop_index_mapping:
+                QMessageBox.warning(
+                    self,
+                    "Loop Not Available",
+                    f"Loop {loop_index + 1} cannot be time-stretched (contains padding). "
+                    f"Please select a different loop."
+                )
+                return
+            filtered_loop_index = self._loop_index_mapping[loop_index]
+        else:
+            # No mapping exists - all loops were valid, use original index
+            # Check if this loop has negative start time (shouldn't happen, but safety check)
+            all_loops = self._get_all_loop_segments()
+            if loop_index < len(all_loops):
+                start_time, _ = all_loops[loop_index]
+                if start_time < 0.0:
+                    QMessageBox.warning(
+                        self,
+                        "Loop Not Available",
+                        f"Loop {loop_index + 1} cannot be time-stretched (contains padding). "
+                        f"Please select a different loop."
+                    )
+                    return
+            filtered_loop_index = loop_index
+        
+        # Get stretched loops for all stems
+        stretched_loops = {}
+        target_bpm = self.time_stretch_target_bpm
+        
+        for stem_name in self.stem_files.keys():
+            # BackgroundStretchManager expects lowercase stem names
+            # WHY: Task IDs are created with lowercase stem names for consistency
+            stem_name_lower = stem_name.lower()
+            
+            # Debug: Log what we're looking for
+            task_id_expected = f"{stem_name_lower}_{filtered_loop_index}_{int(target_bpm)}"
+            self.ctx.logger().debug(
+                f"Retrieving stretched loop: stem={stem_name_lower}, "
+                f"loop_idx={filtered_loop_index} (original={loop_index}), "
+                f"bpm={target_bpm}, expected_task_id={task_id_expected}"
+            )
+            
+            stretched_audio = self.stretch_manager.get_stretched_loop(
+                stem_name_lower,
+                filtered_loop_index,  # Use filtered index
+                target_bpm
+            )
+            
+            if stretched_audio is not None:
+                stretched_loops[stem_name] = stretched_audio
+                self.ctx.logger().debug(
+                    f"✓ Found stretched loop for {stem_name} (task_id: {task_id_expected})"
+                )
+            else:
+                # Debug: Check if loop is marked as ready
+                is_ready = self.stretch_manager.is_loop_ready(
+                    stem_name_lower, filtered_loop_index, target_bpm
+                )
+                self.ctx.logger().warning(
+                    f"✗ Stretched loop not found for {stem_name} "
+                    f"(task_id: {task_id_expected}, is_ready: {is_ready})"
+                )
+        
+        if not stretched_loops:
+            # Collect debug info for better error message
+            debug_info = []
+            available_stems = []
+            missing_stems = []
+            
+            for stem_name in self.stem_files.keys():
+                stem_name_lower = stem_name.lower()
+                task_id_expected = f"{stem_name_lower}_{filtered_loop_index}_{int(target_bpm)}"
+                is_ready = self.stretch_manager.is_loop_ready(
+                    stem_name_lower, filtered_loop_index, target_bpm
+                )
+                
+                if is_ready:
+                    available_stems.append(stem_name)
+                    debug_info.append(f"  ✓ {stem_name}: Ready (task_id: {task_id_expected})")
+                else:
+                    missing_stems.append(stem_name)
+                    debug_info.append(f"  ✗ {stem_name}: Not found (task_id: {task_id_expected})")
+            
+            # Check if processing is still running
+            if hasattr(self.stretch_manager, 'is_running') and self.stretch_manager.is_running:
+                # Processing still in progress - show progress info
+                try:
+                    progress = self.stretch_manager.get_progress()
+                    if progress and len(progress) == 2:
+                        completed, total = progress
+                        percentage = int((completed/total)*100) if total > 0 else 0
+                        QMessageBox.information(
+                            self,
+                            "Processing In Progress",
+                            f"Time-stretching is still processing.\n\n"
+                            f"Progress: {completed} / {total} loops ({percentage}%)\n\n"
+                            f"Loop {loop_index + 1} will be available once all stems are processed.\n"
+                            f"Please wait for processing to complete."
+                        )
+                    else:
+                        QMessageBox.information(
+                            self,
+                            "Processing In Progress",
+                            f"Time-stretching is still processing.\n\n"
+                            f"Loop {loop_index + 1} will be available once all stems are processed.\n"
+                            f"Please wait for processing to complete."
+                        )
+                except Exception:
+                    # Fallback if get_progress() fails
+                    QMessageBox.information(
+                        self,
+                        "Processing In Progress",
+                        f"Time-stretching is still processing.\n\n"
+                        f"Loop {loop_index + 1} will be available once all stems are processed.\n"
+                        f"Please wait for processing to complete."
+                    )
+            else:
+                # Processing completed but no loops available - show detailed error
+                error_msg = (
+                    f"Stretched loops for Loop {loop_index + 1} are not available.\n\n"
+                    f"Debug Information:\n" + "\n".join(debug_info) + "\n\n"
+                )
+                
+                if missing_stems:
+                    error_msg += (
+                        f"Missing stems: {', '.join(missing_stems)}\n\n"
+                    )
+                
+                error_msg += (
+                    f"Possible causes:\n"
+                    f"- Processing failed for some stems\n"
+                    f"- Loop index mismatch (filtered index: {filtered_loop_index})\n"
+                    f"- Stem name case mismatch\n"
+                    f"- Please try starting processing again"
+                )
+                
+                QMessageBox.warning(
+                    self,
+                    "Not Ready",
+                    error_msg
+                )
+            return
+        
+        # Mix stretched stems
+        mixed_audio = self._mix_stretched_stems(stretched_loops)
+        
+        # Determine loop type for display
+        all_loops = self._get_all_loop_segments()
+        is_leading_loop = loop_index < len(self.detected_intro_loops)
+        loop_type = "Leading Loop" if is_leading_loop else "Main Loop"
+        relative_index = (
+            loop_index + 1
+            if is_leading_loop
+            else (loop_index - len(self.detected_intro_loops) + 1)
+        )
+        
+        # Stop position timer
+        self.position_timer.stop()
+        
+        # Play via sounddevice
+        try:
+            import sounddevice as sd
+            
+            if repeat:
+                # Create multiple repetitions for seamless looping
+                num_reps = 10
+                # Transpose to (samples, channels) for sounddevice
+                mixed_transposed = mixed_audio.T
+                mixed_repeated = np.tile(mixed_transposed, (num_reps, 1))
+                sd.play(mixed_repeated, samplerate=44100, blocking=False)
+            else:
+                # Transpose to (samples, channels) for sounddevice
+                mixed_transposed = mixed_audio.T
+                sd.play(mixed_transposed, samplerate=44100, blocking=False)
+            
+            self.btn_stop_loop.setEnabled(True)
+            self.loop_playback_info_label.setText(
+                f"Playing {loop_type} {relative_index} (stretched, {'repeating' if repeat else 'once'}): "
+                f"{all_loops[loop_index][0]:.2f}s - {all_loops[loop_index][1]:.2f}s"
+            )
+            self.ctx.logger().info(
+                f"Playing stretched {loop_type.lower()} {relative_index} ({'repeat' if repeat else 'once'})"
+            )
+            
+        except Exception as e:
+            self.ctx.logger().error(f"Failed to play stretched loop: {e}", exc_info=True)
+            QMessageBox.warning(
+                self,
+                "Playback Failed",
+                f"Failed to play stretched loop: {str(e)}"
+            )
 
     def _find_drums_stem_path(self) -> Optional[Path]:
         """
