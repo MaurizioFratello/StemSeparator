@@ -74,11 +74,11 @@ Migrated the AudioPlayer from `soundcard` to `rtmixer` for professional-grade, l
 
 ### 5. Backward Compatibility
 
-**Original player saved:** `core/player_original.py`
+**Original player backup removed** (as of 2025-12-17) - migration to sounddevice confirmed stable.
 
-If you need to revert:
+If you need to revert to the original implementation, use git history:
 ```bash
-cp core/player_original.py core/player.py
+git show f81e8b2^:core/player_original.py > core/player.py
 git checkout requirements.txt tests/test_player.py
 ```
 

@@ -1052,20 +1052,3 @@ def get_recorder() -> Recorder:
     if _recorder is None:
         _recorder = Recorder()
     return _recorder
-
-
-if __name__ == "__main__":
-    # Test
-    recorder = Recorder()
-
-    print("=== Recorder Test ===")
-    print(f"Available devices:")
-    for device in recorder.get_available_devices():
-        print(f"  - {device}")
-
-    blackhole = recorder.find_blackhole_device()
-    if blackhole:
-        print(f"\n✓ BlackHole found: {blackhole.name}")
-    else:
-        print("\n✗ BlackHole not found")
-        print("Install with: brew install blackhole-2ch")

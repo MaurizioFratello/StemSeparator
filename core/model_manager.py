@@ -337,19 +337,3 @@ def get_model_manager() -> ModelManager:
     if _model_manager is None:
         _model_manager = ModelManager()
     return _model_manager
-
-
-if __name__ == "__main__":
-    # Test
-    manager = ModelManager()
-
-    print("Available models:")
-    for model_id, model_info in manager.available_models.items():
-        print(
-            f"  {model_id}: {model_info.name} ({model_info.stems} stems, {model_info.size_mb}MB)"
-        )
-        print(f"    Downloaded: {model_info.downloaded}")
-
-    print(f"\nDefault model: {manager.get_default_model()}")
-    print(f"Total size: {manager.get_total_size_mb()}MB")
-    print(f"Downloaded size: {manager.get_downloaded_size_mb()}MB")

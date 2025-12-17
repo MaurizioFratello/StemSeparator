@@ -280,23 +280,3 @@ def get_device_manager() -> DeviceManager:
     if _device_manager is None:
         _device_manager = DeviceManager()
     return _device_manager
-
-
-if __name__ == "__main__":
-    # Test
-    dm = DeviceManager()
-
-    print("=== Device Manager ===")
-    print(f"Current device: {dm.get_device()}")
-    print(f"GPU available: {dm.is_gpu_available()}")
-
-    print("\nAvailable devices:")
-    for device in dm.list_available_devices():
-        print(f"  - {device.name}: {device.description}")
-        if device.memory_gb:
-            print(f"    Memory: {device.memory_gb:.2f} GB")
-
-    print("\nSystem info:")
-    import json
-
-    print(json.dumps(dm.get_system_info(), indent=2))
