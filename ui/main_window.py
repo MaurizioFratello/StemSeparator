@@ -485,9 +485,9 @@ class MainWindow(QMainWindow):
         )
 
         # Update Sidebar Buttons
-        self._btn_upload.setText(translator("tabs.upload", fallback="Upload"))
-        self._btn_record.setText(translator("tabs.recording", fallback="Recording"))
-        self._btn_queue.setText(translator("tabs.queue", fallback="Queue"))
+        self._btn_upload.setText(translator("tabs.upload", fallback="📤 Upload"))
+        self._btn_record.setText(translator("tabs.recording", fallback="🎤 Recording"))
+        self._btn_queue.setText(translator("tabs.queue", fallback="📋 Queue"))
 
         # Monitoring section buttons
         self._btn_stems.setText(translator("tabs.stems", fallback="📂 Stems"))

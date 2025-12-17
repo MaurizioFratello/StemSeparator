@@ -16,9 +16,9 @@
   "sidebar.monitoring": "Monitoring",
   "sidebar.export": "Export",
 
-  "tabs.upload": "Upload",
-  "tabs.recording": "Recording",
-  "tabs.queue": "Queue",
+  "tabs.upload": "📤 Upload",
+  "tabs.recording": "🎤 Recording",
+  "tabs.queue": "📋 Queue",
   "tabs.stems": "📂 Stems",
   "tabs.playback": "▶ Playback",
   "tabs.looping": "🎧 Looping",
