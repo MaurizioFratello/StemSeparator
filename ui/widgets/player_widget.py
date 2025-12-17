@@ -32,9 +32,9 @@ from PySide6.QtWidgets import (
     QCheckBox,
 )
 from PySide6.QtCore import Qt, Signal, Slot, QTimer, QRunnable, QThreadPool, QObject
-from PySide6.QtGui import QDragEnterEvent, QDropEvent
 
 from ui.app_context import AppContext
+from ui.widgets.common import DragDropListWidget
 from core.player import get_player, PlaybackState
 from ui.theme import ThemeManager
 from ui.dialogs import ExportSettingsDialog, LoopExportDialog
@@ -45,51 +45,6 @@ from utils import beat_detection
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from core.background_stretch_manager import BackgroundStretchManager
-
-
-class DragDropListWidget(QListWidget):
-    """
-    QListWidget with drag-and-drop support for audio files
-
-    WHY: QListWidget doesn't support drag-and-drop by default for external files
-    """
-
-    files_dropped = Signal(list)  # Emits list of Path objects
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setAcceptDrops(True)
-
-    def dragEnterEvent(self, event: QDragEnterEvent):
-        """Accept drag events with file URLs"""
-        if event.mimeData().hasUrls():
-            event.acceptProposedAction()
-        else:
-            event.ignore()
-
-    def dragMoveEvent(self, event):
-        """Accept drag move events with file URLs"""
-        if event.mimeData().hasUrls():
-            event.acceptProposedAction()
-        else:
-            event.ignore()
-
-    def dropEvent(self, event: QDropEvent):
-        """Handle dropped files"""
-        if event.mimeData().hasUrls():
-            file_paths = []
-            for url in event.mimeData().urls():
-                file_path = Path(url.toLocalFile())
-                if file_path.exists() and file_path.is_file():
-                    file_paths.append(file_path)
-
-            if file_paths:
-                self.files_dropped.emit(file_paths)
-                event.acceptProposedAction()
-            else:
-                event.ignore()
-        else:
-            event.ignore()
 
 
 class BeatAnalysisWorker(QRunnable):

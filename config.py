@@ -69,7 +69,12 @@ MIN_CHUNK_LENGTH = 150  # Minimale Chunk-Länge bei Fallback (2.5 min)
 
 # Audio-Konfiguration
 SUPPORTED_AUDIO_FORMATS = [".wav", ".mp3", ".flac", ".m4a", ".ogg", ".aac"]
+
+# CRITICAL: Universal sample rate for all separation models and processing
+# WHY: Mel-RoFormer and BS-RoFormer require 44100 Hz (hardcoded in model architecture)
+#      All models must process audio at this exact rate to prevent timing drift/desynchronization
 DEFAULT_SAMPLE_RATE = 44100
+
 EXPORT_SAMPLE_RATE = 44100
 EXPORT_BIT_DEPTH = 16  # 16, 24, oder 32 bit
 

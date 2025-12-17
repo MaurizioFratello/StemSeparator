@@ -20,6 +20,7 @@ import librosa
 from config import (
     MODELS,
     DEFAULT_MODEL,
+    DEFAULT_SAMPLE_RATE,
     TEMP_DIR,
     EXPORT_SAMPLE_RATE,
     EXPORT_BIT_DEPTH,
@@ -34,11 +35,6 @@ from utils.error_handler import error_handler, SeparationError
 from utils.file_manager import get_file_manager
 
 logger = get_logger()
-
-# CRITICAL: Universal sample rate for all separation models
-# WHY: Mel-RoFormer and BS-RoFormer require 44100 Hz (hardcoded in model architecture)
-#      All models must process audio at this exact rate to prevent timing drift
-TARGET_SAMPLE_RATE = 44100
 
 
 @dataclass
@@ -108,7 +104,7 @@ class Separator:
                 error_message=error,
             )
 
-        # CRITICAL: Ensure input audio is at TARGET_SAMPLE_RATE (44100 Hz)
+        # CRITICAL: Ensure input audio is at DEFAULT_SAMPLE_RATE (44100 Hz)
         # WHY: All models require 44100 Hz input to prevent timing drift and desynchronization
         #      Resampling input once is better than resampling output stems multiple times
         original_audio_file = audio_file
@@ -117,9 +113,9 @@ class Separator:
             info = sf.info(str(audio_file))
             current_sr = info.samplerate
 
-            if current_sr != TARGET_SAMPLE_RATE:
+            if current_sr != DEFAULT_SAMPLE_RATE:
                 self.logger.info(
-                    f"Input audio is {current_sr} Hz, resampling to {TARGET_SAMPLE_RATE} Hz "
+                    f"Input audio is {current_sr} Hz, resampling to {DEFAULT_SAMPLE_RATE} Hz "
                     f"(required for all separation models)"
                 )
 
@@ -135,7 +131,7 @@ class Separator:
                     resampled = librosa.resample(
                         channel,
                         orig_sr=current_sr,
-                        target_sr=TARGET_SAMPLE_RATE,
+                        target_sr=DEFAULT_SAMPLE_RATE,
                         res_type="soxr_hq",  # High-quality resampling
                     )
                     resampled_channels.append(resampled)
@@ -150,7 +146,7 @@ class Separator:
                 sf.write(
                     str(temp_resampled_file),
                     resampled_audio.T,  # (channels, samples) -> (samples, channels)
-                    TARGET_SAMPLE_RATE,
+                    DEFAULT_SAMPLE_RATE,
                     subtype="PCM_16",
                 )
 
