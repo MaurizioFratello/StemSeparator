@@ -168,7 +168,7 @@ class StretchWorker(QThread):
                 loop_audio,
                 sr,
                 stretch_factor,
-                quality_preset=StretchQuality.PREVIEW
+                quality_preset=StretchQuality.EXPORT
             )
 
             # 4. Emit success
