@@ -217,10 +217,26 @@ def _time_stretch_with_rubberband_cli(
         ProcessingError: If processing fails
     """
 
-    # Check if rubberband binary exists
+    # Find rubberband binary (check bundled location first, then system PATH)
+    # WHY: Support both bundled app (sys._MEIPASS/bin/rubberband) and development (system PATH)
+    import sys
+    rubberband_path = None
+    
+    # Check bundled location first (when running from PyInstaller app)
+    if getattr(sys, "frozen", False):
+        bundle_dir = Path(sys._MEIPASS)
+        bundled_rubberband = bundle_dir / "bin" / "rubberband"
+        if bundled_rubberband.exists() and os.access(bundled_rubberband, os.X_OK):
+            rubberband_path = str(bundled_rubberband)
+    
+    # Fallback to system PATH
+    if not rubberband_path:
+        rubberband_path = "rubberband"  # Will be found via PATH
+    
+    # Check if rubberband binary exists and works
     try:
         result = subprocess.run(
-            ['rubberband', '--version'],
+            [rubberband_path, '--version'],
             capture_output=True,
             text=True,
             timeout=5
@@ -243,8 +259,8 @@ def _time_stretch_with_rubberband_cli(
         # Write input to temp file
         sf.write(input_path, audio, sample_rate, subtype='FLOAT')
 
-        # Build rubberband command
-        cmd = ['rubberband']
+        # Build rubberband command (use found path)
+        cmd = [rubberband_path]
 
         # Add quality options
         if quality_preset == StretchQuality.EXPORT:

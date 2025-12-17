@@ -178,6 +178,47 @@ else:
     print("WARNING: ffmpeg not found. App will require users to install it.")
     print("  Install with: brew install ffmpeg")
 
+# Rubberband: Bundle for time-stretching functionality
+# WHY: Time-stretching requires rubberband CLI, bundle it so users don't need to install separately
+rubberband_binary = None
+rubberband_search_paths = [
+    Path('/opt/homebrew/bin/rubberband'),  # Apple Silicon Homebrew
+    Path('/usr/local/bin/rubberband'),     # Intel Homebrew
+    Path('/usr/bin/rubberband'),           # System
+]
+
+for path in rubberband_search_paths:
+    if path.exists() and os.access(path, os.X_OK):
+        rubberband_binary = path
+        print(f"Found rubberband: {path}")
+        break
+
+if rubberband_binary:
+    # Bundle to Resources/bin/ (same location as ffmpeg)
+    datas.append((str(rubberband_binary), 'bin'))
+    print(f"Bundling rubberband to Resources/bin/")
+
+    # Bundle Rubberband dylibs from homebrew
+    try:
+        # Get list of dylib dependencies
+        otool_output = subprocess.check_output(['otool', '-L', str(rubberband_binary)], text=True)
+        for line in otool_output.split('\n')[1:]:  # Skip first line (the binary itself)
+            line = line.strip()
+            if not line or line.startswith('/usr/lib/') or line.startswith('/System/'):
+                continue  # Skip system libraries
+
+            # Extract dylib path (before the first '(')
+            dylib_path = line.split('(')[0].strip()
+            if dylib_path and Path(dylib_path).exists():
+                # Bundle Rubberband's dylibs to same bin/ directory
+                datas.append((dylib_path, 'bin'))
+                print(f"  Bundling Rubberband dylib: {Path(dylib_path).name}")
+    except Exception as e:
+        print(f"Warning: Could not bundle Rubberband dylibs: {e}")
+else:
+    print("WARNING: rubberband not found. Time-stretching will not be available.")
+    print("  Install with: brew install rubberband")
+
 # Bundle audio_separator resource files (e.g., models-scores.json)
 # Use PyInstaller's collect_data_files to properly bundle package data
 try:
