@@ -416,6 +416,19 @@ class PlayerWidget(QWidget):
 
         header = QLabel(title)
         header.setObjectName("card_header")
+        # Explicitly ensure consistent styling for all card headers
+        # WHY: Prevent any Qt rendering differences between cards that might cause
+        #      visual inconsistencies in font size, height, or padding
+        header.setWordWrap(False)  # Prevent text wrapping
+        header.setMinimumHeight(0)  # No minimum height constraint
+        header.setMaximumHeight(16777215)  # Qt default max height
+        # Explicitly set font size to match stylesheet (15px)
+        # This ensures all card headers render identically regardless of text length
+        from PySide6.QtGui import QFont
+        font = QFont()
+        font.setPixelSize(15)  # Match stylesheet font-size: 15px
+        font.setWeight(QFont.Weight.DemiBold)  # Match stylesheet font-weight: 600 (DemiBold)
+        header.setFont(font)
         layout.addWidget(header)
 
         return card, layout
@@ -763,11 +776,18 @@ class PlayerWidget(QWidget):
         self.loop_waveform_widget.set_bars_per_loop(4)
         layout.addWidget(self.loop_waveform_widget, stretch=1)
 
-        # Loop playback controls card
+        # Create horizontal layout for playback and time-stretching cards side by side
+        # WHY: Separate boxes provide clear mental separation between loop playback
+        #      and time-stretching functionality from a UX perspective
+        controls_cards_layout = QHBoxLayout()
+        controls_cards_layout.setSpacing(15)
+
+        # === Loop Playback Card (left) ===
         playback_card, playback_layout = self._create_card("Loop Playback")
 
         # Playback controls
         playback_controls_layout = QHBoxLayout()
+        playback_controls_layout.setSpacing(10)
 
         self.btn_play_loop = QPushButton("▶ Play Loop")
         ThemeManager.set_widget_property(self.btn_play_loop, "buttonStyle", "primary")
@@ -795,15 +815,33 @@ class PlayerWidget(QWidget):
         self.loop_playback_info_label.setStyleSheet("color: #888; font-size: 10pt;")
         playback_layout.addWidget(self.loop_playback_info_label)
 
+        controls_cards_layout.addWidget(playback_card, stretch=1)
+
+        # === Time-Stretching Card (right) ===
+        time_stretch_card, time_stretch_layout = self._create_card("Time Stretching")
+
         # Time-Stretching Controls
-        time_stretch_row = QHBoxLayout()
-        time_stretch_row.setSpacing(10)
+        time_stretch_controls_layout = QHBoxLayout()
+        time_stretch_controls_layout.setSpacing(10)
 
         self.time_stretch_checkbox = QCheckBox("Enable Time Stretching")
         self.time_stretch_checkbox.setChecked(False)
-        time_stretch_row.addWidget(self.time_stretch_checkbox)
+        # Style checkbox text to match other labels (transparent background)
+        self.time_stretch_checkbox.setStyleSheet(
+            "QCheckBox {"
+            "    background: transparent;"
+            "    color: #e0e0e0;"
+            "    padding: 0px;"
+            "}"
+        )
+        time_stretch_controls_layout.addWidget(self.time_stretch_checkbox)
+        
+        # Add spacing between checkbox and Target BPM label
+        time_stretch_controls_layout.addSpacing(20)
 
-        time_stretch_row.addWidget(QLabel("Target BPM:"))
+        target_bpm_label = QLabel("Target BPM:")
+        target_bpm_label.setStyleSheet("color: #e0e0e0;")  # Match checkbox text color
+        time_stretch_controls_layout.addWidget(target_bpm_label)
 
         self.target_bpm_spin = QSpinBox()
         self.target_bpm_spin.setMinimum(1)
@@ -811,16 +849,26 @@ class PlayerWidget(QWidget):
         self.target_bpm_spin.setValue(120)
         self.target_bpm_spin.setSuffix(" BPM")
         self.target_bpm_spin.setEnabled(False)  # Disabled until checkbox checked
-        time_stretch_row.addWidget(self.target_bpm_spin)
+        time_stretch_controls_layout.addWidget(self.target_bpm_spin)
 
         self.btn_start_stretch_processing = QPushButton("Start Processing")
         ThemeManager.set_widget_property(self.btn_start_stretch_processing, "buttonStyle", "primary")
         self.btn_start_stretch_processing.setEnabled(False)
-        time_stretch_row.addWidget(self.btn_start_stretch_processing)
+        time_stretch_controls_layout.addWidget(self.btn_start_stretch_processing)
 
-        time_stretch_row.addStretch()
-        playback_layout.addLayout(time_stretch_row)
+        time_stretch_controls_layout.addStretch()
 
+        time_stretch_layout.addLayout(time_stretch_controls_layout)
+
+        # Status/info area to match Loop Playback Box structure
+        # WHY: Both boxes should have the same layout structure to ensure
+        #      consistent title positioning. Loop Playback has an info label,
+        #      so Time Stretching should have a matching element.
+        time_stretch_info_container = QWidget()
+        time_stretch_info_layout = QVBoxLayout(time_stretch_info_container)
+        time_stretch_info_layout.setContentsMargins(0, 0, 0, 0)
+        time_stretch_info_layout.setSpacing(0)
+        
         # Progress bar (initially hidden)
         self.stretch_progress_bar = QProgressBar()
         self.stretch_progress_bar.setVisible(False)
@@ -829,9 +877,15 @@ class PlayerWidget(QWidget):
         self.stretch_progress_bar.setValue(0)
         self.stretch_progress_bar.setTextVisible(True)
         self.stretch_progress_bar.setFormat("Ready")
-        playback_layout.addWidget(self.stretch_progress_bar)
+        time_stretch_info_layout.addWidget(self.stretch_progress_bar)
+        
+        # Add container to layout (ensures consistent spacing with Loop Playback Box)
+        time_stretch_layout.addWidget(time_stretch_info_container)
 
-        layout.addWidget(playback_card)
+        controls_cards_layout.addWidget(time_stretch_card, stretch=1)
+
+        # Add both cards to main layout
+        layout.addLayout(controls_cards_layout)
 
         # Connect signals
         self.btn_detect_loops.clicked.connect(self._on_detect_loops_clicked)
