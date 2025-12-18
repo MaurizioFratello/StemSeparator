@@ -537,7 +537,19 @@ class Separator:
 
             # Send parameters via stdin
             params_json = json.dumps(subprocess_params)
-            stdout, stderr = process.communicate(input=params_json)
+
+            # Wait for subprocess with timeout to prevent indefinite hangs
+            # Timeout: 2 hours (generous for long files on CPU, but prevents true hangs)
+            try:
+                stdout, stderr = process.communicate(input=params_json, timeout=7200)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                stdout, stderr = process.communicate()
+                raise SeparationError(
+                    "Separation subprocess timed out after 2 hours. "
+                    "This may indicate a hang or an extremely large file. "
+                    f"File: {audio_file}"
+                )
 
             # Stop progress simulation
             stop_progress.set()

@@ -90,7 +90,9 @@ class DeviceManager:
             try:
                 memory_bytes = self._torch.cuda.get_device_properties(0).total_memory
                 memory_gb = memory_bytes / (1024**3)
-            except:
+            except (AttributeError, RuntimeError, IndexError) as e:
+                # Device may not have accessible memory properties
+                self.logger.debug(f"Could not get CUDA memory: {e}")
                 memory_gb = None
 
             self._device_info["cuda"] = DeviceInfo(

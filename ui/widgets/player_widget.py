@@ -329,6 +329,80 @@ class PlayerWidget(QWidget):
 
         self.ctx.logger().info("PlayerWidget initialized with real playback")
 
+    def keyPressEvent(self, event):
+        """
+        Handle keyboard shortcuts for player control
+
+        Shortcuts:
+        - Space: Play/Pause toggle
+        - Left Arrow: Seek backward 5 seconds
+        - Right Arrow: Seek forward 5 seconds
+        - Up Arrow: Increase master volume
+        - Down Arrow: Decrease master volume
+        - Ctrl+S: Export audio
+        """
+        from PySide6.QtGui import QKeyEvent
+        from PySide6.QtCore import Qt
+
+        # Space: Play/Pause toggle
+        if event.key() == Qt.Key_Space:
+            if self.player.playback_state == PlaybackState.PLAYING:
+                self._on_pause()
+            elif self.btn_play.isEnabled():
+                self._on_play()
+            event.accept()
+            return
+
+        # Left Arrow: Seek backward 5 seconds
+        elif event.key() == Qt.Key_Left:
+            if self.position_slider.isEnabled():
+                current = self.position_slider.value()
+                # Position is in milliseconds
+                new_pos = max(0, current - 5000)
+                self.position_slider.setValue(new_pos)
+                # Trigger the seek
+                if hasattr(self, '_on_slider_released'):
+                    self._on_slider_released()
+            event.accept()
+            return
+
+        # Right Arrow: Seek forward 5 seconds
+        elif event.key() == Qt.Key_Right:
+            if self.position_slider.isEnabled():
+                current = self.position_slider.value()
+                max_val = self.position_slider.maximum()
+                new_pos = min(max_val, current + 5000)
+                self.position_slider.setValue(new_pos)
+                # Trigger the seek
+                if hasattr(self, '_on_slider_released'):
+                    self._on_slider_released()
+            event.accept()
+            return
+
+        # Up Arrow: Increase volume
+        elif event.key() == Qt.Key_Up:
+            current = self.master_slider.value()
+            self.master_slider.setValue(min(100, current + 5))
+            event.accept()
+            return
+
+        # Down Arrow: Decrease volume
+        elif event.key() == Qt.Key_Down:
+            current = self.master_slider.value()
+            self.master_slider.setValue(max(0, current - 5))
+            event.accept()
+            return
+
+        # Ctrl+S: Export
+        elif event.key() == Qt.Key_S and event.modifiers() & Qt.ControlModifier:
+            if self.stem_files:
+                self._on_export()
+            event.accept()
+            return
+
+        # Pass other keys to parent
+        super().keyPressEvent(event)
+
     def _extract_bpm_summary(self, conf_msg: str) -> Optional[str]:
         """
         Extract a compact 'BPM (confidence)' summary from conf_msg.

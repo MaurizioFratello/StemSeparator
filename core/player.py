@@ -1148,8 +1148,9 @@ class AudioPlayer:
         if self._sounddevice_module:
             try:
                 self._sounddevice_module.stop()
-            except:
-                pass
+            except (RuntimeError, AttributeError) as e:
+                # Ignore errors during cleanup - sounddevice may not be playing
+                logger.debug(f"Error stopping sounddevice during cleanup: {e}")
 
         self.stems.clear()
         self.stem_settings.clear()
