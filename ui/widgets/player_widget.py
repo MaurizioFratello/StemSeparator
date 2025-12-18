@@ -346,7 +346,7 @@ class PlayerWidget(QWidget):
 
         # Space: Play/Pause toggle
         if event.key() == Qt.Key_Space:
-            if self.player.playback_state == PlaybackState.PLAYING:
+            if self.player.state == PlaybackState.PLAYING:
                 self._on_pause()
             elif self.btn_play.isEnabled():
                 self._on_play()
