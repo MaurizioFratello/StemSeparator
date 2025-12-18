@@ -92,25 +92,15 @@ MODELS = {
         "strength": "vocals",
         "backend": "mdx",
     },
-    "mel-roformer": {
-        "name": "Mel-Band RoFormer",
-        "stems": 2,
-        "stem_names": ["Vocals", "Instrumental"],
-        "size_mb": 100,
-        "description": "🎤 Best vocal quality - 2-stem separation",
-        "model_filename": "model_mel_band_roformer_ep_3005_sdr_11.4360.ckpt",
-        "recommendation": "Highest quality vocals for professional vocal extraction",
-        "strength": "vocals",  # Primary strength
-    },
     "bs-roformer": {
         "name": "BS-RoFormer",
-        "stems": 4,
-        "stem_names": ["Vocals", "Drums", "Bass", "Other"],
+        "stems": 2,
+        "stem_names": ["Vocals", "Instrumental"],
         "size_mb": 300,
-        "description": "🏆 Best overall quality - 4-stem balanced separation",
+        "description": "🏆 Best vocal quality - 2-stem separation",
         "model_filename": "model_bs_roformer_ep_317_sdr_12.9755.ckpt",
-        "recommendation": "Highest quality 4-stem model, best balance across all stems",
-        "strength": "balanced",  # Good for all stems
+        "recommendation": "Highest quality 2-stem model (SDR 12.9) for professional vocal extraction",
+        "strength": "vocals",  # Primary strength
     },
     "demucs_4s": {
         "name": "Demucs v4 (4-stem)",
@@ -229,7 +219,7 @@ ENSEMBLE_CONFIGS = {
     "balanced_staged": {
         "name": "Balanced",
         "description": "⚡ Recommended - Good quality, reasonable processing time (~2x)",
-        "vocal_models": ["mel-roformer", "mdx_vocals_hq", "demucs_4s"],
+        "vocal_models": ["bs-roformer", "mdx_vocals_hq", "demucs_4s"],
         "residual_models": ["demucs_4s"],
         "fusion_strategy": "mask_blend",
         "fusion_stems": ["vocals"],
@@ -243,7 +233,7 @@ ENSEMBLE_CONFIGS = {
     "quality_staged": {
         "name": "Quality",
         "description": "🏆 Professional quality - Best balance of quality/time (~2.5x)",
-        "vocal_models": ["mel-roformer", "mdx_vocals_hq", "demucs_4s"],
+        "vocal_models": ["bs-roformer", "mdx_vocals_hq", "demucs_4s"],
         "residual_models": ["demucs_4s", "bs-roformer"],
         "fusion_strategy": "mask_blend",
         "fusion_stems": ["vocals"],
@@ -261,7 +251,7 @@ ENSEMBLE_CONFIGS = {
     "ultra_staged": {
         "name": "Ultra",
         "description": "💎 Maximum quality - For critical applications (~3.5x)",
-        "vocal_models": ["mel-roformer", "mdx_vocals_hq", "demucs_4s"],
+        "vocal_models": ["bs-roformer", "mdx_vocals_hq", "demucs_4s"],
         "residual_models": ["demucs_4s", "bs-roformer"],
         "fusion_strategy": "mask_blend",
         "fusion_stems": ["vocals"],
