@@ -301,6 +301,9 @@ class PlayerWidget(QWidget):
         self.time_stretch_target_bpm: int = 120
         self.stretch_manager: Optional['BackgroundStretchManager'] = None
         self._loop_index_mapping: Dict[int, int] = {}  # Maps original loop index to filtered index
+        self._stretched_playback_active: bool = False  # Track if stretched loop is currently playing
+        self._stretched_playback_loop_index: int = -1  # Track which loop is playing
+        self._stretched_playback_repeat: bool = False  # Track if playback is in repeat mode
 
         # Beat analysis countdown timer
         self._beat_analysis_timer = QTimer(self)
@@ -1978,6 +1981,11 @@ class PlayerWidget(QWidget):
         except Exception:
             pass  # sounddevice might not be available
         
+        # Reset stretched playback tracking
+        self._stretched_playback_active = False
+        self._stretched_playback_loop_index = -1
+        self._stretched_playback_repeat = False
+        
         self.btn_stop_loop.setEnabled(False)
 
         if self.selected_loop_index >= 0:
@@ -1988,6 +1996,23 @@ class PlayerWidget(QWidget):
             self.loop_playback_info_label.setText("Playback stopped")
 
         self.ctx.logger().info("Loop playback stopped")
+
+    def get_stretch_manager(self) -> Optional['BackgroundStretchManager']:
+        """
+        Get the background stretch manager instance.
+        
+        PURPOSE: Provide centralized access to stretch manager for other widgets
+        CONTEXT: Manager is lazily initialized on first access
+        
+        Returns:
+            BackgroundStretchManager instance or None if initialization fails
+        """
+        if not self.stretch_manager:
+            from core.background_stretch_manager import BackgroundStretchManager, get_optimal_worker_count
+            self.stretch_manager = BackgroundStretchManager(max_workers=get_optimal_worker_count())
+            self.stretch_manager.progress_updated.connect(self._on_stretch_progress_updated)
+            self.stretch_manager.all_completed.connect(self._on_stretch_all_completed)
+        return self.stretch_manager
 
     @Slot(bool)
     def _on_time_stretch_enabled_changed(self, enabled: bool):
@@ -2062,12 +2087,11 @@ class PlayerWidget(QWidget):
                 f"Only {len(valid_loops)} loop(s) will be processed."
             )
         
-        # Initialize stretch manager if needed
-        if not self.stretch_manager:
-            from core.background_stretch_manager import BackgroundStretchManager, get_optimal_worker_count
-            self.stretch_manager = BackgroundStretchManager(max_workers=get_optimal_worker_count())
-            self.stretch_manager.progress_updated.connect(self._on_stretch_progress_updated)
-            self.stretch_manager.all_completed.connect(self._on_stretch_all_completed)
+        # Get stretch manager (lazy initialization)
+        stretch_manager = self.get_stretch_manager()
+        if not stretch_manager:
+            QMessageBox.warning(self, "Error", "Could not initialize stretch manager.")
+            return
         
         # Start batch processing
         self.stretch_progress_bar.setVisible(True)
@@ -2075,7 +2099,7 @@ class PlayerWidget(QWidget):
         self.stretch_progress_bar.setFormat("Starting...")
         self.btn_start_stretch_processing.setEnabled(False)
         
-        self.stretch_manager.start_batch(
+        stretch_manager.start_batch(
             stem_files=self.stem_files,
             loop_segments=valid_loops,
             original_bpm=original_bpm,
@@ -2440,6 +2464,11 @@ class PlayerWidget(QWidget):
                 # Transpose to (samples, channels) for sounddevice
                 mixed_transposed = mixed_audio.T
                 sd.play(mixed_transposed, samplerate=44100, blocking=False)
+            
+            # Track stretched playback state
+            self._stretched_playback_active = True
+            self._stretched_playback_loop_index = loop_index
+            self._stretched_playback_repeat = repeat
             
             self.btn_stop_loop.setEnabled(True)
             self.loop_playback_info_label.setText(
@@ -2921,16 +2950,28 @@ class PlayerWidget(QWidget):
         # Convert 0-100 to 0.0-1.0
         volume_float = volume / 100.0
         self.player.set_stem_volume(stem_name, volume_float)
+        
+        # Restart stretched playback if active to apply volume changes
+        if self._stretched_playback_active and self.time_stretch_enabled:
+            self._restart_stretched_playback()
 
     @Slot(str, bool)
     def _on_stem_mute_changed(self, stem_name: str, is_muted: bool):
         """Handle stem mute change"""
         self.player.set_stem_mute(stem_name, is_muted)
+        
+        # Restart stretched playback if active to apply mute changes
+        if self._stretched_playback_active and self.time_stretch_enabled:
+            self._restart_stretched_playback()
 
     @Slot(str, bool)
     def _on_stem_solo_changed(self, stem_name: str, is_solo: bool):
         """Handle stem solo change"""
         self.player.set_stem_solo(stem_name, is_solo)
+        
+        # Restart stretched playback if active to apply solo changes
+        if self._stretched_playback_active and self.time_stretch_enabled:
+            self._restart_stretched_playback()
 
     @Slot()
     def _on_master_volume_changed(self):
@@ -2939,6 +2980,33 @@ class PlayerWidget(QWidget):
         volume_float = volume / 100.0
         self.player.set_master_volume(volume_float)
         self.master_label.setText(f"{volume}%")
+        
+        # Restart stretched playback if active to apply volume changes
+        if self._stretched_playback_active and self.time_stretch_enabled:
+            self._restart_stretched_playback()
+    
+    def _restart_stretched_playback(self):
+        """
+        Restart stretched loop playback with current mute/solo/volume settings.
+        
+        WHY: When mute/solo/volume changes, we need to remix the stretched loops
+             and restart playback to apply the changes immediately.
+        """
+        if not self._stretched_playback_active:
+            return
+        
+        loop_index = self._stretched_playback_loop_index
+        repeat = self._stretched_playback_repeat
+        
+        # Stop current playback
+        try:
+            import sounddevice as sd
+            sd.stop()
+        except Exception:
+            pass
+        
+        # Restart playback with new mix (this will apply current mute/solo/volume settings)
+        self._play_stretched_loop_segment(loop_index, repeat=repeat)
 
     @Slot()
     def _on_play(self):

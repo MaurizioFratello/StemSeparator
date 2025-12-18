@@ -18,23 +18,23 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QHBoxLayout,
     QLabel,
-    QSpinBox,
     QComboBox,
     QPushButton,
     QRadioButton,
     QButtonGroup,
+    QCheckBox,
     QFrame,
     QMessageBox,
     QApplication,
-    QProgressBar,
     QProgressDialog,
     QFileDialog,
 )
-from PySide6.QtCore import Qt, Signal, Slot, QRunnable, QThreadPool, QObject
+from PySide6.QtCore import Qt, Signal, Slot, QThreadPool, QObject
 
 from ui.app_context import AppContext
 from ui.theme import ThemeManager
 from utils.loop_math import get_minimum_bpm, is_valid_for_sampler
+from core.background_stretch_manager import BackgroundStretchManager, get_optimal_worker_count
 
 
 class LoopExportSettings(NamedTuple):
@@ -47,41 +47,7 @@ class LoopExportSettings(NamedTuple):
     channels: int
     file_format: str
     export_mode: str
-
-
-class BPMDetectionWorker(QRunnable):
-    """Background worker for BPM detection."""
-
-    class Signals(QObject):
-        finished = Signal(float, str, str, float)
-        error = Signal(str)
-
-    def __init__(self, audio_path: Path, source_description: str, logger):
-        super().__init__()
-        self.audio_path = audio_path
-        self.source_description = source_description
-        self.logger = logger
-        self.signals = self.Signals()
-
-    def run(self):
-        """Execute BPM detection in background"""
-        try:
-            from core.sampler_export import detect_audio_bpm
-
-            detected_bpm, bpm_message, confidence = detect_audio_bpm(self.audio_path)
-
-            self.logger.info(
-                f"BPM detection: {detected_bpm:.1f} BPM from {self.source_description} - {bpm_message}"
-            )
-
-            confidence_value = confidence if confidence is not None else 0.0
-            self.signals.finished.emit(
-                detected_bpm, bpm_message, self.source_description, confidence_value
-            )
-
-        except Exception as e:
-            self.logger.error(f"BPM detection error: {e}", exc_info=True)
-            self.signals.error.emit(str(e))
+    loop_version: str  # "original" | "stretched"
 
 
 class ExportLoopsWidget(QWidget):
@@ -114,9 +80,10 @@ class ExportLoopsWidget(QWidget):
         super().__init__(parent)
         self.ctx = AppContext()
         self.player_widget = player_widget
-        self.detected_bpm = 120
-        self.temp_bpm_file = None
         self.thread_pool = QThreadPool()
+
+        # Time-stretching state (manager accessed via player_widget)
+        # Note: Preview functionality removed - preview is handled in Looping tab
 
         self._setup_ui()
         self._connect_signals()
@@ -131,6 +98,42 @@ class ExportLoopsWidget(QWidget):
         self.player_widget = player_widget
         self._update_preview()
         self._update_export_button_state()
+        # Connect to stretch manager signals if available
+        self._connect_stretch_manager_signals()
+        # Update loop version checkbox state
+        self._update_loop_version_checkbox_state()
+
+    def _get_stretch_manager(self):
+        """
+        Get stretch manager from player widget.
+        
+        PURPOSE: Centralized access to stretch manager from player widget
+        CONTEXT: Manager is managed by player widget, not export widget
+        
+        Returns:
+            BackgroundStretchManager instance or None if not available
+        """
+        if not self.player_widget:
+            return None
+        return self.player_widget.get_stretch_manager()
+
+    def _connect_stretch_manager_signals(self):
+        """Connect to stretch manager signals if manager is available"""
+        manager = self._get_stretch_manager()
+        if manager:
+            # Disconnect existing connections to avoid duplicates
+            try:
+                manager.progress_updated.disconnect()
+                manager.all_completed.disconnect()
+                manager.task_completed.disconnect()
+            except TypeError:
+                # Signals not connected yet, ignore
+                pass
+            
+            # Connect signals
+            manager.progress_updated.connect(self._on_stretch_progress_updated)
+            manager.all_completed.connect(self._on_stretch_all_completed)
+            manager.task_completed.connect(self._on_stretch_task_completed)
 
     def _create_card(self, title: str) -> tuple[QFrame, QVBoxLayout]:
         """Create a styled card frame with header"""
@@ -148,103 +151,17 @@ class ExportLoopsWidget(QWidget):
         return card, layout
 
     def _setup_ui(self):
-        """Setup widget UI"""
+        """
+        Setup widget UI.
+        
+        PURPOSE: Create simplified UI with only Export Mode and Audio Format cards
+        CONTEXT: Tempo/Loop Length and Time-Stretching settings moved to Looping tab
+        """
         main_layout = QVBoxLayout(self)
         main_layout.setSpacing(15)
         main_layout.setContentsMargins(20, 20, 20, 20)
 
-        # === Tempo & Loop Length Card ===
-        tempo_card, tempo_layout = self._create_card("Tempo & Loop Length")
-
-        # Preset info (shown when Loop Preview data is available)
-        self.preset_info_label = QLabel()
-        self.preset_info_label.setVisible(False)
-        self.preset_info_label.setStyleSheet(
-            "color: #10b981; font-size: 11pt; padding: 8px; "
-            "background: rgba(16, 185, 129, 0.1); border-radius: 6px;"
-        )
-        tempo_layout.addWidget(self.preset_info_label)
-
-        tempo_row = QHBoxLayout()
-        tempo_row.setSpacing(30)
-
-        # BPM Section
-        bpm_container = QVBoxLayout()
-        bpm_container.setSpacing(8)
-
-        bpm_label_row = QHBoxLayout()
-        bpm_label_row.setSpacing(10)
-        bpm_label_text = QLabel("BPM:")
-        bpm_label_text.setMinimumWidth(60)
-        bpm_label_row.addWidget(bpm_label_text)
-
-        self.bpm_spin = QSpinBox()
-        self.bpm_spin.setMinimum(1)
-        self.bpm_spin.setMaximum(999)
-        self.bpm_spin.setValue(120)
-        self.bpm_spin.setSuffix(" BPM")
-        self.bpm_spin.setMinimumHeight(35)
-        self.bpm_spin.setMinimumWidth(150)
-        bpm_label_row.addWidget(self.bpm_spin)
-
-        self.detect_bpm_btn = QPushButton("🎵 Detect BPM")
-        self.detect_bpm_btn.setMinimumHeight(35)
-        self.detect_bpm_btn.setMinimumWidth(130)
-        self.detect_bpm_btn.setEnabled(False)
-        bpm_label_row.addWidget(self.detect_bpm_btn)
-
-        bpm_label_row.addStretch()
-        bpm_container.addLayout(bpm_label_row)
-
-        self.bpm_info_label = QLabel("💡 Click 'Detect BPM' for automatic detection")
-        self.bpm_info_label.setStyleSheet(
-            "color: rgba(255, 255, 255, 0.6); font-size: 11pt;"
-        )
-        bpm_container.addWidget(self.bpm_info_label)
-
-        self.bpm_progress = QProgressBar()
-        self.bpm_progress.setMinimum(0)
-        self.bpm_progress.setMaximum(0)
-        self.bpm_progress.setTextVisible(True)
-        self.bpm_progress.setFormat("Analyzing audio...")
-        self.bpm_progress.setMinimumHeight(8)
-        self.bpm_progress.setMaximumHeight(8)
-        self.bpm_progress.setVisible(False)
-        bpm_container.addWidget(self.bpm_progress)
-
-        tempo_row.addLayout(bpm_container)
-
-        # Loop Length Section
-        bars_container = QVBoxLayout()
-        bars_container.setSpacing(8)
-
-        bars_label_row = QHBoxLayout()
-        bars_label_row.setSpacing(10)
-        bars_label_text = QLabel("Loop Length:")
-        bars_label_text.setMinimumWidth(80)
-        bars_label_row.addWidget(bars_label_text)
-
-        self.bars_combo = QComboBox()
-        self.bars_combo.addItems(["2 Bar", "4 Bar", "8 Bar"])
-        self.bars_combo.setCurrentIndex(1)  # Default: 4 Bar
-        self.bars_combo.setMinimumHeight(35)
-        self.bars_combo.setMinimumWidth(120)
-        bars_label_row.addWidget(self.bars_combo)
-        bars_label_row.addStretch()
-        bars_container.addLayout(bars_label_row)
-
-        tempo_row.addLayout(bars_container)
-        tempo_layout.addLayout(tempo_row)
-
-        # Validation label
-        self.validation_label = QLabel()
-        self.validation_label.setWordWrap(True)
-        self.validation_label.setStyleSheet("padding: 5px;")
-        tempo_layout.addWidget(self.validation_label)
-
-        main_layout.addWidget(tempo_card)
-
-        # === Row 2: Export Mode + Audio Format ===
+        # === Row 1: Export Mode + Audio Format ===
         row2_horizontal = QHBoxLayout()
         row2_horizontal.setSpacing(15)
 
@@ -264,6 +181,12 @@ class ExportLoopsWidget(QWidget):
         self.mode_individual = QRadioButton("Individual Stems")
         self.mode_button_group.addButton(self.mode_individual)
         mode_options_col.addWidget(self.mode_individual)
+
+        # Loop Version Checkbox
+        self.loop_version_checkbox = QCheckBox("Use Time-Stretched Loops")
+        self.loop_version_checkbox.setEnabled(False)  # Disabled by default
+        self.loop_version_checkbox.setToolTip("Bitte Time-Stretching im Looping-Tab aktivieren")
+        mode_options_col.addWidget(self.loop_version_checkbox)
 
         mode_options_col.addStretch()
         mode_layout.addLayout(mode_options_col)
@@ -366,175 +289,215 @@ class ExportLoopsWidget(QWidget):
         main_layout.addLayout(buttons_layout)
 
     def _connect_signals(self):
-        """Connect UI signals"""
-        self.bpm_spin.valueChanged.connect(self._on_settings_changed)
-        self.bars_combo.currentIndexChanged.connect(self._on_settings_changed)
+        """
+        Connect UI signals.
+        
+        PURPOSE: Wire up widget signals for export mode and audio format changes
+        CONTEXT: Tempo/Loop Length and Time-Stretching signals removed (handled in Looping tab)
+        """
+        # Export mode and audio format signals
         self.mode_button_group.buttonToggled.connect(self._on_settings_changed)
         self.sample_rate_combo.currentIndexChanged.connect(self._on_settings_changed)
         self.bit_depth_combo.currentIndexChanged.connect(self._on_settings_changed)
         self.channels_combo.currentIndexChanged.connect(self._on_settings_changed)
         self.format_combo.currentIndexChanged.connect(self._on_settings_changed)
+        
+        # Loop version checkbox signal
+        self.loop_version_checkbox.toggled.connect(self._on_settings_changed)
 
-        self.detect_bpm_btn.clicked.connect(self._on_detect_bpm)
+        # Export button
         self.btn_export.clicked.connect(self._on_export_clicked)
+
+        # Background stretch manager signals (connected via _connect_stretch_manager_signals)
+        # when player_widget is set
 
     def _on_settings_changed(self):
         """Handle any settings change"""
         self._update_validation()
         self._update_preview()
 
-    def _get_selected_bars(self) -> int:
-        """Get currently selected bar count from ComboBox."""
-        index = self.bars_combo.currentIndex()
-        bar_values = [2, 4, 8]
-        return bar_values[index] if 0 <= index < len(bar_values) else 4
+    def _has_loop_detection(self) -> bool:
+        """
+        Check if loop detection has been performed.
+        
+        PURPOSE: Determine if user has run loop detection in Looping tab
+        CONTEXT: Export requires loop detection to have valid BPM and bars settings
+        
+        Returns:
+            True if loop detection has been performed, False otherwise
+        """
+        if not self.player_widget:
+            return False
+        return (
+            self.player_widget.detected_downbeat_times is not None
+            and len(self.player_widget.detected_downbeat_times) >= 2
+        )
+
+    def _get_bpm_from_player_widget(self) -> int:
+        """
+        Get BPM from player widget or fallback to default.
+        
+        PURPOSE: Retrieve BPM from loop detection or use default
+        CONTEXT: BPM is calculated from detected downbeats in Looping tab
+        
+        Returns:
+            BPM value (integer) or 120 as default fallback
+        """
+        if self._has_loop_detection():
+            downbeat_intervals = np.diff(self.player_widget.detected_downbeat_times)
+            median_bar_duration = float(np.median(downbeat_intervals))
+            if median_bar_duration > 0:
+                return int((60.0 * 4) / median_bar_duration)
+        return 120  # Default fallback
+
+    def _get_bars_from_player_widget(self) -> int:
+        """
+        Get bars per loop from player widget or fallback to default.
+        
+        PURPOSE: Retrieve bars per loop setting from Looping tab
+        CONTEXT: Bars per loop is configured in Looping tab
+        
+        Returns:
+            Bars per loop (2, 4, or 8) or 4 as default fallback
+        """
+        if self.player_widget:
+            return getattr(self.player_widget, '_bars_per_loop', 4)
+        return 4  # Default fallback
+
+    def _get_target_bpm_from_player_widget(self) -> int:
+        """
+        Get target BPM from player widget or fallback to default.
+        
+        PURPOSE: Retrieve target BPM setting from Looping tab
+        CONTEXT: Target BPM is configured in Looping tab for time-stretching
+        
+        Returns:
+            Target BPM value or 120 as default fallback
+        """
+        if self.player_widget and hasattr(self.player_widget, 'time_stretch_target_bpm'):
+            return self.player_widget.time_stretch_target_bpm
+        return 120  # Default fallback
+
+    def _has_time_stretching_enabled(self) -> bool:
+        """
+        Check if time-stretching is enabled in Looping tab.
+        
+        PURPOSE: Determine if time-stretching checkbox is checked in Looping tab
+        CONTEXT: Loop version checkbox should only be enabled when time-stretching is active
+        
+        Returns:
+            True if time-stretching is enabled, False otherwise
+        """
+        if not self.player_widget:
+            return False
+        if hasattr(self.player_widget, 'time_stretch_checkbox'):
+            return self.player_widget.time_stretch_checkbox.isChecked()
+        return False
+
+    def _has_stretched_loops_ready(self) -> bool:
+        """
+        Check if stretched loops are ready for export.
+        
+        PURPOSE: Determine if stretched loops have been processed and are available
+        CONTEXT: Loop version checkbox should only be enabled when loops are ready
+        
+        Returns:
+            True if stretched loops are ready, False otherwise
+        """
+        manager = self._get_stretch_manager()
+        if not manager:
+            return False
+        # Check if processing is complete and we have completed tasks
+        return not manager.is_running and len(manager.completed_tasks) > 0
+
+    def _update_loop_version_checkbox_state(self):
+        """
+        Update loop version checkbox enabled state.
+        
+        PURPOSE: Enable/disable checkbox based on time-stretching availability
+        CONTEXT: Checkbox should only be enabled when time-stretching is active and loops are ready
+        """
+        has_stretching = self._has_time_stretching_enabled()
+        has_loops_ready = self._has_stretched_loops_ready()
+        
+        self.loop_version_checkbox.setEnabled(has_stretching and has_loops_ready)
+        
+        if not has_stretching:
+            self.loop_version_checkbox.setToolTip("Bitte Time-Stretching im Looping-Tab aktivieren")
+        elif not has_loops_ready:
+            self.loop_version_checkbox.setToolTip("Time-Stretching wird noch verarbeitet...")
+        else:
+            self.loop_version_checkbox.setToolTip("Exportiere time-gestretchte Loops")
 
     def _update_export_button_state(self):
-        """Update export button and detect button enabled state"""
+        """
+        Update export button and detect button enabled state.
+        
+        PURPOSE: Control export button availability based on stems and loop detection
+        CONTEXT: Export requires stems loaded AND loop detection performed
+        """
         has_stems = (
             self.player_widget is not None and self.player_widget.has_stems_loaded()
         )
+        has_loop_detection = self._has_loop_detection()
 
-        # Check validation
-        is_valid, _ = is_valid_for_sampler(
-            self.bpm_spin.value(), self._get_selected_bars(), max_seconds=20.0
-        )
+        # Check validation (always use player widget data)
+        bpm = self._get_bpm_from_player_widget()
+        bars = self._get_bars_from_player_widget()
+        
+        is_valid, _ = is_valid_for_sampler(bpm, bars, max_seconds=20.0)
 
-        self.btn_export.setEnabled(has_stems and is_valid)
-        self.detect_bpm_btn.setEnabled(has_stems)
+        # Export button requires: stems + loop detection + valid settings
+        self.btn_export.setEnabled(has_stems and has_loop_detection and is_valid)
+        
+        if not has_loop_detection:
+            self.btn_export.setToolTip("Bitte zuerst Loop Detection im Looping-Tab durchführen")
+        else:
+            self.btn_export.setToolTip("")
 
         if has_stems:
             num_stems = len(self.player_widget.stem_files)
             self.mode_individual.setText(
                 f"Individual Stems ({num_stems} separate sets)"
             )
-
-            # Check for Loop Preview presets
-            self._check_loop_preview_presets()
         else:
             self.mode_individual.setText("Individual Stems")
-            self.preset_info_label.setVisible(False)
-
-    def _check_loop_preview_presets(self):
-        """Check if Loop Preview has detected beats and use those settings"""
-        if not self.player_widget:
-            return
-
-        # Check for detected downbeats from Loop Preview
-        if (
-            self.player_widget.detected_downbeat_times is not None
-            and len(self.player_widget.detected_downbeat_times) >= 2
-        ):
-
-            # Calculate BPM from downbeat intervals
-            downbeat_intervals = np.diff(self.player_widget.detected_downbeat_times)
-            median_bar_duration = float(np.median(downbeat_intervals))
-            if median_bar_duration > 0:
-                preset_bpm = (60.0 * 4) / median_bar_duration
-                preset_bars = self.player_widget._bars_per_loop
-
-                # Update UI with presets
-                preset_bpm_int = int(preset_bpm)
-                self.bpm_spin.setValue(preset_bpm_int)
-
-                # Set bars combo
-                if preset_bars == 2:
-                    self.bars_combo.setCurrentIndex(0)
-                elif preset_bars == 8:
-                    self.bars_combo.setCurrentIndex(2)
-                else:
-                    self.bars_combo.setCurrentIndex(1)
-
-                # Show preset info (integer BPM for consistency)
-                self.preset_info_label.setText(
-                    f"✓ Using Loop Preview settings: {preset_bpm_int} BPM, {preset_bars} bars"
-                )
-                self.preset_info_label.setVisible(True)
-
-                self.bpm_info_label.setText("✓ BPM from Loop Preview (editable)")
-                self.bpm_info_label.setStyleSheet("color: #10b981; font-size: 11pt;")
-
-                # Disable controls when using Loop Preview presets
-                # WHY: Loop Preview settings should be the source of truth
-                # Bars combo is locked to Loop Preview bar count
-                self.bars_combo.setEnabled(False)
-                # Detect BPM button is redundant (BPM already detected in Loop Preview)
-                self.detect_bpm_btn.setEnabled(False)
-                # Update tooltips to explain why controls are disabled
-                self.bars_combo.setToolTip(
-                    f"Loop length locked to Loop Preview setting ({preset_bars} bars). "
-                    "Use the Looping tab to change bar length."
-                )
-                self.detect_bpm_btn.setToolTip(
-                    "BPM already detected in Loop Preview. "
-                    "You can manually edit the BPM value above if needed."
-                )
-
-                self.ctx.logger().info(
-                    f"Using Loop Preview presets: {preset_bpm_int} BPM, {preset_bars} bars"
-                )
-        else:
-            # No Loop Preview presets available - enable manual controls
-            self.bars_combo.setEnabled(True)
-            # Only enable detect button if stems are loaded
-            # (button state is set in _update_export_button_state based on has_stems)
-            has_stems = (
-                self.player_widget is not None and self.player_widget.has_stems_loaded()
-            )
-            self.detect_bpm_btn.setEnabled(has_stems)
-            # Restore default tooltips
-            self.bars_combo.setToolTip("")
-            self.detect_bpm_btn.setToolTip("")
 
     def _update_validation(self):
-        """Update BPM+bars validation display"""
-        bpm = self.bpm_spin.value()
-        bars = self._get_selected_bars()
+        """
+        Update BPM+bars validation.
+        
+        PURPOSE: Validate BPM and bars settings from player widget
+        CONTEXT: Validation uses data from Looping tab, not UI controls
+        """
+        bpm = self._get_bpm_from_player_widget()
+        bars = self._get_bars_from_player_widget()
 
         is_valid, error_msg = is_valid_for_sampler(bpm, bars, max_seconds=20.0)
 
-        if is_valid:
-            from utils.loop_math import compute_chunk_duration_seconds
-
-            duration = compute_chunk_duration_seconds(bpm, bars)
-
-            self.validation_label.setText(
-                f"✓ Valid: {bars} bars at {bpm} BPM = {duration:.2f}s per chunk"
-            )
-            self.validation_label.setStyleSheet(
-                "color: rgba(100, 255, 100, 0.9); padding: 5px;"
-            )
-        else:
-            min_bpm = get_minimum_bpm(bars, max_seconds=20.0)
-
-            self.validation_label.setText(
-                f"⚠ {error_msg}\n" f"Minimum BPM for {bars} bars: {min_bpm}"
-            )
-            self.validation_label.setStyleSheet(
-                "color: rgba(255, 100, 100, 0.9); padding: 5px;"
-            )
-
-        # Update export button state
-        has_stems = (
-            self.player_widget is not None and self.player_widget.has_stems_loaded()
-        )
-        self.btn_export.setEnabled(has_stems and is_valid)
+        # Validation is now used only for export button state
+        # No UI label to update (removed with Tempo Card)
 
     def _update_preview(self):
-        """Update export preview"""
+        """
+        Update export preview.
+        
+        PURPOSE: Show preview of export based on settings from player widget
+        CONTEXT: BPM and bars come from Looping tab, not UI controls
+        """
         if not self.player_widget or not self.player_widget.has_stems_loaded():
             self.preview_label.setText("Load stems to see preview")
             return
 
-        bpm = self.bpm_spin.value()
-        bars = self._get_selected_bars()
+        bpm = self._get_bpm_from_player_widget()
+        bars = self._get_bars_from_player_widget()
         duration_seconds = self.player_widget.player.get_duration()
         num_stems = len(self.player_widget.stem_files)
 
         is_valid, _ = is_valid_for_sampler(bpm, bars, max_seconds=20.0)
 
         if not is_valid:
-            self.preview_label.setText("Configure valid settings above to see preview")
+            self.preview_label.setText("Configure valid settings in Looping tab to see preview")
             return
 
         from utils.loop_math import compute_chunk_duration_seconds
@@ -551,19 +514,22 @@ class ExportLoopsWidget(QWidget):
         channels_text = self.channels_combo.currentText()
 
         is_individual = self.mode_individual.isChecked()
+        loop_version = "stretched" if self.loop_version_checkbox.isChecked() else "original"
 
         if is_individual:
             total_files = num_chunks * num_stems
             preview = (
                 f"Will export {total_files} files ({num_stems} stems × {num_chunks} chunks):\n"
-                f"• ~{chunk_duration:.2f}s per chunk ({bars} bars)\n"
+                f"• ~{chunk_duration:.2f}s per chunk ({bars} bars at {bpm} BPM)\n"
+                f"• Loop version: {loop_version}\n"
                 f"• Format: {fmt}, {bit_depth_text}, {channels_text}\n"
                 f"• Sample rate: {sr_text}"
             )
         else:
             preview = (
                 f"Will export {num_chunks} chunk(s):\n"
-                f"• ~{chunk_duration:.2f}s per chunk ({bars} bars)\n"
+                f"• ~{chunk_duration:.2f}s per chunk ({bars} bars at {bpm} BPM)\n"
+                f"• Loop version: {loop_version}\n"
                 f"• Format: {fmt}, {bit_depth_text}, {channels_text}\n"
                 f"• Sample rate: {sr_text}"
             )
@@ -575,9 +541,18 @@ class ExportLoopsWidget(QWidget):
         self._update_export_button_state()
         self._update_validation()
         self._update_preview()
+        self._update_loop_version_checkbox_state()
 
     def get_settings(self) -> LoopExportSettings:
-        """Get loop export settings from widget"""
+        """
+        Get loop export settings from widget.
+        
+        PURPOSE: Collect all export settings including loop version
+        CONTEXT: Settings include BPM, bars, format options, and loop version (original/stretched)
+        
+        Returns:
+            LoopExportSettings with all export configuration
+        """
         sr_text = self.sample_rate_combo.currentText()
         sample_rate = int(sr_text.split()[0])
 
@@ -586,110 +561,20 @@ class ExportLoopsWidget(QWidget):
 
         channels = 2 if self.channels_combo.currentText() == "Stereo" else 1
         export_mode = "individual" if self.mode_individual.isChecked() else "mixed"
+        
+        # Determine loop version (original or stretched)
+        loop_version = "stretched" if self.loop_version_checkbox.isChecked() else "original"
 
         return LoopExportSettings(
-            bpm=self.bpm_spin.value(),
-            bars=self._get_selected_bars(),
+            bpm=self._get_bpm_from_player_widget(),
+            bars=self._get_bars_from_player_widget(),
             sample_rate=sample_rate,
             bit_depth=bit_depth,
             channels=channels,
             file_format=self.format_combo.currentText(),
             export_mode=export_mode,
+            loop_version=loop_version,
         )
-
-    @Slot()
-    def _on_detect_bpm(self):
-        """Handle BPM detection button click"""
-        if not self.player_widget:
-            return
-
-        try:
-            self.detect_bpm_btn.setEnabled(False)
-            self.bpm_progress.setVisible(True)
-            self.bpm_info_label.setText("🔄 Detecting BPM from audio...")
-
-            bpm_source_file, source_description = (
-                self.player_widget._get_audio_for_bpm_detection()
-            )
-
-            if "bpm_detect_" in str(bpm_source_file):
-                self.temp_bpm_file = bpm_source_file
-
-            logger = self.player_widget.ctx.logger()
-
-            worker = BPMDetectionWorker(bpm_source_file, source_description, logger)
-            worker.signals.finished.connect(self._on_bpm_detected)
-            worker.signals.error.connect(self._on_bpm_error)
-
-            self.thread_pool.start(worker)
-
-        except Exception as e:
-            self._on_bpm_error(str(e))
-
-    def _on_bpm_detected(
-        self,
-        detected_bpm: float,
-        message: str,
-        source_description: str,
-        confidence: float,
-    ):
-        """Handle successful BPM detection"""
-        self.detected_bpm = round(detected_bpm)
-        self.bpm_spin.setValue(self.detected_bpm)
-
-        if confidence > 0:
-            if confidence >= 0.9:
-                confidence_icon = "✓"
-                color_style = "color: rgba(100, 255, 100, 0.9);"
-            elif confidence >= 0.7:
-                confidence_icon = "⚠"
-                color_style = "color: rgba(255, 200, 100, 0.9);"
-            else:
-                confidence_icon = "⚠"
-                color_style = "color: rgba(255, 150, 100, 0.9);"
-
-            self.bpm_info_label.setText(
-                f"{confidence_icon} Detected: {self.detected_bpm} BPM ({confidence:.0%} confident)"
-            )
-            self.bpm_info_label.setStyleSheet(f"{color_style} font-size: 11pt;")
-        else:
-            self.bpm_info_label.setText(
-                f"✓ Detected: {self.detected_bpm} BPM (librosa)"
-            )
-            self.bpm_info_label.setStyleSheet(
-                "color: rgba(255, 255, 255, 0.7); font-size: 11pt;"
-            )
-
-        self.bpm_progress.setVisible(False)
-        self.detect_bpm_btn.setEnabled(True)
-
-        self._update_validation()
-        self._update_preview()
-        self._cleanup_temp_bpm_file()
-
-    def _on_bpm_error(self, error_message: str):
-        """Handle BPM detection error"""
-        self.bpm_info_label.setText(f"⚠ Detection failed: {error_message}")
-        self.bpm_progress.setVisible(False)
-        self.detect_bpm_btn.setEnabled(True)
-        self._cleanup_temp_bpm_file()
-
-        QMessageBox.warning(
-            self,
-            "BPM Detection Failed",
-            f"Could not detect BPM:\n{error_message}\n\nPlease enter BPM manually.",
-        )
-
-    def _cleanup_temp_bpm_file(self):
-        """Clean up temporary BPM detection file"""
-        if self.temp_bpm_file:
-            try:
-                if self.temp_bpm_file.exists():
-                    self.temp_bpm_file.unlink()
-            except Exception as e:
-                self.ctx.logger().warning(f"Failed to delete temp BPM file: {e}")
-            finally:
-                self.temp_bpm_file = None
 
     @Slot()
     def _on_export_clicked(self):
@@ -715,8 +600,20 @@ class ExportLoopsWidget(QWidget):
         self._execute_export(output_path, settings)
 
     def _execute_export(self, output_path: Path, settings: LoopExportSettings):
-        """Execute the loop export"""
+        """
+        Execute the loop export.
+        
+        PURPOSE: Export loops based on settings, including loop version (original/stretched)
+        CONTEXT: Uses loop_version from settings to determine export method
+        """
         try:
+            # Check if we should export stretched loops
+            if settings.loop_version == "stretched" and self._all_loops_ready():
+                # Export stretched loops from cache
+                self._export_stretched_loops(output_path, settings)
+                return
+
+            # Otherwise, use traditional export (original BPM)
             from core.sampler_export import export_sampler_loops, export_padded_intro
 
             player = self.player_widget.player
@@ -988,3 +885,317 @@ class ExportLoopsWidget(QWidget):
                 "Export Failed",
                 f"An error occurred during individual stem export:\n{str(e)}",
             )
+
+    def _all_loops_ready(self) -> bool:
+        """
+        Check if all stretched loops are ready in the cache.
+
+        Returns:
+            True if all loops for all stems are ready, False otherwise
+        """
+        stem_files = self._get_stem_files_dict()
+        loop_segments = self._get_loop_segments()
+
+        if not stem_files or not loop_segments:
+            return False
+
+        # Check each stem × loop combination
+        manager = self._get_stretch_manager()
+        if not manager:
+            return False
+        
+        target_bpm = self._get_target_bpm_from_player_widget()
+        for stem_name in stem_files.keys():
+            for loop_idx in range(len(loop_segments)):
+                if not manager.is_loop_ready(stem_name, loop_idx, target_bpm):
+                    return False
+
+        return True
+
+    def _export_stretched_loops(self, output_path: Path, settings: LoopExportSettings):
+        """
+        Export time-stretched loops from cache.
+
+        This bypasses the traditional chunking export and directly exports
+        the pre-stretched loops from the cache.
+        """
+        try:
+            manager = self._get_stretch_manager()
+            if not manager:
+                QMessageBox.warning(
+                    self,
+                    "Export Failed",
+                    "Stretch manager not available. Please enable time-stretching in the Looping tab first."
+                )
+                return
+            
+            common_filename = self.player_widget._get_common_filename()
+            stem_files = self._get_stem_files_dict()
+            loop_segments = self._get_loop_segments()
+            target_bpm = self._get_target_bpm_from_player_widget()
+
+            # Determine subtype based on bit depth
+            subtype_map = {16: "PCM_16", 24: "PCM_24", 32: "PCM_32"}
+            subtype = subtype_map.get(settings.bit_depth, "PCM_24")
+
+            # Create progress dialog
+            total_files = len(stem_files) * len(loop_segments)
+            if settings.export_mode == "mixed":
+                total_files = len(loop_segments)  # Only export mixed loops
+
+            progress = QProgressDialog(
+                "Exporting stretched loops...",
+                None,
+                0,
+                total_files,
+                self
+            )
+            progress.setWindowTitle("Exporting Stretched Loops")
+            progress.setWindowModality(Qt.WindowModal)
+            progress.setMinimumDuration(0)
+            progress.setValue(0)
+
+            exported_count = 0
+
+            if settings.export_mode == "mixed":
+                # Export mixed loops (all stems combined)
+                for loop_idx in range(len(loop_segments)):
+                    progress.setLabelText(f"Exporting mixed loop {loop_idx + 1}/{len(loop_segments)}...")
+                    progress.setValue(loop_idx)
+                    QApplication.processEvents()
+
+                    # Mix all stems for this loop
+                    mixed_audio = None
+                    for stem_name in stem_files.keys():
+                        # Get stretched loop from cache
+                        loop_audio = manager.get_stretched_loop(
+                            stem_name, loop_idx, target_bpm
+                        )
+
+                        if loop_audio is None:
+                            self.ctx.logger().warning(
+                                f"Loop {loop_idx} for {stem_name} not found in cache, skipping"
+                            )
+                            continue
+
+                        # Ensure stereo
+                        if loop_audio.ndim == 1:
+                            loop_audio = np.stack([loop_audio, loop_audio], axis=1)
+
+                        # Initialize or add to mix
+                        if mixed_audio is None:
+                            mixed_audio = loop_audio.astype(np.float32)
+                        else:
+                            mixed_audio += loop_audio.astype(np.float32)
+
+                    if mixed_audio is None:
+                        self.ctx.logger().warning(f"No audio for loop {loop_idx}, skipping")
+                        continue
+
+                    # Apply channels setting
+                    if settings.channels == 1 and mixed_audio.ndim == 2:
+                        # Convert to mono
+                        mixed_audio = np.mean(mixed_audio, axis=1)
+
+                    # Normalize to prevent clipping
+                    peak = np.max(np.abs(mixed_audio))
+                    if peak > 1.0:
+                        mixed_audio = mixed_audio * (0.95 / peak)
+
+                    # Generate filename
+                    filename = f"{common_filename}_{target_bpm}BPM_{settings.bars}T_{loop_idx + 1:03d}.{settings.file_format.lower()}"
+                    file_path = output_path / filename
+
+                    # Export
+                    sf.write(
+                        str(file_path),
+                        mixed_audio,
+                        settings.sample_rate,
+                        subtype=subtype,
+                        format=settings.file_format
+                    )
+
+                    exported_count += 1
+                    self.ctx.logger().info(f"Exported mixed loop {loop_idx + 1}: {filename}")
+
+            else:
+                # Export individual stems
+                file_idx = 0
+                for stem_name in stem_files.keys():
+                    for loop_idx in range(len(loop_segments)):
+                        progress.setLabelText(
+                            f"Exporting {stem_name} loop {loop_idx + 1}/{len(loop_segments)}..."
+                        )
+                        progress.setValue(file_idx)
+                        QApplication.processEvents()
+                        file_idx += 1
+
+                        # Get stretched loop from cache
+                        loop_audio = manager.get_stretched_loop(
+                            stem_name, loop_idx, target_bpm
+                        )
+
+                        if loop_audio is None:
+                            self.ctx.logger().warning(
+                                f"Loop {loop_idx} for {stem_name} not found in cache, skipping"
+                            )
+                            continue
+
+                        # Ensure stereo
+                        if loop_audio.ndim == 1:
+                            loop_audio = np.stack([loop_audio, loop_audio], axis=1)
+
+                        # Apply channels setting
+                        if settings.channels == 1 and loop_audio.ndim == 2:
+                            # Convert to mono
+                            loop_audio = np.mean(loop_audio, axis=1)
+
+                        # Generate filename
+                        filename = f"{common_filename}_{stem_name}_{target_bpm}BPM_{settings.bars}T_{loop_idx + 1:03d}.{settings.file_format.lower()}"
+                        file_path = output_path / filename
+
+                        # Export
+                        sf.write(
+                            str(file_path),
+                            loop_audio,
+                            settings.sample_rate,
+                            subtype=subtype,
+                            format=settings.file_format
+                        )
+
+                        exported_count += 1
+                        self.ctx.logger().info(f"Exported {stem_name} loop {loop_idx + 1}: {filename}")
+
+            progress.setValue(total_files)
+            progress.close()
+
+            if exported_count > 0:
+                mode_text = "mixed" if settings.export_mode == "mixed" else "individual"
+                QMessageBox.information(
+                    self,
+                    "Export Successful",
+                    f"Exported {exported_count} stretched loop file(s) ({mode_text} mode) to:\n{output_path}\n\n"
+                    f"Target BPM: {target_bpm} (stretched from {settings.bpm} BPM)"
+                )
+                self.export_completed.emit(f"Exported {exported_count} stretched loops")
+            else:
+                QMessageBox.warning(
+                    self,
+                    "Export Failed",
+                    "No loops were exported. Check the log for details."
+                )
+
+        except Exception as e:
+            self.ctx.logger().error(f"Stretched loop export error: {e}", exc_info=True)
+            QMessageBox.critical(
+                self,
+                "Export Failed",
+                f"An error occurred during stretched loop export:\n{str(e)}",
+            )
+
+    # ========================================================================
+    # Time-Stretching Signal Handlers
+    # ========================================================================
+
+    def _get_loop_segments(self):
+        """Get loop segments from player widget or BPM detection"""
+        # Try to get actual loop segments from player widget (Loop Preview)
+        if self.player_widget and hasattr(self.player_widget, 'detected_downbeat_times'):
+            downbeats = self.player_widget.detected_downbeat_times
+            bars_per_loop = getattr(self.player_widget, '_bars_per_loop', 4)
+
+            if downbeats is not None and len(downbeats) > 0:
+                # Calculate loop segments from detected downbeats
+                segments = []
+                num_downbeats_per_loop = bars_per_loop  # 1 downbeat per bar
+
+                # Create loops from consecutive downbeats
+                for i in range(0, len(downbeats) - num_downbeats_per_loop, num_downbeats_per_loop):
+                    start = downbeats[i]
+                    end = downbeats[i + num_downbeats_per_loop]
+                    segments.append((start, end))
+
+                if segments:
+                    self.ctx.logger().debug(
+                        f"Using {len(segments)} detected loops from Loop Preview "
+                        f"({bars_per_loop} bars each)"
+                    )
+                    return segments
+
+        # Fallback: Create dummy loops based on BPM, but limit to audio duration
+        bars = self._get_bars_from_player_widget()
+        bpm = self._get_bpm_from_player_widget()
+
+        # Calculate loop duration in seconds
+        loop_duration = (bars * 4 * 60.0) / bpm
+
+        # Get audio duration from player widget
+        audio_duration = 0.0
+        if self.player_widget and hasattr(self.player_widget, 'player'):
+            audio_duration = self.player_widget.player.get_duration()
+
+        if audio_duration <= 0:
+            # No audio loaded, create default 8 loops
+            audio_duration = loop_duration * 8
+
+        # Calculate how many loops fit in the audio
+        num_loops = max(1, int(audio_duration / loop_duration))
+
+        segments = []
+        for i in range(num_loops):
+            start = i * loop_duration
+            end = min((i + 1) * loop_duration, audio_duration)
+            segments.append((start, end))
+
+        self.ctx.logger().debug(
+            f"Created {len(segments)} dummy loops (duration={audio_duration:.2f}s, "
+            f"loop_duration={loop_duration:.2f}s)"
+        )
+
+        return segments
+
+    def _get_stem_files_dict(self):
+        """Get stem files as a dictionary {stem_name: Path}"""
+        if not self.player_widget or not hasattr(self.player_widget, 'stem_files'):
+            return {}
+
+        stem_files = {}
+        for stem_name, stem_path in self.player_widget.stem_files.items():
+            if stem_path and Path(stem_path).exists():
+                stem_files[stem_name] = Path(stem_path)
+
+        return stem_files
+
+    @Slot(int, int)
+    def _on_stretch_progress_updated(self, completed: int, total: int):
+        """
+        Handle progress update from background stretch manager.
+        
+        PURPOSE: Update loop version checkbox state as stretching progresses
+        CONTEXT: Progress updates come from player widget's stretch manager
+        """
+        # Update checkbox state as progress updates
+        self._update_loop_version_checkbox_state()
+
+    @Slot()
+    def _on_stretch_all_completed(self):
+        """
+        Handle completion of all background stretching tasks.
+        
+        PURPOSE: Update loop version checkbox state when all loops are ready
+        CONTEXT: Called when player widget's stretch manager completes all tasks
+        """
+        self.ctx.logger().info("Background stretching completed")
+        # Update loop version checkbox state now that loops are ready
+        self._update_loop_version_checkbox_state()
+
+    @Slot(str, int, float)
+    def _on_stretch_task_completed(self, stem_name: str, loop_index: int, target_bpm: float):
+        """
+        Handle completion of a single stretch task.
+        
+        PURPOSE: Update loop version checkbox state as individual tasks complete
+        CONTEXT: Called when player widget's stretch manager completes a task
+        """
+        # Update checkbox state as tasks complete
+        self._update_loop_version_checkbox_state()

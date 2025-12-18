@@ -17,6 +17,7 @@ librosa>=0.10.0
 pydub>=0.25.1
 resampy>=0.4.2
 scipy>=1.11.0  # For signal resampling in ensemble mode
+pyrubberband>=0.3.0  # Pitch-preserving time-stretching for loop export
 
 # Enhanced BPM Detection (Optional - provides 95%+ accuracy vs librosa's ~75-85%)
 # Automatically uses CUDA/MPS if available, falls back to CPU
