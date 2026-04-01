@@ -76,20 +76,39 @@ Which phases cover which requirements — filled when roadmap is created.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| WIN-01 — WIN-04 | TBD | Pending |
-| PKG-01 — PKG-05 | TBD | Pending |
-| INF-01 — INF-05 | TBD | Pending |
-| PLY-01 — PLY-02 | TBD | Pending |
-| REC-01 — REC-04 | TBD | Pending |
-| SRV-01 — SRV-02 | TBD | Pending |
-| QA-01 — QA-04 | TBD | Pending |
+| WIN-01 | Phase 1 | Pending |
+| WIN-02 | Phase 1 | Pending |
+| WIN-03 | Phase 1 | Pending |
+| WIN-04 | Phase 1 | Pending |
+| PKG-01 | Phase 2 | Pending |
+| PKG-02 | Phase 2 | Pending |
+| PKG-03 | Phase 2 | Pending |
+| PKG-04 | Phase 2 | Pending |
+| PKG-05 | Phase 2 | Pending |
+| INF-01 | Phase 3 | Pending |
+| INF-02 | Phase 3 | Pending |
+| INF-03 | Phase 3 | Pending |
+| INF-04 | Phase 3 | Pending |
+| INF-05 | Phase 3 | Pending |
+| PLY-01 | Phase 4 | Pending |
+| PLY-02 | Phase 4 | Pending |
+| REC-01 | Phase 5 | Pending |
+| REC-02 | Phase 5 | Pending |
+| REC-03 | Phase 5 | Pending |
+| REC-04 | Phase 5 | Pending |
+| SRV-01 | Phase 6 | Pending |
+| SRV-02 | Phase 6 | Pending |
+| QA-01 | Phase 6 | Pending |
+| QA-02 | Phase 6 | Pending |
+| QA-03 | Phase 6 | Pending |
+| QA-04 | Phase 6 | Pending |
 
 **Coverage:**
 
-- v1 requirements: **24** total  
-- Mapped to phases: **pending roadmap**  
-- Unmapped: **24** until roadmap step completes
+- v1 requirements: **26** total  
+- Mapped to phases: **26** / **26**  
+- Unmapped: **0**
 
 ---
 *Requirements defined: 2026-04-01*  
-*Last updated: 2026-04-01 after research synthesis*
+*Last updated: 2026-04-01 after roadmap traceability (26 v1 requirements → Phases 1–6)*
