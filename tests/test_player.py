@@ -433,3 +433,33 @@ class TestAudioPlayer:
 
         assert player1 is player2
         assert isinstance(player1, AudioPlayer)
+
+    def test_start_playback_returns_false_when_all_devices_fail(self, test_audio_files):
+        """Playback start should fail cleanly if all device attempts fail."""
+        player = AudioPlayer()
+        player.load_stems(test_audio_files)
+
+        mock_sd = Mock()
+        mock_sd.default.device = [0, 1]
+        mock_sd.play.side_effect = RuntimeError("device unavailable")
+        mock_sd.query_devices.return_value = []
+        player._sounddevice_module = mock_sd
+
+        ok = player._start_playback_from_position()
+        assert ok is False
+
+    def test_start_playback_uses_fallback_device_on_failure(self, test_audio_files):
+        """Playback should retry with fallback device when default output fails."""
+        player = AudioPlayer()
+        player.load_stems(test_audio_files)
+
+        mock_sd = Mock()
+        mock_sd.default.device = [0, 1]
+        # First call (device=1) fails, second call (device=None) succeeds
+        mock_sd.play.side_effect = [RuntimeError("bad default"), None]
+        mock_sd.query_devices.return_value = []
+        player._sounddevice_module = mock_sd
+
+        ok = player._start_playback_from_position()
+        assert ok is True
+        assert mock_sd.play.call_count == 2
