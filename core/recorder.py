@@ -7,6 +7,7 @@ from typing import Optional, Callable, List
 from dataclasses import dataclass
 from enum import Enum
 import time
+import sys
 import numpy as np
 import soundfile as sf
 import threading
@@ -173,7 +174,16 @@ class Recorder:
             return []
 
         try:
-            microphones = self._soundcard.all_microphones()
+            include_loopback = sys.platform == "win32"
+            try:
+                # WHY: On Windows, WASAPI loopback endpoints are exposed as microphones
+                # when include_loopback=True. This enables "what you hear" recording.
+                microphones = self._soundcard.all_microphones(
+                    include_loopback=include_loopback
+                )
+            except TypeError:
+                # Backward compatibility with older soundcard versions
+                microphones = self._soundcard.all_microphones()
 
             devices = []
 
@@ -195,6 +205,9 @@ class Recorder:
             BlackHole Device oder None
         """
         if not self._soundcard:
+            return None
+        if sys.platform != "darwin":
+            # BlackHole is macOS-only. Keep legacy behavior untouched on macOS.
             return None
 
         try:

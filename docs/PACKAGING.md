@@ -1,6 +1,6 @@
 # StemSeparator - Packaging Guide
 
-Complete guide to creating standalone macOS application bundles for StemSeparator.
+Complete guide to creating standalone application bundles for StemSeparator on macOS and Windows.
 
 ## Quick Start
 
@@ -15,6 +15,7 @@ python packaging/download_models.py
 ./packaging/build_intel.sh      # Intel Macs
 ./packaging/build_arm64.sh       # Apple Silicon (M1/M2/M3)
 ./packaging/build_all.sh         # Both architectures
+./packaging/build_windows.sh     # Windows 11 onedir
 
 # 4. Test the application
 open dist/StemSeparator-*.app
@@ -22,6 +23,16 @@ open dist/StemSeparator-*.app
 # 5. Distribute the DMG
 # dist/StemSeparator-intel.dmg or dist/StemSeparator-arm64.dmg
 ```
+
+## Platform Safety Guarantee (macOS stability)
+
+Windows packaging and runtime support are implemented in separate files/branches:
+
+- `packaging/StemSeparator-windows.spec`
+- `packaging/build_windows.sh`
+- Windows-only runtime paths guarded by `sys.platform == "win32"`
+
+This keeps the existing macOS packaging flow untouched, so reverting to the last known-good macOS build remains straightforward.
 
 ## What Gets Bundled
 
@@ -177,6 +188,7 @@ Two spec files define the build configuration:
 
 - `packaging/StemSeparator-intel.spec` - Intel (x86_64)
 - `packaging/StemSeparator-arm64.spec` - Apple Silicon (arm64)
+- `packaging/StemSeparator-windows.spec` - Windows onedir build
 
 **Key differences:**
 - `target_arch`: `x86_64` vs `arm64`

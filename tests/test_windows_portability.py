@@ -26,3 +26,16 @@ def test_main_imports_without_platform_specific_lock_crash():
     module = importlib.import_module("main")
     assert hasattr(module, "acquire_lock")
     assert callable(module.acquire_lock)
+
+
+def test_macos_user_dir_unchanged_when_frozen(monkeypatch):
+    import config
+
+    monkeypatch.setattr(config.sys, "platform", "darwin")
+    monkeypatch.setattr(config.sys, "frozen", True, raising=False)
+    monkeypatch.delenv("LOCALAPPDATA", raising=False)
+    monkeypatch.delenv("APPDATA", raising=False)
+
+    user_dir = config.get_user_dir()
+    expected = Path.home() / "Library" / "Application Support" / "StemSeparator"
+    assert user_dir == expected

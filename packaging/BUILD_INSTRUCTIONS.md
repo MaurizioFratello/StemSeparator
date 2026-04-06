@@ -1,6 +1,7 @@
 # Build Instructions for StemSeparator macOS Application
 
-This guide will walk you through building a standalone macOS application bundle.
+This guide will walk you through building standalone desktop application bundles
+for macOS and Windows.
 
 ## Prerequisites
 
@@ -98,6 +99,16 @@ If you want to create both builds (requires appropriate hardware or cross-compil
 ```bash
 ./packaging/build_all.sh
 ```
+
+### Build for Windows (onedir)
+
+From a Windows machine (PowerShell/Git Bash):
+
+```bash
+./packaging/build_windows.sh
+```
+
+**Output:** `dist/StemSeparator/` (onedir folder with `StemSeparator.exe`)
 
 ## Build Process Details
 
