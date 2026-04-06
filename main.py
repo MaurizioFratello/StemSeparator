@@ -7,11 +7,20 @@ KI-gestützte Audio Stem Separation mit modernsten Open-Source-Modellen
 """
 import sys
 import os
-import fcntl
 import atexit
 import json
 from pathlib import Path
 from typing import Optional, Callable
+
+try:
+    import fcntl
+except ImportError:  # pragma: no cover - only on Windows
+    fcntl = None
+
+try:
+    import msvcrt
+except ImportError:  # pragma: no cover - only on non-Windows
+    msvcrt = None
 
 # Füge Projekt-Root zum Python Path hinzu
 sys.path.insert(0, str(Path(__file__).parent))
@@ -56,8 +65,16 @@ def acquire_lock():
         # Try to open lock file in exclusive mode
         _lock_file_handle = open(LOCK_FILE, "w")
 
-        # Try to acquire exclusive lock (non-blocking)
-        fcntl.flock(_lock_file_handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        # Try to acquire exclusive lock (non-blocking) with OS-specific backend
+        if fcntl is not None:
+            fcntl.flock(_lock_file_handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        elif msvcrt is not None:
+            msvcrt.locking(_lock_file_handle.fileno(), msvcrt.LK_NBLCK, 1)
+        else:
+            logger.error("No file-lock backend available on this platform")
+            _lock_file_handle.close()
+            _lock_file_handle = None
+            return False
 
         # Write PID to lock file
         _lock_file_handle.write(str(os.getpid()) + "\n")
@@ -85,7 +102,11 @@ def release_lock():
 
     if _lock_file_handle:
         try:
-            fcntl.flock(_lock_file_handle.fileno(), fcntl.LOCK_UN)
+            if fcntl is not None:
+                fcntl.flock(_lock_file_handle.fileno(), fcntl.LOCK_UN)
+            elif msvcrt is not None:
+                _lock_file_handle.seek(0)
+                msvcrt.locking(_lock_file_handle.fileno(), msvcrt.LK_UNLCK, 1)
             _lock_file_handle.close()
             _lock_file_handle = None
 

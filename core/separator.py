@@ -508,6 +508,10 @@ class Separator:
             env["KMP_DUPLICATE_LIB_OK"] = "TRUE"
             # Ensure ffmpeg is discoverable when launched from bundled app (PATH is often minimal)
             extra_paths = [
+                os.path.join(os.environ.get("ProgramFiles", r"C:\Program Files"), "ffmpeg", "bin"),
+                os.path.join(os.environ.get("ProgramFiles", r"C:\Program Files"), "FFmpeg", "bin"),
+                os.path.join(os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)"), "ffmpeg", "bin"),
+                os.path.join(os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)"), "FFmpeg", "bin"),
                 "/opt/homebrew/bin",  # Homebrew on Apple Silicon
                 "/usr/local/bin",  # Homebrew on Intel/macOS
                 "/usr/bin",
@@ -546,6 +550,9 @@ class Separator:
                 subprocess_kwargs["start_new_session"] = True
                 # Set LSUIElement to hide from Dock (background app)
                 env["LSUIElement"] = "1"
+            elif sys.platform == "win32":
+                # Prevent worker console windows from flashing during separation.
+                subprocess_kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
 
             # CRITICAL FIX for packaged app: Set working directory to output_dir
             # WHY: In packaged apps, subprocess runs from inside bundle (sys._MEIPASS)

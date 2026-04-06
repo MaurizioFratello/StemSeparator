@@ -237,6 +237,7 @@ class RecordingWidget(QWidget):
             self.device_combo.addItem("System Audio", userData="__screencapture__")
 
         devices = self.recorder.get_available_devices()
+        is_windows = self.ctx.platform.system().lower() == "windows"
 
         if not devices and not screencapture_available:
             self.device_combo.addItem("No devices found", userData=None)
@@ -248,15 +249,34 @@ class RecordingWidget(QWidget):
             self.device_combo.addItem(device, userData=device)
 
         # Auto-select best default option:
-        # 1. ScreenCaptureKit if available (best option for system audio)
-        # 2. BlackHole if available (traditional system audio)
-        # 3. First device otherwise
+        # 1. ScreenCaptureKit if available (best option for system audio on macOS)
+        # 2. WASAPI loopback-like endpoint on Windows
+        # 3. BlackHole on macOS where available
+        # 4. First device otherwise
         if screencapture_available:
             self.device_combo.setCurrentIndex(0)  # ScreenCaptureKit
             self.ctx.logger().info(
                 "Auto-selected ScreenCaptureKit for system audio recording"
             )
         else:
+            if is_windows:
+                for i in range(self.device_combo.count()):
+                    name = self.device_combo.itemText(i).lower()
+                    if any(
+                        token in name
+                        for token in [
+                            "loopback",
+                            "stereo mix",
+                            "what u hear",
+                            "wasapi",
+                            "wave out",
+                        ]
+                    ):
+                        self.device_combo.setCurrentIndex(i)
+                        self.ctx.logger().info(
+                            "Auto-selected Windows loopback-like recording endpoint"
+                        )
+                        break
             # Try to select BlackHole
             blackhole_device = self.recorder.find_blackhole_device()
             if blackhole_device:
@@ -378,6 +398,7 @@ class RecordingWidget(QWidget):
             else:
                 self.ctx.logger().info(f"Recording started with device: {device_name}")
         else:
+            is_windows = self.ctx.platform.system().lower() == "windows"
             error_msg = (
                 "Failed to start recording.\n\n"
                 "If using ScreenCaptureKit:\n"
@@ -386,6 +407,14 @@ class RecordingWidget(QWidget):
                 "If using BlackHole:\n"
                 "• Check that BlackHole is configured correctly"
             )
+            if is_windows:
+                error_msg = (
+                    "Failed to start recording.\n\n"
+                    "Windows tips:\n"
+                    "• Select a loopback-capable endpoint (WASAPI/Loopback/Stereo Mix)\n"
+                    "• Check Windows microphone privacy settings\n"
+                    "• Verify the selected input device is enabled"
+                )
             QMessageBox.critical(self, "Recording Failed", error_msg)
 
     @Slot()

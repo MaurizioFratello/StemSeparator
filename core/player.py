@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from enum import Enum
 import threading
 import time
+import sys
 import numpy as np
 import soundfile as sf
 from concurrent.futures import ThreadPoolExecutor
@@ -447,7 +448,8 @@ class AudioPlayer:
 
         try:
             # Start playback from current position (using sounddevice)
-            self._start_playback_from_position()
+            if not self._start_playback_from_position():
+                raise RuntimeError("Failed to start playback on any output device")
 
             self.state = PlaybackState.PLAYING
 
@@ -485,7 +487,7 @@ class AudioPlayer:
     def _start_playback_from_position(self):
         """Start playback from current position (internal helper) using sounddevice"""
         if self._sounddevice_module is None:
-            return
+            return False
 
         # Clear previous actions
         self._active_actions.clear()
@@ -504,7 +506,7 @@ class AudioPlayer:
 
         if mixed_audio.shape[1] == 0:
             self.logger.warning("No audio to play (empty buffer)")
-            return
+            return False
 
         # Transpose to (samples, channels) for sounddevice
         chunk_for_playback = mixed_audio.T.astype(np.float32)
@@ -515,27 +517,47 @@ class AudioPlayer:
             f"peak level: {np.max(np.abs(chunk_for_playback)):.3f}"
         )
 
-        # Use sounddevice.play() for simple playback (non-blocking)
-        try:
-            sd = self._sounddevice_module
+        # Use sounddevice.play() with fallback candidates.
+        # WHY: output devices on Windows can change dynamically (USB/Bluetooth/WASAPI),
+        # so retrying with fallback endpoints avoids false "playing" state on failure.
+        sd = self._sounddevice_module
+        default_output = getattr(sd.default, "device", [None, None])[1]
+        device_candidates = [default_output, None]
 
-            # Get default output device
-            default_device = sd.default.device[1]
+        if sys.platform == "win32":
+            try:
+                for idx, dev in enumerate(sd.query_devices()):
+                    if dev.get("max_output_channels", 0) > 0:
+                        device_candidates.append(idx)
+            except Exception:
+                pass
 
-            # Play audio using sounddevice (simpler than rtmixer for pre-loaded audio)
-            sd.play(
-                chunk_for_playback,
-                samplerate=self.sample_rate,
-                device=default_device,
-                blocking=False,  # Non-blocking to allow UI updates
-            )
+        attempted = set()
+        for device_candidate in device_candidates:
+            if device_candidate in attempted:
+                continue
+            attempted.add(device_candidate)
+            try:
+                sd.play(
+                    chunk_for_playback,
+                    samplerate=self.sample_rate,
+                    device=device_candidate,
+                    blocking=False,
+                )
+                self.logger.info(
+                    f"Started playback with sounddevice.play() on device={device_candidate}"
+                )
+                return True
+            except Exception as e:
+                self.logger.warning(
+                    f"Playback attempt failed on device={device_candidate}: {e}"
+                )
 
-            self.logger.info(
-                f"Started playback with sounddevice.play() on device #{default_device}"
-            )
-
-        except Exception as e:
-            self.logger.error(f"Failed to play via sounddevice: {e}", exc_info=True)
+        self.logger.error(
+            "Failed to start playback on all candidate devices. "
+            "Device or sample-rate may have changed."
+        )
+        return False
 
     def _position_update_loop(self):
         """Thread loop for updating position (runs separately from audio)"""
@@ -802,7 +824,7 @@ class AudioPlayer:
     def _play_cached_loop(self):
         """Play cached loop audio without re-mixing (for fast loop repeat)"""
         if self._loop_cached_audio is None or self._sounddevice_module is None:
-            return
+            return False
 
         try:
             sd = self._sounddevice_module
@@ -816,9 +838,11 @@ class AudioPlayer:
             )
 
             self.logger.debug("Restarted cached loop playback")
+            return True
 
         except Exception as e:
             self.logger.error(f"Failed to play cached loop: {e}", exc_info=True)
+            return False
 
     def set_loop_mode(
         self, enabled: bool, start_sec: float = 0.0, end_sec: Optional[float] = None
