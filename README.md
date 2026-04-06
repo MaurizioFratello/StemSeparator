@@ -6,7 +6,7 @@
 
 [![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)](https://github.com/MaurizioFratello/StemSeparator)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
-[![Platform](https://img.shields.io/badge/platform-macOS-lightgrey.svg)](https://www.apple.com/macos/)
+[![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Windows-lightgrey.svg)](https://www.microsoft.com/windows)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
 [Features](#-features) • [Installation](#-installation) • [Usage](#-usage) • [Documentation](#-documentation) • [Support](#-support)
@@ -17,7 +17,7 @@
 
 ## 🎯 Overview
 
-Stem Separator is a professional macOS application for AI-powered separation of audio stems (vocals, drums, bass, etc.) from music files. The application uses state-of-the-art deep learning models and provides an intuitive graphical user interface.
+Stem Separator is a desktop application for AI-powered separation of audio stems (vocals, drums, bass, etc.) from music files. The application uses state-of-the-art deep learning models and provides an intuitive graphical user interface.
 
 ### ✨ Highlights
 

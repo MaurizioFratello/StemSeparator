@@ -29,11 +29,13 @@ def get_user_dir():
     In bundled app, we can't write to the app bundle, so use user's home directory.
     """
     if getattr(sys, "frozen", False):
-        # Running in PyInstaller bundle - use user's Application Support
+        # Running in PyInstaller bundle - use user-writable app data locations
         if sys.platform == "darwin":  # macOS
             user_dir = Path.home() / "Library" / "Application Support" / "StemSeparator"
         elif sys.platform == "win32":  # Windows
-            user_dir = Path(os.environ.get("APPDATA", Path.home())) / "StemSeparator"
+            # Prefer LOCALAPPDATA for caches/logs/models in Windows packaged apps.
+            local_app_data = os.environ.get("LOCALAPPDATA") or os.environ.get("APPDATA")
+            user_dir = Path(local_app_data or Path.home()) / "StemSeparator"
         else:  # Linux
             user_dir = Path.home() / ".stemseparator"
 
@@ -90,7 +92,8 @@ USER_DIR = get_user_dir()
 
 # Resources (read-only, bundled with app)
 RESOURCES_DIR = BASE_DIR / "resources"
-MODELS_DIR = RESOURCES_DIR / "models"
+# Models must be writable for first-run downloads (especially in frozen apps)
+MODELS_DIR = USER_DIR / "models"
 TRANSLATIONS_DIR = RESOURCES_DIR / "translations"
 ICONS_DIR = RESOURCES_DIR / "icons"
 
