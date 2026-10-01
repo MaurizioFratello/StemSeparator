@@ -5,7 +5,7 @@
 ## Languages
 
 **Primary:**
-- Python 3.10+ — Entire application (`main.py`, `core/`, `ui/`, `utils/`, `tests/`). CI validates 3.10, 3.11, 3.12 per `.github/workflows/tests.yml`.
+- Python 3.10+ — Entire application (`main.py`, `core/`, `ui/`, `utils/`, `tests/`). CI validates 3.11 and 3.12 on `ubuntu-latest`, `macos-latest` and `windows-latest` (CPU-only torch wheels) per `.github/workflows/tests.yml`.
 
 **Secondary:**
 - Shell — Build scripts under `packaging/` (e.g. `packaging/build_arm64.sh`, `packaging/build_intel.sh`).
@@ -70,7 +70,7 @@
 ## Platform Requirements
 
 **Development:**
-- README targets macOS for the product; tests run on `macos-latest` in CI. Linux/WSL may run tests but full feature parity (ScreenCaptureKit, BlackHole, DMG) is macOS-centric.
+- README targets macOS for the product; CI (`ubuntu-latest`, `macos-latest`, `windows-latest` × Python 3.11/3.12) runs the CPU-only test suite on all three platforms — Linux under `xvfb-run` with `libportaudio2`, Windows with `QT_QPA_PLATFORM=offscreen`, macOS against the runner's window server (no `xvfb-run`; that binary does not exist on macOS runners). The macOS suites (`test_blackhole*`, `test_macos_*`) are collected on the macOS jobs only; `test_screencapture*` are `sys.exit()` diagnostic scripts excluded on every OS; the CUDA/GPU paths are validated manually on real hardware, never in CI.
 
 **Production:**
 - Packaged macOS `.app` / `.dmg` per `packaging/README.md` and `docs/PACKAGING.md` (referenced from README). FFmpeg bundled into the app bundle for separation pipelines (`main.py`, `core/separator.py` PATH handling).

@@ -25,11 +25,16 @@ pytest -m unit                      # Only tests marked @pytest.mark.unit
 pytest --no-cov                     # Disable coverage (faster local runs)
 ```
 
-CI (`.github/workflows/tests.yml`) runs:
+CI (`.github/workflows/tests.yml`) runs a `ubuntu-latest` / `macos-latest` / `windows-latest` × Python 3.11/3.12 matrix with CPU-only torch (`pip install --index-url https://download.pytorch.org/whl/cpu torch==2.9.0 torchaudio==2.9.0` before `-r requirements.txt`), `CUDA_VISIBLE_DEVICES=''`, and per OS+python pip caching. Per-platform pytest commands:
 ```bash
-pytest --cov --cov-report=xml --cov-report=term
+# ubuntu-latest (after apt-get install libportaudio2 xvfb)
+xvfb-run -a python -m pytest --ignore-glob='tests/test_screencapture*.py' --ignore-glob='tests/test_blackhole*.py' --ignore-glob='tests/test_macos_*.py' --cov-report=xml
+# macos-latest (real window server; no xvfb; runs the blackhole/macos suites; test_screencapture* excluded everywhere — sys.exit() diagnostics, not pytest)
+python -m pytest --ignore-glob='tests/test_screencapture*.py' --cov-report=xml
+# windows-latest (QT_QPA_PLATFORM=offscreen; same --ignore-glob set as Linux)
+python -m pytest --ignore-glob='tests/test_screencapture*.py' --ignore-glob='tests/test_blackhole*.py' --ignore-glob='tests/test_macos_*.py' --cov-report=xml
 ```
-Codecov uploads `coverage.xml`.
+Codecov uploads `coverage.xml`. GPU/CUDA behaviour is validated manually on real hardware, never in CI.
 
 ## Test File Organization
 

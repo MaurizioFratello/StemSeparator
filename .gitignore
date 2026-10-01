@@ -93,6 +93,20 @@ packaging/beatnet_service/build/
 .stemseparator.lock
 *.lock
 
+# Vendored third-party binaries (fetched at build time; see docs/PACKAGING.md).
+# WHY ignored: ~150 MB of ffmpeg/PortAudio binaries do not belong in git;
+# the specs reference this layout and a fetch step recreates it.
+packaging/vendor/linux/
+packaging/vendor/windows/
+packaging/vendor/bin/
+!packaging/vendor/README*
+
+# Throwaway verification scaffolding for the Linux/Windows port (not tests).
+.port_checkpoints/
+
+# Model cache that landed in the tree during development
+resources/models/
+
 # Experimental/unfinished features
 potential_features/
 

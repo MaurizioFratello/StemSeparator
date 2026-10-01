@@ -6,6 +6,15 @@ import os
 import sys
 from pathlib import Path
 
+from utils.platform_utils import (
+    bundle_dir,
+    is_frozen,
+    is_macos,
+    music_dir,
+    user_cache_dir,
+    user_data_dir,
+)
+
 
 def get_base_dir():
     """
@@ -14,9 +23,10 @@ def get_base_dir():
     When running from PyInstaller bundle, resources are in sys._MEIPASS.
     When running from source, resources are relative to this file.
     """
-    if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
+    meipass = bundle_dir()
+    if meipass:
         # Running in PyInstaller bundle
-        return Path(sys._MEIPASS)
+        return meipass
     else:
         # Running in normal Python environment
         return Path(__file__).parent
@@ -28,15 +38,11 @@ def get_user_dir():
 
     In bundled app, we can't write to the app bundle, so use user's home directory.
     """
-    if getattr(sys, "frozen", False):
-        # Running in PyInstaller bundle - use user's Application Support
-        if sys.platform == "darwin":  # macOS
-            user_dir = Path.home() / "Library" / "Application Support" / "StemSeparator"
-        elif sys.platform == "win32":  # Windows
-            user_dir = Path(os.environ.get("APPDATA", Path.home())) / "StemSeparator"
-        else:  # Linux
-            user_dir = Path.home() / ".stemseparator"
-
+    if is_frozen():
+        # Running in PyInstaller bundle - the bundle itself is read-only on
+        # Windows (Program Files) and transient for onefile builds, so all
+        # writable state goes to the OS-conventional per-user location.
+        user_dir = user_data_dir()
         user_dir.mkdir(parents=True, exist_ok=True)
         return user_dir
     else:
@@ -59,25 +65,10 @@ def get_default_output_dir(subdirectory: str = "separated") -> Path:
         Path to default output directory (e.g., ~/Music/StemSeparator/separated)
         Directory is created if it doesn't exist.
     """
-    if sys.platform == "darwin":  # macOS
-        # Use Music folder for audio files (macOS convention)
-        music_folder = Path.home() / "Music"
-        if music_folder.exists():
-            output_dir = music_folder / "StemSeparator" / subdirectory
-        else:
-            # Fallback to Documents if Music doesn't exist
-            output_dir = Path.home() / "Documents" / "StemSeparator" / subdirectory
-    elif sys.platform == "win32":  # Windows
-        # Use Music folder on Windows
-        music_folder = Path.home() / "Music"
-        if music_folder.exists():
-            output_dir = music_folder / "StemSeparator" / subdirectory
-        else:
-            # Fallback to Documents
-            output_dir = Path.home() / "Documents" / "StemSeparator" / subdirectory
-    else:  # Linux and others
-        # Use Documents as fallback
-        output_dir = Path.home() / "Documents" / "StemSeparator" / subdirectory
+    # Audio products belong in the user's Music folder on all three OSes;
+    # music_dir() already applies the platform convention and falls back to
+    # Documents when no Music folder exists (minimal installs).
+    output_dir = music_dir() / "StemSeparator" / subdirectory
 
     # Create directory structure if it doesn't exist
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -90,17 +81,32 @@ USER_DIR = get_user_dir()
 
 # Resources (read-only, bundled with app)
 RESOURCES_DIR = BASE_DIR / "resources"
-MODELS_DIR = RESOURCES_DIR / "models"
 TRANSLATIONS_DIR = RESOURCES_DIR / "translations"
 ICONS_DIR = RESOURCES_DIR / "icons"
+
+# Model weights.
+# WHY: MODELS_DIR must be writable — in a frozen build the bundle lives in
+#      `Program Files` (Windows) or `_MEIPASS` (read-only / onefile), so
+#      downloads target the per-user cache instead. Weights shipped inside the
+#      bundle under `resources/models` (the existing macOS recipe) remain
+#      discoverable via MODEL_SEARCH_PATHS and are never re-downloaded.
+BUNDLED_MODELS_DIR = RESOURCES_DIR / "models"
+MODELS_DIR = user_cache_dir() / "models" if is_frozen() else BUNDLED_MODELS_DIR
+MODEL_SEARCH_PATHS = list(dict.fromkeys([BUNDLED_MODELS_DIR, MODELS_DIR]))
 
 # User data (writable, in user's home directory when bundled)
 LOGS_DIR = USER_DIR / "logs"
 TEMP_DIR = USER_DIR / "temp"
 
 # Erstelle Verzeichnisse falls nicht vorhanden
+# WHY: a read-only or unavailable directory must not abort import of the whole
+#      configuration module; consumers re-create lazily and surface a real
+#      error where they actually write.
 for directory in [MODELS_DIR, LOGS_DIR, TEMP_DIR]:
-    directory.mkdir(parents=True, exist_ok=True)
+    try:
+        directory.mkdir(parents=True, exist_ok=True)
+    except OSError:  # pragma: no cover - depends on host filesystem policy
+        pass
 
 # Chunking-Konfiguration
 CHUNK_LENGTH_SECONDS = 300  # 5 Minuten
@@ -317,8 +323,12 @@ FALLBACK_TO_CPU = True
 
 # Error Handling
 MAX_RETRIES = 3
+# Preferred accelerator per OS: Apple Silicon exposes MPS, Windows/Linux with
+# NVIDIA hardware expose CUDA. Probing the wrong one first only wastes a retry.
+PREFERRED_GPU_DEVICE = "mps" if is_macos() else "cuda"
+
 RETRY_STRATEGIES = [
-    {"device": "mps", "chunk_length": CHUNK_LENGTH_SECONDS},
+    {"device": PREFERRED_GPU_DEVICE, "chunk_length": CHUNK_LENGTH_SECONDS},
     {"device": "cpu", "chunk_length": CHUNK_LENGTH_SECONDS},
     {"device": "cpu", "chunk_length": MIN_CHUNK_LENGTH},
 ]

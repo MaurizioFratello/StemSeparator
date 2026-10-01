@@ -58,6 +58,11 @@ class SettingsManager:
             "output_directory": str(default_output_dir),
             "recording_sample_rate": 44100,
             "recording_channels": 2,
+            # WHY stored as names (not indices): PortAudio indices shift when
+            # USB/Bluetooth devices attach, a device name stays stable across
+            # those changes and across OS reboots.
+            "playback_device": None,
+            "recording_device": None,
         }
 
     def _load_from_file(self):
@@ -161,6 +166,33 @@ class SettingsManager:
     def set_use_gpu(self, use_gpu: bool):
         """Set GPU usage preference"""
         self.settings["use_gpu"] = use_gpu
+
+    def get_compute_device(self) -> str:
+        """Pinned compute device: 'auto', 'cpu', 'cuda' or 'mps'."""
+        value = self.settings.get("compute_device", "auto")
+        return value if value in ("auto", "cpu", "cuda", "mps") else "auto"
+
+    def set_compute_device(self, device: str):
+        """Pin the compute device ('auto' restores automatic selection)."""
+        if device not in ("auto", "cpu", "cuda", "mps"):
+            device = "auto"
+        self.settings["compute_device"] = device
+
+    def get_playback_device(self) -> Optional[str]:
+        """Name of the pinned audio output, or None for the system default."""
+        return self.settings.get("playback_device")
+
+    def set_playback_device(self, device: Optional[str]):
+        """Pin an audio output by device name (None follows the system default)."""
+        self.settings["playback_device"] = device
+
+    def get_recording_device(self) -> Optional[str]:
+        """Name of the pinned capture device (loopback or microphone), None = auto."""
+        return self.settings.get("recording_device")
+
+    def set_recording_device(self, device: Optional[str]):
+        """Pin a capture device by name (None = platform system-audio device)."""
+        self.settings["recording_device"] = device
 
     def get_chunk_length(self) -> int:
         """Get chunk length in seconds"""

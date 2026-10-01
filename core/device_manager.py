@@ -27,11 +27,24 @@ class DeviceInfo:
 class DeviceManager:
     """Verwaltet GPU/CPU Devices für PyTorch"""
 
-    def __init__(self):
+    def __init__(self, use_gpu: Optional[bool] = None, force_device: Optional[str] = None):
+        """
+        Args:
+            use_gpu: None -> `config.USE_GPU`; False -> force CPU regardless of
+                     hardware. The "Use GPU if available" setting has to reach
+                     the inference path, not just the UI.
+            force_device: 'cpu' | 'cuda' | 'mps' to pin the device (settings
+                     dialog). An unavailable device does NOT silently become
+                     CPU; it is reported through `last_error`.
+        """
         self.logger = logger
         self._torch = None
         self._current_device = None
         self._device_info: Dict[str, DeviceInfo] = {}
+        self._use_gpu = USE_GPU if use_gpu is None else use_gpu
+        self._forced = force_device
+        self.last_error: Optional[str] = None
+        self.selection_reason: str = ""
 
         # Initialisiere Device-Info
         self._detect_devices()
@@ -53,6 +66,16 @@ class DeviceManager:
         except ImportError:
             self.logger.warning("PyTorch not installed. CPU-only mode.")
             return False
+        except OSError as exc:
+            # Windows raises OSError ("DLL load failed while importing _C")
+            # when the VCRedist or the bundled CUDA runtime DLLs are missing.
+            # Without this branch the whole app dies before the GUI appears.
+            self.logger.error(
+                f"PyTorch failed to load ({exc}). Continuing on CPU. On Windows "
+                "this usually means the Visual C++ Redistributable or the CUDA "
+                "runtime DLLs are missing - see docs/PACKAGING.md."
+            )
+            return False
 
     def _detect_devices(self):
         """Erkennt verfügbare Devices"""
@@ -62,24 +85,42 @@ class DeviceManager:
         )
 
         if not self._import_torch():
+            self._device_info["mps"] = DeviceInfo(
+                name="mps",
+                available=False,
+                description="Apple MPS (PyTorch unavailable)",
+            )
+            self._device_info["cuda"] = DeviceInfo(
+                name="cuda",
+                available=False,
+                description="NVIDIA CUDA (PyTorch unavailable)",
+            )
             return
 
         # Check MPS (Apple Silicon)
+        mps_available = False
         if hasattr(self._torch.backends, "mps"):
-            mps_available = self._torch.backends.mps.is_available()
-            self._device_info["mps"] = DeviceInfo(
-                name="mps",
-                available=mps_available,
-                description="Apple Metal Performance Shaders (Apple Silicon GPU)",
-            )
-
-            if mps_available:
-                self.logger.info("MPS (Apple Silicon GPU) available")
-            else:
-                self.logger.debug("MPS not available on this system")
+            try:
+                mps_available = bool(self._torch.backends.mps.is_available())
+            except Exception as exc:  # pragma: no cover - driver edge case
+                self.logger.debug(f"MPS probe failed: {exc}")
+        self._device_info["mps"] = DeviceInfo(
+            name="mps",
+            available=mps_available,
+            description="Apple Metal Performance Shaders (Apple Silicon GPU)",
+        )
+        if mps_available:
+            self.logger.info("MPS (Apple Silicon GPU) available")
+        else:
+            self.logger.debug("MPS not available on this system")
 
         # Check CUDA (NVIDIA)
-        cuda_available = self._torch.cuda.is_available()
+        try:
+            cuda_available = bool(self._torch.cuda.is_available())
+        except Exception as exc:  # pragma: no cover - driver edge case
+            self.logger.debug(f"CUDA probe failed: {exc}")
+            cuda_available = False
+
         if cuda_available:
             device_count = self._torch.cuda.device_count()
             device_name = (
@@ -95,36 +136,115 @@ class DeviceManager:
                 self.logger.debug(f"Could not get CUDA memory: {e}")
                 memory_gb = None
 
+            built = self._torch.version.cuda or "no CUDA build"
             self._device_info["cuda"] = DeviceInfo(
                 name="cuda",
                 available=True,
-                description=f"NVIDIA CUDA ({device_name})",
+                description=f"NVIDIA CUDA ({device_name}, torch build {built})",
                 memory_gb=memory_gb,
             )
-            self.logger.info(f"CUDA available: {device_name}")
+            self.logger.info(f"CUDA available: {device_name} (torch build {built})")
         else:
             self._device_info["cuda"] = DeviceInfo(
-                name="cuda", available=False, description="NVIDIA CUDA (Not available)"
+                name="cuda",
+                available=False,
+                description=self._cuda_unavailable_description(),
             )
             self.logger.debug("CUDA not available on this system")
 
+    def _cuda_unavailable_description(self) -> str:
+        """
+        Explain *why* CUDA is unusable so the fix is obvious.
+
+        WHY: on Windows `pip install torch` resolves to the CPU wheel, so the
+             usual cause is a CPU-only PyTorch build on a machine that does have
+             an NVIDIA GPU. Reporting a bare "not available" sends users in
+             circles; naming the missing CUDA wheel ends the support ticket.
+        """
+        if self._torch is None:
+            return "NVIDIA CUDA (PyTorch not installed)"
+
+        cuda_build = getattr(self._torch.version, "cuda", None)
+        if cuda_build is None:
+            if self._nvidia_gpu_visible():
+                return (
+                    "NVIDIA GPU detected, but this is a CPU-only PyTorch build "
+                    f"({self._torch.__version__}). Install the CUDA wheel - see "
+                    "'CUDA Installation' in docs/PACKAGING.md."
+                )
+            return (
+                "NVIDIA CUDA unavailable: CPU-only PyTorch build "
+                f"({self._torch.__version__}) and no NVIDIA GPU detected"
+            )
+
+        return (
+            "NVIDIA CUDA unavailable: PyTorch was built with CUDA "
+            f"(cu{cuda_build}) but the driver rejected it - update/enable the "
+            "NVIDIA driver and check `nvidia-smi`."
+        )
+
+    def _nvidia_gpu_visible(self) -> bool:
+        """True when an NVIDIA GPU is present, independent of torch's view."""
+        from utils.platform_utils import find_binary, popen_kwargs
+
+        nvidia_smi = find_binary("nvidia-smi")
+        if nvidia_smi is None:
+            return False
+        try:
+            import subprocess
+
+            result = subprocess.run(
+                [str(nvidia_smi), "--query-gpu=name", "--format=csv,noheader"],
+                capture_output=True,
+                text=True,
+                timeout=10,
+                **popen_kwargs(),
+            )
+        except (OSError, subprocess.SubprocessError) as exc:
+            self.logger.debug(f"nvidia-smi probe failed: {exc}")
+            return False
+        return result.returncode == 0 and bool(result.stdout.strip())
+
+    def _preferred_order(self) -> list:
+        """
+        Accelerator priority for the current OS.
+
+        WHY: Apple Silicon should prefer MPS (CUDA is absent there), while
+             Windows/Linux builds should prefer CUDA. Probing an accelerator
+             that cannot exist on this OS only delays the first real error.
+        """
+        from utils.platform_utils import is_macos
+
+        return ["mps", "cuda", "cpu"] if is_macos() else ["cuda", "mps", "cpu"]
+
     def _select_best_device(self):
         """Wählt das beste verfügbare Device"""
-        if not USE_GPU:
+        if self._forced:
+            if self.set_device(self._forced):
+                return
+            self.logger.warning(
+                f"Requested device '{self._forced}' unusable ({self.last_error}); "
+                "auto-selecting instead"
+            )
+            self._forced = None
+
+        if not self._use_gpu:
             self._current_device = "cpu"
-            self.logger.info("GPU disabled in config, using CPU")
+            self.selection_reason = "GPU disabled in settings"
+            self.logger.info("GPU disabled in settings, using CPU")
             return
 
-        # Priorität: MPS > CUDA > CPU
-        if self._device_info.get("mps", DeviceInfo("mps", False, "")).available:
-            self._current_device = "mps"
-            self.logger.info("Selected device: MPS (Apple Silicon GPU)")
-        elif self._device_info.get("cuda", DeviceInfo("cuda", False, "")).available:
-            self._current_device = "cuda"
-            self.logger.info("Selected device: CUDA (NVIDIA GPU)")
-        else:
-            self._current_device = "cpu"
-            self.logger.info("Selected device: CPU (no GPU available)")
+        for candidate in self._preferred_order():
+            info = self._device_info.get(candidate)
+            if info is not None and info.available:
+                self._current_device = candidate
+                self.selection_reason = f"best available accelerator ({candidate})"
+                self.logger.info(f"Selected device: {candidate} ({info.description})")
+                return
+
+        self._current_device = "cpu"
+        self.selection_reason = "no GPU available"
+        self.logger.info("Selected device: CPU (no GPU available)")
 
     def get_device(self) -> str:
         """
@@ -177,29 +297,37 @@ class DeviceManager:
         """
         Setzt das zu verwendende Device
 
+        WHY no silent fallback: the previous version flipped the active device
+        to CPU while returning True, so a user who selected CUDA could never
+        tell that GPU inference never happened. Returning False here lets the
+        caller (`Separator._run_separation` -> `ErrorHandler.retry_with_fallback`)
+        decide to retry on CPU, which keeps the fallback visible in the log and
+        in `SeparationResult.device_used`.
+
         Args:
             device_name: 'mps', 'cuda', oder 'cpu'
 
         Returns:
-            True wenn erfolgreich, False wenn Device nicht verfügbar
+            True wenn das Device aktiv ist, False wenn nicht verfügbar
+            (`last_error` erklärt warum)
         """
         device_info = self._device_info.get(device_name)
 
         if device_info is None:
-            self.logger.error(f"Unknown device: {device_name}")
+            self.last_error = f"Unknown device '{device_name}'"
+            self.logger.error(self.last_error)
             return False
 
         if not device_info.available:
-            self.logger.error(f"Device '{device_name}' not available")
-
-            if FALLBACK_TO_CPU and device_name != "cpu":
-                self.logger.warning("Falling back to CPU")
-                self._current_device = "cpu"
-                return True
-
+            self.last_error = (
+                f"Device '{device_name}' not available: {device_info.description}"
+            )
+            self.logger.error(self.last_error)
             return False
 
         self._current_device = device_name
+        self.selection_reason = "explicitly selected"
+        self.last_error = None
         self.logger.info(f"Device set to: {device_name}")
         return True
 
@@ -252,12 +380,17 @@ class DeviceManager:
 
     def get_system_info(self) -> dict:
         """Gibt System-Informationen zurück"""
+        from utils.platform_utils import os_name
+
         info = {
+            "os": os_name(),
             "platform": platform.system(),
             "platform_version": platform.version(),
             "machine": platform.machine(),
             "processor": platform.processor(),
             "current_device": self._current_device,
+            "selection_reason": self.selection_reason,
+            "last_error": self.last_error,
             "devices": {
                 name: {
                     "available": dev.available,
@@ -270,6 +403,7 @@ class DeviceManager:
 
         if self._torch:
             info["pytorch_version"] = self._torch.__version__
+            info["pytorch_cuda_build"] = getattr(self._torch.version, "cuda", None)
 
         return info
 
@@ -278,9 +412,41 @@ class DeviceManager:
 _device_manager: Optional[DeviceManager] = None
 
 
+def _device_preferences() -> tuple:
+    """
+    Read (use_gpu, compute_device) from the persisted user settings.
+
+    WHY lazy + defensive: `core` must stay importable without the GUI layer
+    (the separation worker runs headless), and `ui.settings_manager` pulls in
+    PySide6-free but still optional code — same pattern as
+    `core/chunk_processor.py` uses for the chunk length.
+    """
+    try:
+        from ui.settings_manager import get_settings_manager
+
+        settings = get_settings_manager()
+        return settings.get_use_gpu(), settings.get_compute_device()
+    except Exception:
+        return None, "auto"
+
+
 def get_device_manager() -> DeviceManager:
     """Gibt die globale DeviceManager-Instanz zurück"""
     global _device_manager
     if _device_manager is None:
-        _device_manager = DeviceManager()
+        use_gpu, compute_device = _device_preferences()
+        _device_manager = DeviceManager(
+            use_gpu=use_gpu,
+            force_device=None if compute_device == "auto" else compute_device,
+        )
     return _device_manager
+
+
+def reload_device_manager() -> DeviceManager:
+    """
+    Re-create the singleton so a changed GPU/device preference takes effect
+    without restarting the app (used by the settings dialog).
+    """
+    global _device_manager
+    _device_manager = None
+    return get_device_manager()

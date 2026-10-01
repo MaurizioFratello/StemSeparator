@@ -12,6 +12,121 @@ import json
 from pathlib import Path
 from typing import Dict, Optional
 import re
+import logging
+
+
+VALID_DEVICES = ("cpu", "cuda", "mps")
+
+
+def _available_onnx_providers() -> list:
+    try:
+        import onnxruntime as ort
+
+        return list(ort.get_available_providers())
+    except Exception as exc:  # pragma: no cover - onnxruntime optional per model
+        logging.getLogger("StemSeparator.Subprocess").warning(
+            f"Could not query ONNX Runtime providers: {exc}"
+        )
+        return []
+
+
+def _enforce_device(separator, requested_device: str, logger_sub) -> str:
+    """
+    Force audio-separator onto the device chosen by the application.
+
+    WHY: `audio_separator.Separator` picks its own device inside the
+         constructor (`torch.cuda.is_available()` -> cuda, else MPS, else CPU)
+         and exposes no parameter to override it. The parent process therefore
+         used to *ask* for a device that the worker silently ignored, so a user
+         selecting CUDA could quietly get CPU inference - and vice versa.
+         Overriding the public attributes after construction and before
+         `load_model()` is the only supported seam: the model instances read
+         `torch_device`/`onnx_execution_provider` at load time.
+
+    Args:
+        separator: constructed `audio_separator.separator.Separator`
+        requested_device: 'cpu' | 'cuda' | 'mps'
+        logger_sub: subprocess logger
+
+    Returns:
+        The device actually in use.
+
+    Raises:
+        RuntimeError: when a GPU device was requested but is unusable, with an
+            actionable message (never a silent CPU downgrade).
+    """
+    if requested_device not in VALID_DEVICES:
+        raise ValueError(
+            f"Invalid device '{requested_device}', expected one of {VALID_DEVICES}"
+        )
+
+    import torch
+
+    if requested_device == "cuda" and not torch.cuda.is_available():
+        build = getattr(torch.version, "cuda", None)
+        if build is None:
+            raise RuntimeError(
+                "CUDA was requested but this PyTorch installation has no CUDA "
+                f"build (torch {torch.__version__}). Install the CUDA wheel, e.g. "
+                "`pip install torch==2.9.0 torchaudio==2.9.0 "
+                "--index-url https://download.pytorch.org/whl/cu128` "
+                "(see docs/PACKAGING.md)."
+            )
+        raise RuntimeError(
+            "CUDA was requested but torch reports no usable NVIDIA device. "
+            "Check `nvidia-smi` (driver installed / GPU not busy) and that the "
+            f"torch CUDA build (cu{build}) is supported by your driver."
+        )
+
+    if requested_device == "mps":
+        mps = getattr(torch.backends, "mps", None)
+        if mps is None or not mps.is_available():
+            raise RuntimeError(
+                "MPS was requested but is unavailable (Apple Silicon GPU with "
+                "Metal enabled is required)."
+            )
+
+    # The accelerator provider is decided explicitly, never by "whatever
+    # survives filtering": a CPU-only onnxruntime would otherwise satisfy the
+    # list silently and MDX-Net/ONNX models would run on the CPU while the UI
+    # claims GPU inference (INF-03 forbids exactly this kind of silent loss).
+    accelerator_provider = {
+        "cpu": None,
+        "cuda": "CUDAExecutionProvider",
+        "mps": "CoreMLExecutionProvider",
+    }[requested_device]
+    available = _available_onnx_providers()
+
+    separator.torch_device_cpu = torch.device("cpu")
+    separator.torch_device = torch.device(requested_device)
+
+    if accelerator_provider is None:
+        providers = ["CPUExecutionProvider"]
+    elif accelerator_provider in available:
+        providers = [accelerator_provider, "CPUExecutionProvider"]
+    else:
+        providers = ["CPUExecutionProvider"]
+        logger_sub.warning(
+            f"ONNX models will run on CPU: {accelerator_provider} is not present "
+            f"in this onnxruntime build (available: {available or 'none'}). "
+            "Install `audio-separator[gpu]` (or `onnxruntime-gpu`) to accelerate "
+            "ONNX architectures such as MDX-Net; torch models still use "
+            f"{requested_device.upper()}."
+        )
+
+    separator.onnx_execution_provider = providers
+
+    # Keep the MPS handle consistent: some architectures fall back to
+    # `torch_device_mps` when it is set instead of consulting torch_device.
+    if requested_device == "mps":
+        separator.torch_device_mps = torch.device("mps")
+    else:
+        separator.torch_device_mps = torch.device("cpu")
+
+    logger_sub.info(
+        f"Device enforced: torch={separator.torch_device} onnx={providers}"
+    )
+    return requested_device
 
 
 def run_separation_subprocess(
@@ -148,6 +263,10 @@ def run_separation_subprocess(
             output_dir=str(output_dir),
             **preset_params,
         )
+
+        # Force the device the application selected (audio-separator would
+        # otherwise keep whatever it auto-detected).
+        _enforce_device(separator, device, logger_sub)
 
         # Set architecture-specific attributes
         _apply_preset_attributes(separator, preset_attributes)
@@ -296,26 +415,84 @@ def run_separation_subprocess(
     return stems
 
 
-if __name__ == "__main__":
-    # Read parameters from stdin as JSON
-    params = json.loads(sys.stdin.read())
+def _emit_result(result: Dict, result_file: Optional[Path]) -> None:
+    """
+    Deliver the worker result to the parent.
 
-    # Convert string paths back to Path objects
-    params["audio_file"] = Path(params["audio_file"])
-    params["output_dir"] = Path(params["output_dir"])
-    params["models_dir"] = Path(params["models_dir"])
+    WHY two channels: the file is authoritative because a `--noconsole` Windows
+    build has no stdout at all (print() raises OSError/ValueError there), while
+    stdout keeps the protocol working for dev runs and any caller that still
+    parses the pipe.
+    """
+    if result_file is not None:
+        try:
+            result_file.parent.mkdir(parents=True, exist_ok=True)
+            result_file.write_text(json.dumps(result), encoding="utf-8")
+        except OSError as exc:
+            sys.stderr.write(f"Could not write result file {result_file}: {exc}\n")
+
+    if sys.stdout is not None:
+        try:
+            print(json.dumps(result), flush=True)
+        except (OSError, ValueError):  # windowed process without a console
+            pass
+
+
+def run_worker_from_argv(argv: Optional[list] = None) -> int:
+    """
+    Worker entry point for both launch modes.
+
+    Reads the JSON request from `--params-file <path>` when given (the frozen
+    app path, required on Windows where stdin is unavailable), otherwise from
+    stdin. Returns the process exit code.
+    """
+    argv = list(sys.argv[1:] if argv is None else argv)
+
+    params_file: Optional[Path] = None
+    if "--params-file" in argv:
+        index = argv.index("--params-file")
+        if index + 1 >= len(argv):
+            sys.stderr.write("--params-file requires a path argument\n")
+            return 2
+        params_file = Path(argv[index + 1])
 
     try:
-        # Run separation
+        if params_file is not None:
+            params = json.loads(params_file.read_text(encoding="utf-8"))
+        else:
+            if sys.stdin is None:
+                sys.stderr.write("No stdin and no --params-file given\n")
+                return 2
+            params = json.loads(sys.stdin.read())
+    except (OSError, json.JSONDecodeError) as exc:
+        sys.stderr.write(f"Could not read worker parameters: {exc}\n")
+        return 2
+
+    result_file_value = params.pop("result_file", None)
+    result_file = Path(result_file_value) if result_file_value else None
+
+    for key in ("audio_file", "output_dir", "models_dir"):
+        if key in params:
+            params[key] = Path(params[key])
+
+    try:
         stems = run_separation_subprocess(**params)
-
-        # Write result to stdout as JSON
         result = {"success": True, "stems": stems, "error": None}
-        print(json.dumps(result))
-        sys.exit(0)
-
+        code = 0
     except Exception as e:
-        # Write error to stdout as JSON
+        import traceback
+
+        if sys.stderr is not None:
+            try:
+                traceback.print_exc(file=sys.stderr)
+            except (OSError, ValueError):
+                pass
         result = {"success": False, "stems": {}, "error": str(e)}
-        print(json.dumps(result))
-        sys.exit(1)
+        code = 1
+
+    _emit_result(result, result_file)
+    return code
+
+
+if __name__ == "__main__":
+    sys.exit(run_worker_from_argv())

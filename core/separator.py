@@ -13,6 +13,7 @@ import subprocess
 import json
 import sys
 import os
+import uuid
 import numpy as np
 import soundfile as sf
 import librosa
@@ -36,6 +37,14 @@ from utils.logger import get_logger
 from utils.error_handler import error_handler, SeparationError
 from utils.file_manager import get_file_manager
 from utils.path_utils import resolve_output_path
+from utils.platform_utils import (
+    bundled_binary_dirs,
+    is_frozen,
+    is_macos,
+    numba_cuda_safe_env,
+    popen_kwargs,
+    system_binary_dirs,
+)
 
 logger = get_logger()
 
@@ -481,6 +490,11 @@ class Separator:
             progress_thread = threading.Thread(target=simulate_progress, daemon=True)
             progress_thread.start()
 
+        # IPC files are created inside the try; keep the names bound so the
+        # finally-block can always clean up.
+        params_file: Optional[Path] = None
+        result_file: Optional[Path] = None
+
         try:
             # Prepare parameters for subprocess
             model_filename = MODELS[model_id]["model_filename"]
@@ -502,57 +516,84 @@ class Separator:
 
             self.logger.info(f"Launching separation subprocess for {model_id}")
 
-            # Prepare environment with OpenMP fix
-            # Allow multiple OpenMP runtimes (needed for subprocess isolation)
+            # Prepare environment for the isolated worker
             env = os.environ.copy()
+            # torch ships its own OpenMP runtime; audio-separator's deps may
+            # load a second one, which the runtimes refuse to coexist with.
             env["KMP_DUPLICATE_LIB_OK"] = "TRUE"
-            # Ensure ffmpeg is discoverable when launched from bundled app (PATH is often minimal)
-            extra_paths = [
-                "/opt/homebrew/bin",  # Homebrew on Apple Silicon
-                "/usr/local/bin",  # Homebrew on Intel/macOS
-                "/usr/bin",
-            ]
-            if getattr(sys, "frozen", False):
-                # Add bundled Frameworks folder where ffmpeg is placed
-                meipass = Path(sys._MEIPASS) if hasattr(sys, "_MEIPASS") else None  # type: ignore
-                if meipass:
-                    extra_paths.insert(0, str(meipass / "Frameworks"))
-            env["PATH"] = os.pathsep.join(extra_paths + [env.get("PATH", "")])
+
+            # Make the bundled/system FFmpeg discoverable even when the app was
+            # started with a minimal PATH (double-click on Windows, launchd on
+            # macOS, systemd user session on Linux).
+            tool_paths = [str(d) for d in bundled_binary_dirs() + system_binary_dirs()]
+            env["PATH"] = os.pathsep.join(tool_paths + [env.get("PATH", "")])
+
+            # numba initialising the CUDA driver before torch poisons the
+            # spawned worker's CUDA context.
+            for env_key, env_value in numba_cuda_safe_env().items():
+                env.setdefault(env_key, env_value)
+
+            # WHY: audio-separator re-detects the device inside the worker and
+            # has no CPU override parameter; hiding the GPU from the driver is
+            # the only way to honour an explicit CPU choice for both the torch
+            # and the ONNX paths.
+            if device == "cpu":
+                env["CUDA_VISIBLE_DEVICES"] = ""
+            env["STEMSEPARATOR_SUBPROCESS"] = "1"
 
             # Launch subprocess
-            # Use a dedicated flag when frozen so the bundled binary runs the worker path,
-            # otherwise fall back to running the module directly in dev mode.
+            # Use a dedicated flag when frozen so the bundled binary runs the
+            # worker path, otherwise fall back to running the module directly.
+            #
+            # Parameters/results travel through files, not stdin/stdout: a
+            # `--noconsole` Windows build (what the app ships as) has no usable
+            # stdin/stdout at all, so the JSON-over-pipes protocol only works in
+            # dev runs. stdout is still parsed as a fallback.
+            ipc_token = uuid.uuid4().hex
+            params_file = TEMP_DIR / f"sep-params-{ipc_token}.json"
+            result_file = TEMP_DIR / f"sep-result-{ipc_token}.json"
+            TEMP_DIR.mkdir(parents=True, exist_ok=True)
+            subprocess_params["result_file"] = str(result_file)
+            params_file.write_text(json.dumps(subprocess_params), encoding="utf-8")
+
+            # The worker is addressed by absolute script path, not `-m module`:
+            # `cwd` is the output directory (see subprocess_kwargs below), so
+            # `-m core.x` is only importable when the app happens to be started
+            # from the repo root. core/separation_subprocess.py imports nothing
+            # first-party at module scope, so direct execution is safe anywhere.
+            worker_script = Path(__file__).resolve().parent / "separation_subprocess.py"
             cmd = (
-                [sys.executable, "--separation-subprocess"]
-                if getattr(sys, "frozen", False)
-                else [sys.executable, "-m", "core.separation_subprocess"]
+                [sys.executable, "--separation-subprocess", "--params-file", str(params_file)]
+                if is_frozen()
+                else [
+                    sys.executable,
+                    str(worker_script),
+                    "--params-file",
+                    str(params_file),
+                ]
             )
 
-            # On macOS, prevent subprocess from appearing as separate app in Dock
-            # by starting in a new session and using creation flags
+            # Keep the worker invisible: no console window on Windows, own
+            # session on POSIX, no Dock entry for the frozen macOS app.
             subprocess_kwargs = {
-                "stdin": subprocess.PIPE,
+                "stdin": subprocess.DEVNULL,
                 "stdout": subprocess.PIPE,
                 "stderr": subprocess.PIPE,
                 "text": True,
                 "env": env,
+                # CRITICAL FIX for packaged apps: run from the output directory
+                # so audio-separator writes stems next to the target instead of
+                # inside the bundle (sys._MEIPASS).
+                "cwd": str(output_dir),
             }
+            subprocess_kwargs.update(popen_kwargs())
 
-            # Set environment variable to signal subprocess mode (prevents GUI init)
-            env["STEMSEPARATOR_SUBPROCESS"] = "1"
-
-            # Start new session to prevent subprocess from inheriting parent's terminal/GUI
-            if sys.platform == "darwin" and getattr(sys, "frozen", False):
-                subprocess_kwargs["start_new_session"] = True
-                # Set LSUIElement to hide from Dock (background app)
+            if is_frozen() and is_macos():
                 env["LSUIElement"] = "1"
 
-            # CRITICAL FIX for packaged app: Set working directory to output_dir
-            # WHY: In packaged apps, subprocess runs from inside bundle (sys._MEIPASS)
-            #      causing audio-separator to write files to wrong location
-            # FIX: Set cwd to output directory so all paths resolve correctly
-            subprocess_kwargs["cwd"] = str(output_dir)
-            self.logger.info(f"Subprocess working directory set to: {output_dir}")
+            self.logger.info(
+                f"Subprocess working directory set to: {output_dir} (cwd-relative paths OK)"
+            )
 
             process = subprocess.Popen(cmd, **subprocess_kwargs)
 
@@ -591,40 +632,54 @@ class Separator:
                 self.logger.error(error_msg)
                 raise SeparationError(error_msg)
 
-            # Parse result from stdout
-            # WHY: Subprocess may output multiple JSON objects (one per attempt/retry)
-            # We need to parse them line-by-line and find the successful one
+            # Parse the result.
+            # WHY prefer the result file: the windowed Windows build cannot
+            # write to stdout, so the file is the authoritative channel; the
+            # stdout parse stays for dev runs and older callers. A worker may
+            # emit several JSON objects (retries), so the successful one wins.
             result = None
             successful_results = []
 
-            try:
-                # Try parsing as a single JSON object first (most common case)
-                result = json.loads(stdout)
-                if result["success"]:
-                    successful_results.append(result)
-            except json.JSONDecodeError:
-                # If single parse fails, try parsing line-by-line
-                # WHY: Subprocess may output multiple JSON objects on separate lines
-                for line in stdout.strip().split("\n"):
-                    line = line.strip()
-                    if not line:
-                        continue
-                    try:
-                        line_result = json.loads(line)
-                        if line_result.get("success"):
-                            successful_results.append(line_result)
-                    except json.JSONDecodeError:
-                        # Skip unparseable lines
-                        continue
+            if result_file.is_file():
+                try:
+                    file_result = json.loads(result_file.read_text(encoding="utf-8"))
+                    if isinstance(file_result, dict):
+                        successful_results.append(file_result)
+                        result = file_result
+                        self.logger.info("Parsed separation result from result file")
+                except (json.JSONDecodeError, OSError) as e:
+                    self.logger.warning(
+                        f"Result file unreadable ({e}); falling back to stdout"
+                    )
 
-            # Use the first successful result if available
+            stdout = stdout or ""
+            if not successful_results:
+                try:
+                    # Try parsing as a single JSON object first (most common case)
+                    result = json.loads(stdout)
+                    if result["success"]:
+                        successful_results.append(result)
+                except (json.JSONDecodeError, KeyError, TypeError):
+                    # If single parse fails, try parsing line-by-line
+                    for line in stdout.strip().split("\n"):
+                        line = line.strip()
+                        if not line:
+                            continue
+                        try:
+                            line_result = json.loads(line)
+                            if line_result.get("success"):
+                                successful_results.append(line_result)
+                        except json.JSONDecodeError:
+                            continue
+
             if successful_results:
                 result = successful_results[0]
-                self.logger.info(
-                    f"Found {len(successful_results)} successful result(s) in subprocess output"
-                )
             elif result is None:
-                error_msg = f"Failed to parse any valid JSON from subprocess output.\nOutput: {stdout}"
+                error_msg = (
+                    "Failed to parse any valid JSON from subprocess output.\n"
+                    f"stdout: {stdout}\nstderr: {stderr}\n"
+                    f"result file: {result_file} (exists: {result_file.is_file()})"
+                )
                 self.logger.error(error_msg)
                 raise SeparationError(error_msg)
 
@@ -674,6 +729,15 @@ class Separator:
             error_msg = f"Separation failed: {str(e)}"
             self.logger.error(error_msg, exc_info=True)
             raise SeparationError(error_msg) from e
+
+        finally:
+            # Never leave worker request/response files behind in TEMP_DIR.
+            for ipc_file in (params_file, result_file):
+                if ipc_file is not None:
+                    try:
+                        ipc_file.unlink(missing_ok=True)
+                    except OSError:
+                        pass
 
     def _create_error_result(
         self,

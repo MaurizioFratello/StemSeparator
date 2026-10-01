@@ -1,5 +1,5 @@
 """
-Time Stretcher - Pitch-preserving time-stretching using Rubberband CLI
+Time Stretcher - Pitch-preserving time-stretching for separated audio stems.
 
 PURPOSE: Provide high-quality time-stretching for separated audio stems.
          Supports BPM-based stretching for DJ mixing, practice, and remixing.
@@ -7,16 +7,22 @@ PURPOSE: Provide high-quality time-stretching for separated audio stems.
 CONTEXT: Integrated into the Loop Export workflow for processing loops
          from original BPM to target BPM while preserving pitch.
 
-ALGORITHM: Uses Rubberband CLI directly (via subprocess)
-           - Rubberband R3 phase vocoder engine
-           - Pitch-preserving (independent time/pitch modification)
-           - Transient detection and preservation
-           - Adaptive stretch ratio
-           - Phase lamination for reduced artifacts
-           - Optimized for musical content
+ALGORITHM: Engines are tried in this order (see `_run_engine_chain`):
+           1. `rubberband-cli`        - Rubberband R3, called directly
+           2. `pyrubberband`          - same binary through the 0.4.0 wrapper
+           3. `librosa-phase-vocoder` - pure-Python phase vocoder fallback
 
-           Note: Uses CLI instead of pyrubberband library to avoid
-                 stereo audio bug in pyrubberband v0.4.0
+           WHY: The macOS-only releases hard-required `brew install rubberband`
+                and could fail at import time. On Windows/Linux the binary is
+                often absent, so the module now degrades to the librosa phase
+                vocoder instead of dying, and every heavy third-party import
+                (pyrubberband, librosa) happens inside the engine that needs it.
+                Engine changes are never silent: the engine that ran is logged
+                at INFO, every skipped one at WARNING with its failure reason.
+
+           The direct CLI call stays first because pyrubberband v0.4.0 has a
+           stereo temp-file bug; the pyrubberband engine therefore stretches
+           channel by channel.
 
 USAGE:
     >>> from core.time_stretcher import time_stretch_audio, calculate_stretch_factor
@@ -33,13 +39,17 @@ USAGE:
     ... )
 """
 
-from typing import Optional, Tuple
+from typing import Callable, Dict, List, Optional, Tuple
+import inspect
 import numpy as np
 from pathlib import Path
+import shutil
 import subprocess
 import tempfile
+import time
 import os
 
+from utils import platform_utils
 from utils.logger import get_logger
 
 logger = get_logger()
@@ -88,9 +98,71 @@ class ProcessingError(TimeStretchError):
     pass
 
 
+# ============================================================================
+# Engines
+# ============================================================================
+
+ENGINE_CLI = "rubberband-cli"
+ENGINE_PYRUBBERBAND = "pyrubberband"
+ENGINE_LIBROSA = "librosa-phase-vocoder"
+
+# Priority order for `_run_engine_chain`.
+# WHY this order: the R3 CLI is transparent on musical material, the Python
+# wrapper shells out to the same binary (so it only helps if the CLI exists but a
+# direct call was blocked), and the phase vocoder is audible on transients — it is
+# the last resort that still makes the feature work on a bare Windows/Linux box.
+ENGINE_ORDER = (ENGINE_CLI, ENGINE_PYRUBBERBAND, ENGINE_LIBROSA)
+
 class LibraryNotFoundError(TimeStretchError):
-    """PyRubberBand library not installed"""
+    """No usable time-stretching engine is available on this system."""
     pass
+
+
+# ============================================================================
+# Engine discovery
+# ============================================================================
+
+def rubberband_binary() -> Optional[str]:
+    """
+    Absolute path to the `rubberband` CLI, or None when it is not installed.
+
+    WHY via platform_utils: the bundled PyInstaller layout (`packaging/vendor/bin`,
+    `Contents/Resources` inside a .app on macOS, `*.exe` on Windows) differs per OS,
+    and the previous hard-coded `sys._MEIPASS/bin/rubberband` check could only ever
+    find a macOS binary — so every Windows/Linux session fell straight through to a
+    `brew install rubberband` message that is meaningless there.
+    """
+    found = platform_utils.find_binary("rubberband")
+    if found is None:
+        return None
+    return str(found)
+
+
+def _install_guidance() -> str:
+    """Per-OS instructions for obtaining the highest-quality engine."""
+    if platform_utils.is_windows():
+        return (
+            "Install the Rubberband CLI (e.g. `choco install rubberband`) or ship "
+            "it in packaging/vendor/bin for the packaged build."
+        )
+    if platform_utils.is_macos():
+        return "Install it with: brew install rubberband"
+    return "Install it with: apt install rubberband-cli (or your distro's equivalent)"
+
+
+def available_engines() -> List[str]:
+    """
+    Engines usable right now, in priority order.
+
+    Used by the UI to tell the user up front whether loop export will use the
+    high-quality R3 engine or the librosa fallback.
+    """
+    engines: List[str] = []
+    if rubberband_binary() is not None:
+        engines.append(ENGINE_CLI)
+        engines.append(ENGINE_PYRUBBERBAND)
+    engines.append(ENGINE_LIBROSA)
+    return engines
 
 
 # ============================================================================
@@ -217,35 +289,27 @@ def _time_stretch_with_rubberband_cli(
         ProcessingError: If processing fails
     """
 
-    # Find rubberband binary (check bundled location first, then system PATH)
-    # WHY: Support both bundled app (sys._MEIPASS/bin/rubberband) and development (system PATH)
-    import sys
-    rubberband_path = None
-    
-    # Check bundled location first (when running from PyInstaller app)
-    if getattr(sys, "frozen", False):
-        bundle_dir = Path(sys._MEIPASS)
-        bundled_rubberband = bundle_dir / "bin" / "rubberband"
-        if bundled_rubberband.exists() and os.access(bundled_rubberband, os.X_OK):
-            rubberband_path = str(bundled_rubberband)
-    
-    # Fallback to system PATH
-    if not rubberband_path:
-        rubberband_path = "rubberband"  # Will be found via PATH
-    
-    # Check if rubberband binary exists and works
+    rubberband_path = rubberband_binary()
+    if rubberband_path is None:
+        raise LibraryNotFoundError("Rubberband CLI not found. " + _install_guidance())
+
     try:
         result = subprocess.run(
-            [rubberband_path, '--version'],
+            [rubberband_path, "--version"],
             capture_output=True,
             text=True,
-            timeout=5
+            timeout=5,
+            **platform_utils.popen_kwargs(),
         )
         if result.returncode != 0:
-            raise LibraryNotFoundError("rubberband binary not found or not working")
-    except (FileNotFoundError, subprocess.TimeoutExpired):
+            raise LibraryNotFoundError(
+                f"Rubberband CLI at {rubberband_path} did not run cleanly: "
+                f"{result.stderr.strip() or result.stdout.strip()}"
+            )
+    except (FileNotFoundError, OSError, subprocess.TimeoutExpired) as exc:
         raise LibraryNotFoundError(
-            "Rubberband CLI not found. Please install it with: brew install rubberband"
+            f"Rubberband CLI at {rubberband_path} is not executable ({exc}). "
+            + _install_guidance()
         )
 
     # Create temporary files
@@ -322,6 +386,158 @@ def _time_stretch_with_rubberband_cli(
                 os.rmdir(temp_dir)
         except Exception as e:
             logger.warning(f"Failed to clean up temp files: {e}")
+
+def _time_stretch_with_pyrubberband(
+    audio: np.ndarray,
+    sample_rate: int,
+    stretch_factor: float,
+    quality_preset: str = StretchQuality.EXPORT,
+) -> np.ndarray:
+    """
+    Stretch through the pyrubberband wrapper, one channel at a time.
+
+    WHY per-channel: pyrubberband 0.4.0 corrupts stereo temp files (the reason the
+    original code shelled out to the CLI itself). The import is lazy so a machine
+    without the package still imports this module, and the binary path is injected
+    so a vendored build is used instead of whatever is on PATH.
+    """
+    binary = rubberband_binary()
+    if binary is None:
+        raise LibraryNotFoundError(
+            "pyrubberband needs the Rubberband CLI. " + _install_guidance()
+        )
+
+    try:
+        from pyrubberband import pyrb as _pyrb_module
+    except Exception as exc:
+        raise LibraryNotFoundError(f"pyrubberband unavailable: {exc}") from exc
+
+    if getattr(_pyrb_module, "RUBBERBAND_EXE", None) != binary:
+        _pyrb_module.RUBBERBAND_EXE = binary
+
+    import soundfile as sf
+
+    two_d = audio.reshape(-1, 1) if audio.ndim == 1 else audio
+    stretched_channels = []
+    temp_dir = tempfile.mkdtemp()
+    try:
+        for channel in range(two_d.shape[1]):
+            in_path = os.path.join(temp_dir, f"in_{channel}.wav")
+            out_path = os.path.join(temp_dir, f"out_{channel}.wav")
+            sf.write(in_path, two_d[:, channel], sample_rate, subtype="FLOAT")
+
+            options = [] if quality_preset == StretchQuality.EXPORT else ["-c5"]
+            _pyrb_module.time_stretch_file(
+                in_path, out_path, float(stretch_factor), *options
+            )
+            data, _sr = sf.read(out_path, dtype="float32")
+            stretched_channels.append(np.asarray(data, dtype=np.float32))
+    finally:
+        shutil.rmtree(temp_dir, ignore_errors=True)
+
+    return _stack_channels(stretched_channels, audio)
+
+
+def _time_stretch_with_librosa(
+    audio: np.ndarray,
+    sample_rate: int,
+    stretch_factor: float,
+    quality_preset: str = StretchQuality.EXPORT,
+) -> np.ndarray:
+    """
+    Stretch with librosa's phase vocoder — the binary-free fallback.
+
+    WHY: Windows and Linux ship without the Rubberband CLI, and requiring a native
+    binary there made loop export simply not work. The phase vocoder is audibly
+    softer on transients, so it is only reached after both Rubberband engines fail,
+    and the engine that ran is always logged.
+    """
+    try:
+        import librosa  # lazy: heavy import, only needed for the fallback
+    except Exception as exc:
+        raise LibraryNotFoundError(f"librosa unavailable: {exc}") from exc
+
+    two_d = audio.reshape(-1, 1) if audio.ndim == 1 else audio
+    stretched_channels = []
+    for channel in range(two_d.shape[1]):
+        stretched_channels.append(
+            np.asarray(
+                librosa.effects.time_stretch(
+                    np.asfortranarray(two_d[:, channel].astype(np.float32)),
+                    rate=float(stretch_factor),
+                ),
+                dtype=np.float32,
+            )
+        )
+
+    return _stack_channels(stretched_channels, audio)
+
+
+def _stack_channels(channels: List[np.ndarray], reference: np.ndarray) -> np.ndarray:
+    """Re-join stretched channels, preserving the input's mono/stereo shape."""
+    if not channels:
+        raise ProcessingError("Time-stretching produced no channels")
+
+    length = min(channel.shape[0] for channel in channels)
+    trimmed = [channel[:length] for channel in channels]
+
+    if reference.ndim == 1 or len(trimmed) == 1:
+        return trimmed[0].astype(np.float32)
+
+    return np.stack(trimmed, axis=1).astype(np.float32)
+
+
+def _run_engine_chain(
+    audio: np.ndarray,
+    sample_rate: int,
+    stretch_factor: float,
+    quality_preset: str = StretchQuality.EXPORT,
+) -> np.ndarray:
+    """
+    Try every available engine in priority order and report which one ran.
+
+    WHY: the previous code raised as soon as the CLI was missing, so a user without
+    Rubberband got a brew instruction and no audio. Failures stay visible — each
+    skipped engine is logged with its reason, and the engine that produced the
+    result is logged at INFO.
+    """
+    engines = {
+        ENGINE_CLI: _time_stretch_with_rubberband_cli,
+        ENGINE_PYRUBBERBAND: _time_stretch_with_pyrubberband,
+        ENGINE_LIBROSA: _time_stretch_with_librosa,
+    }
+
+    failures: List[str] = []
+    for name in ENGINE_ORDER:
+        engine = engines[name]
+        try:
+            result = engine(audio, sample_rate, stretch_factor, quality_preset)
+        except TimeStretchError as exc:
+            failures.append(f"{name}: {exc}")
+            logger.warning(f"Time-stretch engine '{name}' unusable: {exc}")
+            continue
+        except Exception as exc:
+            failures.append(f"{name}: {type(exc).__name__}: {exc}")
+            logger.warning(f"Time-stretch engine '{name}' failed: {exc}")
+            continue
+
+        if result is None or getattr(result, "size", 0) == 0:
+            failures.append(f"{name}: produced empty output")
+            logger.warning(f"Time-stretch engine '{name}' produced empty output")
+            continue
+
+        logger.info(
+            f"Time-stretched with engine '{name}' "
+            f"(factor={stretch_factor:.3f}, quality={quality_preset})"
+        )
+        return result
+
+    raise LibraryNotFoundError(
+        "No time-stretching engine available. Attempted: "
+        + "; ".join(failures)
+        + ". "
+        + _install_guidance()
+    )
 
 
 # ============================================================================
@@ -403,8 +619,8 @@ def time_stretch_audio(
     )
 
     try:
-        # Use Rubberband CLI (bypasses pyrubberband stereo bug)
-        stretched = _time_stretch_with_rubberband_cli(
+        # Engines are tried in priority order; the one that ran is logged.
+        stretched = _run_engine_chain(
             audio, sample_rate, stretch_factor, quality_preset
         )
 

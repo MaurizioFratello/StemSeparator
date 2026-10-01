@@ -52,7 +52,54 @@ python -m src --input /path/to/audio.wav --verbose
 
 # Or as module
 python src/__main__.py --input /path/to/audio.wav --device auto
+
 ```
+## Cross-platform execution
+
+The desktop app never needs this repository: `utils/beat_service_client.py` locates
+and runs the helper itself, on macOS, Linux and Windows alike. It looks for, in order:
+
+1. `STEMSEPARATOR_BEAT_SERVICE` - an explicit executable path.
+2. `STEMSEPARATOR_BEAT_SERVICE_PYTHON` - an interpreter to run `python -m src` with
+   (useful when the service lives in a conda env with its own Python 3.8/3.9).
+3. The bundled binary (`beatnet-service` / `beatnet_service`, `.exe` on Windows) in
+   `dist/`, the frozen app bundle, the bundled bin dirs and the system PATH.
+4. Source mode - `sys.executable -m src` with this directory as the working
+   directory, i.e. what the development commands above do. Disabled in the frozen
+   app, where `sys.executable` is the GUI itself.
+
+```bash
+# Run the service from this checkout with the app's own interpreter:
+STEMSEPARATOR_BEAT_SERVICE_PYTHON=/path/to/.venvs/stemsep/bin/python \
+    /path/to/.venvs/stemsep/bin/python app.py
+```
+
+### Device selection
+
+The app resolves the device (see `core/device_manager.py`) and always passes a
+concrete `--device`; the service only verifies it and answers with a
+`{"error": "DeviceError", ...}` JSON on stdout plus exit 1 when the request is
+impossible (for example `mps` on Linux, or `cuda` when only a CPU-only PyTorch
+wheel is installed). Nothing ever degrades to CPU silently. `--verbose` mirrors the
+chosen device and the reason to stderr, which the app relays to its log.
+
+### PyAudio / PortAudio
+
+BeatNet imports `pyaudio` at module load even for offline analysis. `src/pyaudio.py`
+is a conditional shim: it uses the real PyAudio when it loads, and otherwise
+preloads PortAudio (`libasound.so.2` first, then `libportaudio.so.2`) and installs
+an offline stub so beat analysis keeps working without a microphone or the audio
+driver. Set `STEMSEPARATOR_PORTAUDIO_LIBRARY` to the absolute path of a
+`libportaudio` build when autodetection fails:
+
+```bash
+STEMSEPARATOR_PORTAUDIO_LIBRARY=/usr/lib/x86_64-linux-gnu/libportaudio.so.2 \
+    python -m src --input song.wav --verbose
+```
+
+`python -m src --verbose` always prints `pyaudio: real PyAudio in use`,
+`pyaudio: offline stub (...)` or `pyaudio: unavailable (...)` to stderr so the
+difference is visible in the app log.
 
 ## CLI Options
 

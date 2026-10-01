@@ -247,26 +247,47 @@ class RecordingWidget(QWidget):
         for device in devices:
             self.device_combo.addItem(device, userData=device)
 
-        # Auto-select best default option:
-        # 1. ScreenCaptureKit if available (best option for system audio)
-        # 2. BlackHole if available (traditional system audio)
-        # 3. First device otherwise
-        if screencapture_available:
-            self.device_combo.setCurrentIndex(0)  # ScreenCaptureKit
+        # Auto-select, in order: the device saved in settings, this platform's
+        # system-audio endpoint, ScreenCaptureKit, then the first entry.
+        # WHY not BlackHole-first: on Windows/Linux BlackHole never exists, so the
+        # old default left an arbitrary microphone selected and users recorded the
+        # room while believing they captured system audio.
+        saved = self.ctx.settings_manager().get_recording_device()
+        system_device = backend_info.get("system_audio_device")
+        preferred = saved or system_device
+
+        selected_index = -1
+        if preferred:
+            needle = preferred.replace(" [System Audio]", "").casefold()
+            for i in range(self.device_combo.count()):
+                text = (self.device_combo.itemText(i) or "").casefold()
+                data = self.device_combo.itemData(i)
+                if data == "__screencapture__":
+                    continue
+                if needle and (needle in text or text in needle):
+                    selected_index = i
+                    break
+
+        if selected_index < 0 and screencapture_available:
+            selected_index = 0
             self.ctx.logger().info(
                 "Auto-selected ScreenCaptureKit for system audio recording"
             )
-        else:
-            # Try to select BlackHole
-            blackhole_device = self.recorder.find_blackhole_device()
-            if blackhole_device:
-                for i in range(self.device_combo.count()):
-                    if "blackhole" in self.device_combo.itemText(i).lower():
-                        self.device_combo.setCurrentIndex(i)
-                        break
+        if selected_index < 0:
+            for i in range(self.device_combo.count()):
+                if "[System Audio]" in (self.device_combo.itemText(i) or ""):
+                    selected_index = i
+                    break
+        if selected_index < 0:
+            selected_index = 0
 
-        device_count = len(devices) + (1 if screencapture_available else 0)
-        self.ctx.logger().info(f"Refreshed devices: {device_count} found")
+        self.device_combo.setCurrentIndex(selected_index)
+        self.ctx.logger().info(
+            f"Refreshed devices: {len(devices) + (1 if screencapture_available else 0)}"
+            f" found, selected "
+            f"{self.device_combo.itemText(selected_index)!r} "
+            f"(backend: {backend_info.get('backend')})"
+        )
 
     @Slot()
     def _on_output_browse_clicked(self):
@@ -285,9 +306,13 @@ class RecordingWidget(QWidget):
         WHY: Allows users to see input levels before starting recording
              Only monitors when tab is active to save resources
         """
-        # Get selected device and remember it
+        # Get selected device and remember it (persisted so the choice survives
+        # restarts — REC-01 requires the selected input/system source to stick).
         device_data = self.device_combo.currentData()
         self._last_selected_device = device_data
+        if device_data and device_data != "__screencapture__":
+            self.ctx.settings_manager().set_recording_device(device_data)
+            self.ctx.settings_manager().save()
 
         if not device_data:
             # No device selected (e.g., "No devices found")
@@ -378,15 +403,63 @@ class RecordingWidget(QWidget):
             else:
                 self.ctx.logger().info(f"Recording started with device: {device_name}")
         else:
-            error_msg = (
-                "Failed to start recording.\n\n"
-                "If using ScreenCaptureKit:\n"
-                "• Grant Screen Recording permission in System Settings\n"
-                "• Privacy & Security → Screen Recording\n\n"
-                "If using BlackHole:\n"
-                "• Check that BlackHole is configured correctly"
-            )
-            QMessageBox.critical(self, "Recording Failed", error_msg)
+            QMessageBox.critical(self, "Recording Failed", self._recording_failure_help())
+
+    def _recording_failure_help(self) -> str:
+        """
+        Actionable guidance for a failed start, worded for the running OS.
+
+        WHY: the previous text only mentioned ScreenCaptureKit and BlackHole, so a
+        Windows/Linux user was told to grant macOS permissions. REC-03 requires the
+        message to name the mechanism that actually applies.
+        """
+        info = self.recorder.get_backend_info()
+        reason = info.get("last_error") or info.get("soundcard_error") or "unknown reason"
+        lines = [f"Failed to start recording.\n\nReason: {reason}", ""]
+
+        if info.get("platform") == "macOS":
+            lines += [
+                "ScreenCaptureKit (macOS 13+):",
+                "• Grant Screen Recording permission:",
+                "  Privacy & Security → Screen Recording",
+                "  then relaunch StemSeparator",
+                "",
+                "BlackHole:",
+                "• Install BlackHole 2CH and re-open Audio MIDI Setup",
+                "• Select it as the recording device here",
+            ]
+        elif info.get("platform") == "Windows":
+            lines += [
+                "System audio (WASAPI/MediaFoundation loopback):",
+                "• Choose the '<your speakers> [System Audio]' entry above",
+                "• Close apps holding the output in exclusive mode",
+                "• Set the format to 2-channel / 44.1 or 48 kHz",
+                "  (Sound → Properties → Advanced)",
+                "",
+                "Microphone:",
+                "• Settings → Privacy & security → Microphone:",
+                "  allow desktop apps to access the microphone",
+            ]
+        else:
+            lines += [
+                "System audio (PulseAudio/PipeWire monitor):",
+                "• Choose the 'Monitor of … [System Audio]' entry above",
+                "• If none exist, the sink has no monitor source — enable it in",
+                "  pavucontrol (Configuration) or load module-null-sink",
+                "",
+                "Microphone:",
+                "• Check the device is not muted or held by another capture",
+                "• Confirm your session can reach PipeWire/PulseAudio",
+            ]
+
+        if not info.get("soundcard_available", True):
+            lines += [
+                "",
+                "The capture library (soundcard) failed to load on this system;",
+                "no audio capture is possible until that is resolved.",
+            ]
+
+        return "\n".join(lines)
 
     @Slot()
     def _on_pause_clicked(self):

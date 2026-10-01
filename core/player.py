@@ -9,7 +9,7 @@ MIGRATION: Migrated from rtmixer to sounddevice.play() for simpler implementatio
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Optional, Dict, Callable
+from typing import Optional, Dict, Callable, List, Union
 from dataclasses import dataclass
 from enum import Enum
 import threading
@@ -50,6 +50,24 @@ class PlaybackInfo:
     duration_seconds: float
     state: PlaybackState
 
+
+@dataclass
+class AudioDeviceInfo:
+    """An output device as exposed by PortAudio."""
+
+    index: int
+    name: str
+    host_api: str
+    max_channels: int
+    default_sample_rate: float
+    is_default: bool = False
+
+    @property
+    def label(self) -> str:
+        return f"{self.name} ({self.host_api}, {self.max_channels}ch)"
+
+    def __repr__(self) -> str:
+        return self.label
 
 class AudioPlayer:
     """
@@ -109,14 +127,16 @@ class AudioPlayer:
         self.state_callback: Optional[Callable[[PlaybackState], None]] = None
 
         # Sounddevice for playback
+        self._output_device: Optional[int] = None
+        self.last_error: Optional[str] = None
         self._sounddevice_module = None
         self._active_actions = []  # Track active playback for cancellation
-        self._import_rtmixer()
+        self._import_sounddevice()
 
         self.logger.info("AudioPlayer initialized with sounddevice")
 
-    def _import_rtmixer(self) -> bool:
-        """Import sounddevice library for playback"""
+    def _import_sounddevice(self) -> bool:
+        """Import the sounddevice library for playback"""
         try:
             import sounddevice as sd
 
@@ -163,6 +183,279 @@ class AudioPlayer:
             )
             self._sounddevice_module = None
             return False
+
+    # ------------------------------------------------------------------
+    # Output device management
+    # ------------------------------------------------------------------
+
+    def list_output_devices(self) -> List[AudioDeviceInfo]:
+        """
+        Enumerate playable output devices.
+
+        WHY: Windows exposes the same endpoint through several host APIs and
+        Linux exposes hardware through ALSA *and* PulseAudio, so the UI must
+        show the host API next to the name — otherwise users select the wrong
+        'Speakers' entry and hear nothing.
+        """
+        sd = self._sounddevice_module
+        if sd is None:
+            return []
+
+        try:
+            devices = sd.query_devices()
+            default_index = sd.default.device[1]
+        except Exception as exc:
+            self.last_error = f"Could not query audio devices: {exc}"
+            self.logger.error(self.last_error)
+            return []
+
+        result: List[AudioDeviceInfo] = []
+        for index, info in enumerate(devices):
+            if info.get("max_output_channels", 0) <= 0:
+                continue
+            try:
+                host_api = sd.query_hostapis(info["hostapi"])["name"]
+            except Exception:  # pragma: no cover - malformed hostapi entry
+                host_api = "Unknown"
+            result.append(
+                AudioDeviceInfo(
+                    index=index,
+                    name=info["name"],
+                    host_api=host_api,
+                    max_channels=int(info["max_output_channels"]),
+                    default_sample_rate=float(info.get("default_samplerate") or 0.0),
+                    is_default=(index == default_index),
+                )
+            )
+        return result
+
+    def set_output_device(self, device: Optional[Union[int, str]]) -> tuple:
+        """
+        Choose the output device for stem playback.
+
+        Args:
+            device: index, name substring (case-insensitive), or None for the
+                    system default output.
+
+        Returns:
+            (success, message); the UI displays the message verbatim so a bad
+            choice never looks like a silent failure.
+        """
+        if self._sounddevice_module is None:
+            self._output_device = None
+            self.last_error = "sounddevice/PortAudio unavailable; playback disabled."
+            return False, self.last_error
+
+        available = self.list_output_devices()
+
+        if device is None:
+            self._output_device = None
+            self.last_error = None
+            default = next((d for d in available if d.is_default), None)
+            if default is not None:
+                return True, f"Using system default output: '{default.name}' ({default.host_api})"
+            return True, "Using system default output"
+
+        match: Optional[AudioDeviceInfo] = None
+        if isinstance(device, int):
+            match = next((d for d in available if d.index == device), None)
+        else:
+            needle = str(device).strip().casefold()
+            match = next((d for d in available if needle in d.name.casefold()), None)
+
+        if match is None:
+            names = ", ".join(f"{d.index}:{d.name} [{d.host_api}]" for d in available)
+            self.last_error = (
+                f"Output device {device!r} not found. Available: {names or 'none'}"
+            )
+            self.logger.error(self.last_error)
+            return False, self.last_error
+
+        self._output_device = match.index
+        self.last_error = None
+        self.logger.info(
+            f"Output device selected: #{match.index} '{match.name}' "
+            f"({match.host_api}, {match.default_sample_rate:.0f} Hz)"
+        )
+        return True, f"Using '{match.name}' ({match.host_api})"
+
+    def get_output_device(self) -> Optional[int]:
+        """Pinned output device index, or None when following the system default."""
+        return self._output_device
+
+    def get_output_device_name(self) -> Optional[str]:
+        """Name of the pinned output, or None when following the system default."""
+        if self._output_device is None:
+            return None
+        for device in self.list_output_devices():
+            if device.index == self._output_device:
+                return device.name
+        return None
+
+    def _device_sample_rate(self, device_index: Optional[int]) -> Optional[float]:
+        """Native/default sample rate of a device, used for rate recovery."""
+        sd = self._sounddevice_module
+        if sd is None:
+            return None
+        try:
+            target = device_index if device_index is not None else sd.default.device[1]
+            info = sd.query_devices(target)
+            rate = float(info.get("default_samplerate") or 0.0)
+            return rate if rate > 0 else None
+        except Exception:
+            return None
+
+
+    def _candidate_rates(self, device_index: Optional[int]) -> List[float]:
+        """
+        Rates worth trying after a sample-rate rejection.
+
+        WHY: a WASAPI shared endpoint can refuse 44.1 kHz while still reporting
+        `default_samplerate == 44100` (its real mix format is 48 kHz), so the
+        recovery rate is probed from PortAudio instead of trusting that single
+        number. Order: device default, PortAudio's suggested best pair, then the
+        common audio rates.
+        """
+        sd = self._sounddevice_module
+        rates: List[float] = []
+
+        native = self._device_sample_rate(device_index)
+        if native:
+            rates.append(native)
+
+        if sd is not None:
+            try:
+                target = (
+                    device_index if device_index is not None else sd.default.device[1]
+                )
+                best = sd.available_sample_rates(target)
+                if best:
+                    rates.extend(float(r) for r in best)
+            except Exception:
+                pass
+
+        rates.extend([48000.0, 44100.0, 32000.0])
+
+        unique: List[float] = []
+        for rate in rates:
+            if rate > 0 and rate not in unique:
+                unique.append(rate)
+        return [r for r in unique if r != float(self.sample_rate)]
+
+    @staticmethod
+    def _is_sample_rate_error(message: str) -> bool:
+        """
+        Detect a PortAudio sample-rate rejection.
+
+        WHY: Windows WASAPI shared-mode endpoints often refuse any rate other
+        than their endpoint mix format (typically 48 kHz) while the app renders
+        at 44.1 kHz; recognising that error lets us resample instead of dying.
+        """
+        lowered = (message or "").lower()
+        return "sample rate" in lowered or "samplerate" in lowered
+
+    def _resample_to(self, audio: np.ndarray, target_rate: float) -> np.ndarray:
+        """
+        Resample rendered audio for one device only.
+
+        Position/mixing math keeps running at `self.sample_rate`; this affects
+        the buffer handed to PortAudio, so seeking and the waveform display are
+        unaffected by the device's native rate.
+        """
+        if target_rate <= 0 or target_rate == self.sample_rate or audio.size == 0:
+            return audio
+        try:
+            from math import gcd
+
+            from scipy.signal import resample_poly
+
+            source = int(self.sample_rate)
+            target = int(round(target_rate))
+            divisor = gcd(source, target) or 1
+            resampled = resample_poly(audio, target // divisor, source // divisor, axis=0)
+            return np.asarray(resampled, dtype=np.float32)
+        except Exception as exc:
+            self.logger.warning(f"Resampling to {target_rate:.0f} Hz failed: {exc}")
+            return audio
+
+    def _play_array(self, audio: np.ndarray, context: str = "Playback") -> bool:
+        """
+        Start non-blocking playback on the selected output device.
+
+        WHY this exists: `sounddevice.play()` used to be wrapped in a bare
+        `except` that logged and returned, while callers set the player state to
+        PLAYING anyway — the UI then showed a running transport with no sound.
+        Callers must honour the return value; every failure names the device and
+        the reason in `last_error`.
+
+        Recovery order (each attempt logged, never silent): pinned device at the
+        rendered rate, pinned device resampled to each plausible device rate,
+        then the same for the system default output.
+        """
+        sd = self._sounddevice_module
+        if sd is None:
+            self.last_error = "sounddevice/PortAudio unavailable; cannot play audio."
+            self.logger.error(self.last_error)
+            return False
+
+        candidates: List[Optional[int]] = []
+        if self._output_device is not None:
+            candidates.append(self._output_device)
+        try:
+            default_index = sd.default.device[1]
+        except Exception:
+            default_index = None
+        if default_index is not None and default_index not in candidates:
+            candidates.append(default_index)
+        if not candidates:
+            candidates.append(None)
+
+        last_error: Optional[str] = None
+        for device in candidates:
+            try:
+                sd.play(audio, samplerate=self.sample_rate, device=device, blocking=False)
+                self.last_error = None
+                self.logger.info(
+                    f"{context} started on output #{device} @ {self.sample_rate} Hz"
+                )
+                return True
+            except Exception as exc:
+                last_error = str(exc)
+                self.logger.warning(
+                    f"{context} failed on output #{device}: {last_error}"
+                )
+
+            if last_error is not None and self._is_sample_rate_error(last_error):
+                for rate in self._candidate_rates(device):
+                    try:
+                        sd.play(
+                            self._resample_to(audio, rate),
+                            samplerate=rate,
+                            device=device,
+                            blocking=False,
+                        )
+                        self.last_error = None
+                        self.logger.info(
+                            f"{context} started on output #{device} after resampling "
+                            f"{self.sample_rate:.0f} -> {rate:.0f} Hz (device rejected "
+                            "the requested rate)"
+                        )
+                        return True
+                    except Exception as rate_exc:
+                        last_error = str(rate_exc)
+                        self.logger.debug(
+                            f"{context} rejected {rate:.0f} Hz on output "
+                            f"#{device}: {last_error}"
+                        )
+                        continue
+
+        self.last_error = (
+            f"No output device could play audio (last error: {last_error}). "
+            "Check that a playback device is connected and not held in WASAPI "
+            "exclusive mode."
+        )
+        self.logger.error(self.last_error)
+        return False
 
     def load_stems(self, stem_files: Dict[str, Path]) -> bool:
         """
@@ -447,7 +740,10 @@ class AudioPlayer:
 
         try:
             # Start playback from current position (using sounddevice)
-            self._start_playback_from_position()
+            if not self._start_playback_from_position():
+                # WHY: never enter PLAYING without a started stream — the UI
+                # transport and the position clock must reflect real audio.
+                raise RuntimeError(self.last_error or "output device rejected playback")
 
             self.state = PlaybackState.PLAYING
 
@@ -482,10 +778,11 @@ class AudioPlayer:
 
         self._active_actions.clear()
 
-    def _start_playback_from_position(self):
+    def _start_playback_from_position(self) -> bool:
         """Start playback from current position (internal helper) using sounddevice"""
         if self._sounddevice_module is None:
-            return
+            self.last_error = "sounddevice/PortAudio unavailable; cannot play audio."
+            return False
 
         # Clear previous actions
         self._active_actions.clear()
@@ -503,8 +800,9 @@ class AudioPlayer:
         mixed_audio = self._mix_stems(start_sample, end_sample)
 
         if mixed_audio.shape[1] == 0:
+            self.last_error = "Nothing to play (empty buffer)."
             self.logger.warning("No audio to play (empty buffer)")
-            return
+            return False
 
         # Transpose to (samples, channels) for sounddevice
         chunk_for_playback = mixed_audio.T.astype(np.float32)
@@ -515,27 +813,7 @@ class AudioPlayer:
             f"peak level: {np.max(np.abs(chunk_for_playback)):.3f}"
         )
 
-        # Use sounddevice.play() for simple playback (non-blocking)
-        try:
-            sd = self._sounddevice_module
-
-            # Get default output device
-            default_device = sd.default.device[1]
-
-            # Play audio using sounddevice (simpler than rtmixer for pre-loaded audio)
-            sd.play(
-                chunk_for_playback,
-                samplerate=self.sample_rate,
-                device=default_device,
-                blocking=False,  # Non-blocking to allow UI updates
-            )
-
-            self.logger.info(
-                f"Started playback with sounddevice.play() on device #{default_device}"
-            )
-
-        except Exception as e:
-            self.logger.error(f"Failed to play via sounddevice: {e}", exc_info=True)
+        return self._play_array(chunk_for_playback, "Playback")
 
     def _position_update_loop(self):
         """Thread loop for updating position (runs separately from audio)"""
@@ -585,7 +863,18 @@ class AudioPlayer:
                             self.position_samples = self.loop_start_samples
 
                             # Restart playback
-                            self._play_cached_loop()
+                            if not self._play_cached_loop():
+                                # WHY: a failed restart must stop the clock;
+                                # continuing would move the transport with no
+                                # audio behind it.
+                                self.logger.error(
+                                    f"Loop restart failed: {self.last_error}"
+                                )
+                                self._stop_update.set()
+                                self.state = PlaybackState.STOPPED
+                                if self.state_callback:
+                                    self.state_callback(self.state)
+                                return
                         else:
                             # Wrap position to show correct UI position within single loop
                             pos_in_single = (
@@ -617,7 +906,15 @@ class AudioPlayer:
                                 start_position = self.loop_start_samples
                                 start_time = time.perf_counter()
 
-                                self._start_playback_from_position()
+                                if not self._start_playback_from_position():
+                                    self.logger.error(
+                                        f"Loop restart failed: {self.last_error}"
+                                    )
+                                    self._stop_update.set()
+                                    self.state = PlaybackState.STOPPED
+                                    if self.state_callback:
+                                        self.state_callback(self.state)
+                                    return
                         else:
                             # Normal mode, clamp to track duration
                             self.position_samples = min(
@@ -777,9 +1074,12 @@ class AudioPlayer:
         try:
             # Use cached loop audio if available (for repeat mode)
             if self._loop_cached_audio is not None:
-                self._play_cached_loop()
+                started = self._play_cached_loop()
             else:
-                self._start_playback_from_position()
+                started = self._start_playback_from_position()
+
+            if not started:
+                raise RuntimeError(self.last_error or "output device rejected loop playback")
 
             # Update state
             self.state = PlaybackState.PLAYING
@@ -799,26 +1099,12 @@ class AudioPlayer:
             self.logger.error(f"Failed to start loop playback: {e}", exc_info=True)
             return False
 
-    def _play_cached_loop(self):
+    def _play_cached_loop(self) -> bool:
         """Play cached loop audio without re-mixing (for fast loop repeat)"""
         if self._loop_cached_audio is None or self._sounddevice_module is None:
-            return
+            return False
 
-        try:
-            sd = self._sounddevice_module
-            default_device = sd.default.device[1]
-
-            sd.play(
-                self._loop_cached_audio,
-                samplerate=self.sample_rate,
-                device=default_device,
-                blocking=False,
-            )
-
-            self.logger.debug("Restarted cached loop playback")
-
-        except Exception as e:
-            self.logger.error(f"Failed to play cached loop: {e}", exc_info=True)
+        return self._play_array(self._loop_cached_audio, "Loop playback")
 
     def set_loop_mode(
         self, enabled: bool, start_sec: float = 0.0, end_sec: Optional[float] = None

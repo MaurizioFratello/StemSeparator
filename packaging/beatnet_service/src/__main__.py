@@ -14,18 +14,65 @@ Options:
     --max-duration SEC  Limit analysis to first N seconds
     --device DEVICE     Device: auto|mps|cuda|cpu (default: auto)
     --verbose           Enable verbose logging to stderr
+
+All diagnostics go to stderr; stdout carries only the JSON document so the
+client can parse it unconditionally.
 """
-import sys
+import importlib.util
 import json
-import argparse
+import os
+import sys
 import time
+import argparse
 from pathlib import Path
 from typing import Optional
 
-try:
-    from device import resolve_device
-except ImportError:
-    from src.device import resolve_device
+_SRC_DIR = Path(__file__).resolve().parent
+
+
+def _import_sibling(name: str):
+    """
+    Import ``src/<name>.py`` under its bare name, frozen or from source.
+
+    WHY: the PyInstaller binary puts ``src/`` first on ``sys.path`` so
+         ``import device`` works there, while a source run
+         (``python -m src`` from ``packaging/beatnet_service``) only resolves
+         ``src.device``. Loading by file path removes the ambiguity and - for
+         ``pyaudio`` - guarantees that BeatNet's module-level
+         ``import pyaudio`` lands on the conditional shim instead of a broken
+         site-packages build.
+    """
+    path = _SRC_DIR / f"{name}.py"
+    existing = sys.modules.get(name)
+    if existing is not None and str(getattr(existing, "__file__", "")) == str(path):
+        return existing
+    spec = importlib.util.spec_from_file_location(name, str(path))
+    if spec is None or spec.loader is None:  # pragma: no cover - missing file
+        raise ImportError(f"Cannot load {path}")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[name] = module
+    try:
+        spec.loader.exec_module(module)
+    except BaseException:
+        sys.modules.pop(name, None)
+        raise
+    return module
+
+
+_device_module = _import_sibling("device")
+DeviceUnavailable = _device_module.DeviceUnavailable
+resolve_device_with_reason = _device_module.resolve_device_with_reason
+describe_best_device = _device_module.describe_best_device
+
+# Import `pyaudio` (our conditional shim) before BeatNet so its module-level
+# `import pyaudio` cannot fail on machines without PortAudio.
+_pyaudio_module = _import_sibling("pyaudio")
+
+# BeatNet imports `matplotlib.pyplot` at module scope. WHY: in a service there
+# is no windowing toolkit; pinning the Agg backend before the import stops
+# matplotlib from probing Cocoa/Qt/Tk and dying with "no display" on headless
+# Linux or in a console-less Windows build.
+os.environ.setdefault("MPLBACKEND", "Agg")
 
 
 def parse_args() -> argparse.Namespace:
@@ -66,7 +113,18 @@ def parse_args() -> argparse.Namespace:
 def log(message: str, verbose: bool = False) -> None:
     """Log message to stderr if verbose mode is enabled."""
     if verbose:
-        print(f"[beatnet-service] {message}", file=sys.stderr)
+        print(f"[beatnet-service] {message}", file=sys.stderr, flush=True)
+
+
+def report(message: str) -> None:
+    """
+    Emit an always-on diagnostic line to stderr.
+
+    WHY: the client relays stderr into the app log, and the operator must be
+         able to tell from the log which device and which PyAudio tier were
+         used without re-running with `--verbose`.
+    """
+    print(f"[beatnet-service] {message}", file=sys.stderr, flush=True)
 
 
 def output_error(error_type: str, message: str, details: Optional[dict] = None) -> None:
@@ -213,9 +271,23 @@ def main() -> None:
             {"path": str(args.input)},
         )
 
-    # Resolve device
-    device = resolve_device(args.device)
-    log(f"Using device: {device} (requested: {args.device})", args.verbose)
+    report(_pyaudio_module.describe())
+
+    # Resolve device: a pin that cannot be honoured is an error, never CPU.
+    try:
+        device, device_reason = resolve_device_with_reason(args.device)
+    except DeviceUnavailable as exc:
+        auto_device, auto_reason = describe_best_device()
+        output_error(
+            "DeviceError",
+            str(exc),
+            {
+                "requested": args.device,
+                "auto": auto_device,
+                "auto_reason": auto_reason,
+            },
+        )
+    report(f"Using device: {device} (requested: {args.device}) - {device_reason}")
 
     try:
         # Run analysis

@@ -14,15 +14,25 @@ from utils.logger import get_logger
 
 logger = get_logger()
 
-# Try to import DeepRhythm for enhanced BPM detection
+# DeepRhythm is optional, and its import chain also pulls in torchaudio. A
+# mismatched torch/torchaudio pair - or a CPU-only wheel on a GPU box - answers
+# with OSError/RuntimeError from the native library loader rather than
+# ImportError, so catching only ImportError used to take this whole module (and
+# with it the GUI) down at import time. All of those failures mean the same
+# thing: DeepRhythm cannot be used, so `detect_bpm` falls back to librosa.
 try:
     from deeprhythm import DeepRhythmPredictor
 
     DEEPRHYTHM_AVAILABLE = True
+    _deeprhythm_import_error = None
     logger.info("DeepRhythm available for BPM detection")
-except ImportError:
+except (ImportError, OSError, RuntimeError) as exc:
+    DeepRhythmPredictor = None
     DEEPRHYTHM_AVAILABLE = False
-    logger.info("DeepRhythm not available, using librosa for BPM detection")
+    _deeprhythm_import_error = f"{type(exc).__name__}: {exc}"
+    logger.warning(
+        f"DeepRhythm not available, using librosa for BPM detection ({_deeprhythm_import_error})"
+    )
 
 # Global DeepRhythm predictor (lazy loaded)
 _deeprhythm_predictor = None
@@ -355,6 +365,30 @@ def export_audio_chunks(
     return chunk_paths
 
 
+def _deeprhythm_device() -> Optional[str]:
+    """
+    Resolve the DeepRhythm inference device through the app device policy.
+
+    WHY: this used to hand-roll a `torch.cuda.is_available()` / MPS probe, so
+         the two PyTorch users in the app (separation and BPM) could disagree,
+         and an unavailable pin silently degraded to CPU. Routing through
+         `core.device_manager` (reusing the beat-service client's resolver)
+         makes DeepRhythm CUDA-preferred on Windows/Linux, MPS-preferred on
+         macOS, honours the `compute_device`/`use_gpu` settings and refuses a
+         bad pin instead of quietly downgrading.
+
+    Returns:
+        'cuda', 'mps' or 'cpu', or None when the request was refused.
+    """
+    from utils.beat_service_client import _select_device
+
+    try:
+        return _select_device("auto")
+    except Exception as exc:  # BeatServiceError / import failure while probing
+        logger.error(f"DeepRhythm device request refused: {exc}")
+        return None
+
+
 def _get_deeprhythm_predictor():
     """
     Lazy-load the DeepRhythm predictor model.
@@ -365,26 +399,19 @@ def _get_deeprhythm_predictor():
     global _deeprhythm_predictor
 
     if not DEEPRHYTHM_AVAILABLE:
+        # Surface *why* the optional dependency is unusable: a broken native
+        # pairing is a support question users can act on, a missing package is
+        # not, and the app should say which one happened.
+        if _deeprhythm_import_error:
+            logger.debug(f"DeepRhythm predictor unavailable: {_deeprhythm_import_error}")
         return None
 
     if _deeprhythm_predictor is None:
+        device = _deeprhythm_device()
+        if device is None:
+            # Refused pin: `detect_bpm` reports the librosa source instead.
+            return None
         try:
-            # Try to use GPU acceleration if available
-            # Priority: CUDA (NVIDIA) > MPS (Apple Silicon) > CPU
-            try:
-                import torch
-
-                if torch.cuda.is_available():
-                    device = "cuda"
-                elif (
-                    hasattr(torch.backends, "mps") and torch.backends.mps.is_available()
-                ):
-                    device = "mps"  # Apple Silicon (M1/M2/M3)
-                else:
-                    device = "cpu"
-            except ImportError:
-                device = "cpu"
-
             _deeprhythm_predictor = DeepRhythmPredictor(device=device)
             logger.info(f"DeepRhythm model loaded on {device}")
         except Exception as e:

@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Auto-BPM / Beat Service - Linux and Windows**
+  - The bundled BeatNet helper now runs on Linux and Windows, not only macOS: it is
+    discovered as a binary (`.exe` on Windows), from the frozen bundle, from `PATH`,
+    or executed from source with `python -m src`
+  - Beat analysis now follows the app-wide device policy (`compute_device`,
+    `use_gpu`): CUDA-preferred on Linux/Windows, MPS-preferred on macOS, CPU
+    otherwise; a device that cannot be honoured is reported instead of silently
+    downgrading to CPU
+  - The helper no longer needs a working microphone: `src/pyaudio.py` uses real
+    PyAudio when it loads and otherwise preloads PortAudio
+    (override: `STEMSEPARATOR_PORTAUDIO_LIBRARY`) and installs an offline stub, so
+    `pyaudio`-importing BeatNet still analyses files
+  - Cancelling or timing out an analysis no longer orphans the helper's worker
+    processes (and their GPU memory); the whole process group is drained
+  - `detect_bpm` survives a broken DeepRhythm/torchaudio install - it used to raise
+    out of the module import - and reports why it fell back to librosa
+
 ### Planned
 - Windows/Linux support for system audio recording
 - Additional AI models (MDX-Net variations, VR Architecture)

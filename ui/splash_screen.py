@@ -206,9 +206,18 @@ class SplashScreen(QSplashScreen):
         painter.drawRoundedRect(box_x, box_y, box_width, box_height, radius, radius)
 
         # Text settings - white text for good contrast
+        from PySide6.QtWidgets import QApplication
+
         font = QFont()
         font.setPointSize(11)
-        font.setFamily("SF Pro Display, Helvetica Neue, Arial")  # macOS system font
+        # WHY not a literal family list: QFont.setFamily() does not parse CSS-style
+        # fallback chains, so "SF Pro Display, Helvetica Neue, Arial" never resolved
+        # outside macOS. Take the application default instead, which Qt maps to
+        # SF Pro on macOS, Segoe UI on Windows and the system sans on Linux.
+        app_instance = QApplication.instance()
+        font.setFamily(
+            app_instance.font().family() if app_instance else QFont().defaultFamily()
+        )
         font.setWeight(QFont.Weight.Medium)
         painter.setFont(font)
         painter.setPen(QColor(255, 255, 255))  # White text for maximum contrast

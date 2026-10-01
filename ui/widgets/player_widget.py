@@ -32,6 +32,7 @@ from PySide6.QtWidgets import (
     QStackedWidget,
     QSpinBox,
     QCheckBox,
+    QComboBox,
     QApplication,
 )
 from PySide6.QtCore import Qt, Signal, Slot, QTimer, QRunnable, QThreadPool, QObject
@@ -716,6 +717,37 @@ class PlayerWidget(QWidget):
         buttons_layout.addStretch()
         controls_layout.addLayout(buttons_layout)
 
+        # Output device (PLY-01): Windows/Linux expose several host APIs for the
+        # same speakers, so the picker is mandatory UI — without it a wrong ALSA
+        # sink silently means "no sound".
+        device_row = QHBoxLayout()
+        device_row.addWidget(QLabel("Output:"))
+        self.device_combo = QComboBox()
+        self.device_combo.setToolTip(
+            "Which speaker/interface plays the stems. The host API is shown "
+            "because the same device can appear several times."
+        )
+        self.device_combo.setMinimumWidth(260)
+        self.device_combo.activated.connect(self._on_output_device_selected)
+        device_row.addWidget(self.device_combo, stretch=1)
+
+        self.btn_refresh_devices = QPushButton("Refresh")
+        self.btn_refresh_devices.setToolTip("Re-scan audio output devices")
+        ThemeManager.set_widget_property(
+            self.btn_refresh_devices, "buttonStyle", "secondary"
+        )
+        self.btn_refresh_devices.clicked.connect(self._populate_output_devices)
+        device_row.addWidget(self.btn_refresh_devices)
+        controls_layout.addLayout(device_row)
+
+        self.device_status_label = QLabel("")
+        self.device_status_label.setWordWrap(True)
+        ThemeManager.set_widget_property(
+            self.device_status_label, "labelStyle", "caption"
+        )
+        controls_layout.addWidget(self.device_status_label)
+        self._populate_output_devices()
+
         tab_layout.addWidget(controls_card)
 
         # Info label
@@ -725,6 +757,94 @@ class PlayerWidget(QWidget):
         tab_layout.addWidget(self.info_label)
 
         return tab
+
+    # ------------------------------------------------------------------
+    # Output device selection (PLY-01)
+    # ------------------------------------------------------------------
+
+    def _populate_output_devices(self):
+        """
+        Fill the output combo from PortAudio and restore the saved choice.
+
+        WHY re-scan on demand: hot-plugging USB/Bluetooth outputs does not notify
+        PortAudio, so a manual refresh is the only way to see a newly connected
+        speaker without restarting the app.
+        """
+        if not hasattr(self, "device_combo"):
+            return
+
+        self.device_combo.blockSignals(True)
+        self.device_combo.clear()
+
+        devices = self.player.list_output_devices()
+        self.device_combo.addItem(
+            self.ctx.translate(
+                "playback.system_default_output", "System default output"
+            ),
+            None,
+        )
+        for device in devices:
+            label = f"{device.name} ({device.host_api}, {device.max_channels}ch)"
+            if device.is_default:
+                label += " • " + self.ctx.translate(
+                    "playback.default_output_suffix", "default"
+                )
+            self.device_combo.addItem(label, device.name)
+
+        saved = self.ctx.settings_manager().get_playback_device()
+        index = self.device_combo.findData(saved)
+        if index < 0:
+            if saved:
+                self.ctx.logger().warning(
+                    f"Saved playback device {saved!r} is not present; "
+                    "using the system default"
+                )
+            index = 0
+        self.device_combo.setCurrentIndex(index)
+        self.device_combo.blockSignals(False)
+
+        applied, message = self.player.set_output_device(saved if index else None)
+        self._set_device_status(applied, message, len(devices))
+
+    def _on_output_device_selected(self, index: int):
+        """Apply and persist the chosen output device immediately."""
+        name = self.device_combo.itemData(index)
+        applied, message = self.player.set_output_device(name)
+
+        if applied:
+            self.ctx.settings_manager().set_playback_device(name)
+            self.ctx.settings_manager().save()
+            # Restarting makes the change audible right away instead of only on
+            # the next play, which is how users expect a device picker to behave.
+            if self.player.state == PlaybackState.PLAYING:
+                self.player.stop()
+                self.player.play()
+        elif name is not None:
+            # Keep the combo honest: revert to the device actually in use.
+            current = self.device_combo.findData(self.player.get_output_device_name())
+            self.device_combo.setCurrentIndex(max(current, 0))
+
+        self._set_device_status(applied, message, self.device_combo.count() - 1)
+
+    def _set_device_status(self, ok: bool, message: str, device_count: int):
+        """One-line device summary under the transport controls."""
+        if not hasattr(self, "device_status_label"):
+            return
+        if ok:
+            suffix = (
+                ""
+                if device_count
+                else " "
+                + self.ctx.translate(
+                    "playback.no_output_devices_hint",
+                    "(no output devices detected)",
+                )
+            )
+            self.device_status_label.setText(f"{message}{suffix}")
+            self.device_status_label.setStyleSheet("color: #6fbf7f;")
+        else:
+            self.device_status_label.setText(message)
+            self.device_status_label.setStyleSheet("color: #e06c60;")
 
     def _create_loop_preview_tab(self) -> QWidget:
         """Create loop preview tab with waveform visualization"""

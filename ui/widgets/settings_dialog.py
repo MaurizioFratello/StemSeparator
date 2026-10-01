@@ -211,6 +211,31 @@ class SettingsDialog(QDialog):
         device_label.setStyleSheet("color: gray; font-size: 10pt;")
         gpu_layout.addWidget(device_label)
 
+        # Device picker
+        # WHY: a Windows/Linux machine can expose several GPUs (iGPU + dGPU) or
+        # none, and a broken CUDA-wheel/driver pairing still has to be visible.
+        # Users need to pin the device and see *why* it is or is not usable.
+        device_row = QHBoxLayout()
+        device_row.addWidget(QLabel("Compute device:"))
+        self.device_combo = QComboBox()
+        self.device_combo.addItem("Auto (best available)", userData="auto")
+        for info in device_mgr.list_available_devices():
+            if info.name == "cpu":
+                continue
+            self.device_combo.addItem(
+                f"{info.name.upper()} - {info.description}", userData=info.name
+            )
+        self.device_combo.addItem("CPU (Universal)", userData="cpu")
+        device_row.addWidget(self.device_combo, 1)
+        gpu_layout.addLayout(device_row)
+
+        self.device_status_label = QLabel()
+        self.device_status_label.setStyleSheet("color: gray; font-size: 9pt;")
+        self.device_status_label.setWordWrap(True)
+        gpu_layout.addWidget(self.device_status_label)
+        self._update_device_status()
+        self.device_combo.currentIndexChanged.connect(self._update_device_status)
+
         layout.addWidget(gpu_card)
 
         # Quality Settings Card
@@ -269,6 +294,44 @@ class SettingsDialog(QDialog):
         layout.addStretch()
         return widget
 
+
+    def _update_device_status(self):
+        """
+        Show what the current device choice means on this machine.
+
+        WHY: 'CUDA' in a dropdown is not information; users need the hardware
+        name and, when a device cannot be used, the reason (missing CUDA wheel
+        vs. missing driver) so the fix is actionable.
+        """
+        device_mgr = self.ctx.device_manager()
+        selected = self.device_combo.currentData() or "auto"
+
+        if selected == "auto":
+            active = device_mgr.get_device()
+            info = device_mgr.get_device_info(active)
+            self.device_status_label.setText(
+                f"Auto-select currently uses {info.description if info else active}."
+            )
+            return
+
+        info = device_mgr.get_device_info(selected)
+        if info is None:
+            self.device_status_label.setText(f"Unknown device '{selected}'.")
+        elif not info.available:
+            self.device_status_label.setText(
+                f"{selected.upper()} is not usable here: {info.description}"
+            )
+        else:
+            memory = (
+                f", {info.memory_gb:.1f} GB"
+                if getattr(info, "memory_gb", None)
+                else ""
+            )
+            self.device_status_label.setText(
+                f"{info.description}{memory} — separation will run on "
+                f"{selected.upper()}."
+            )
+
     def _create_audio_tab(self) -> QWidget:
         """Create audio settings tab"""
         widget = QWidget()
@@ -308,35 +371,67 @@ class SettingsDialog(QDialog):
         widget = QWidget()
         layout = QVBoxLayout(widget)
 
-        # BlackHole Status Card
-        blackhole_card, blackhole_layout = self._create_card("BlackHole Status")
+        # System-audio capture card. Its content is platform-specific by design:
+        # macOS needs a virtual driver (BlackHole), Windows/Linux expose an OS
+        # loopback endpoint that needs no installation, and telling Windows users
+        # to install a macOS driver is worse than saying nothing (REC-03).
+        from utils import platform_utils
 
-        self.blackhole_status_label = QLabel("")
-        self.blackhole_status_label.setWordWrap(True)
-        blackhole_layout.addWidget(self.blackhole_status_label)
+        self._is_macos = platform_utils.is_macos()
 
-        blackhole_buttons = QHBoxLayout()
-        self.btn_install_blackhole = QPushButton("⬇️ Install BlackHole")
-        ThemeManager.set_widget_property(
-            self.btn_install_blackhole, "buttonStyle", "secondary"
-        )
-        self.btn_setup_instructions = QPushButton("ℹ️  Setup Instructions")
-        ThemeManager.set_widget_property(
-            self.btn_setup_instructions, "buttonStyle", "secondary"
-        )
-        blackhole_buttons.addWidget(self.btn_install_blackhole)
-        blackhole_buttons.addWidget(self.btn_setup_instructions)
-        blackhole_buttons.addStretch()
-        blackhole_layout.addLayout(blackhole_buttons)
+        if self._is_macos:
+            blackhole_card, capture_layout = self._create_card("BlackHole Status")
 
-        blackhole_info = QLabel(
-            "BlackHole is required for system audio recording on macOS."
-        )
-        blackhole_info.setStyleSheet("color: gray; font-size: 10pt;")
-        blackhole_info.setWordWrap(True)
-        blackhole_layout.addWidget(blackhole_info)
+            self.blackhole_status_label = QLabel("")
+            self.blackhole_status_label.setWordWrap(True)
+            capture_layout.addWidget(self.blackhole_status_label)
 
-        layout.addWidget(blackhole_card)
+            blackhole_buttons = QHBoxLayout()
+            self.btn_install_blackhole = QPushButton("⬇️ Install BlackHole")
+            ThemeManager.set_widget_property(
+                self.btn_install_blackhole, "buttonStyle", "secondary"
+            )
+            self.btn_setup_instructions = QPushButton("ℹ️  Setup Instructions")
+            ThemeManager.set_widget_property(
+                self.btn_setup_instructions, "buttonStyle", "secondary"
+            )
+            blackhole_buttons.addWidget(self.btn_install_blackhole)
+            blackhole_buttons.addWidget(self.btn_setup_instructions)
+            blackhole_buttons.addStretch()
+            capture_layout.addLayout(blackhole_buttons)
+
+            blackhole_info = QLabel(
+                "BlackHole is required for system audio recording on macOS."
+            )
+            blackhole_info.setStyleSheet("color: gray; font-size: 10pt;")
+            blackhole_info.setWordWrap(True)
+            capture_layout.addWidget(blackhole_info)
+
+            layout.addWidget(blackhole_card)
+        else:
+            card, capture_layout = self._create_card("System Audio Capture")
+            self.capture_status_label = QLabel("")
+            self.capture_status_label.setWordWrap(True)
+            capture_layout.addWidget(self.capture_status_label)
+
+            platform_label = platform_utils.os_name()
+            mechanism = (
+                "Windows loopback endpoint (MediaFoundation/WASAPI-compatible)"
+                if platform_utils.is_windows()
+                else "PulseAudio/PipeWire monitor source"
+            )
+            info = QLabel(
+                f"System audio is captured from the {mechanism}. No virtual driver "
+                f"or extra installation is needed on {platform_label} — pick the "
+                "'[System Audio]' entry in the Recording tab."
+            )
+            info.setStyleSheet("color: gray; font-size: 10pt;")
+            info.setWordWrap(True)
+            capture_layout.addWidget(info)
+
+            layout.addWidget(card)
+
+            self._refresh_capture_status()
 
         # Diagnostics Card
         diag_card, diag_layout = self._create_card("Diagnostics")
@@ -366,8 +461,8 @@ class SettingsDialog(QDialog):
 
         layout.addStretch()
 
-        # Check BlackHole status after UI is set up
-        self._check_blackhole_status()
+        if self._is_macos:
+            self._check_blackhole_status()
 
         return widget
 
@@ -378,8 +473,9 @@ class SettingsDialog(QDialog):
         self.btn_reset.clicked.connect(self._on_reset)
         self.btn_browse_output.clicked.connect(self._on_browse_output)
         self.btn_open_logs.clicked.connect(self._on_open_logs)
-        self.btn_install_blackhole.clicked.connect(self._on_install_blackhole)
-        self.btn_setup_instructions.clicked.connect(self._on_setup_instructions)
+        if self._is_macos:
+            self.btn_install_blackhole.clicked.connect(self._on_install_blackhole)
+            self.btn_setup_instructions.clicked.connect(self._on_setup_instructions)
 
     def _load_current_settings(self):
         """Load current settings into UI controls"""
@@ -392,6 +488,8 @@ class SettingsDialog(QDialog):
 
         # GPU
         self.gpu_checkbox.setChecked(self.settings_mgr.get_use_gpu())
+        index = self.device_combo.findData(self.settings_mgr.get_compute_device())
+        self.device_combo.setCurrentIndex(index if index >= 0 else 0)
 
         # Quality Preset
         quality_preset = self.settings_mgr.get_quality_preset()
@@ -439,6 +537,7 @@ class SettingsDialog(QDialog):
         self.settings_mgr.set_default_model(self.model_combo.currentData())
         self.settings_mgr.set_quality_preset(self.quality_combo.currentData())
         self.settings_mgr.set_use_gpu(self.gpu_checkbox.isChecked())
+        self.settings_mgr.set_compute_device(self.device_combo.currentData() or "auto")
         self.settings_mgr.set_chunk_length(self.chunk_spinbox.value())
         self.settings_mgr.set_output_directory(Path(self.output_path.text()))
         self.settings_mgr.set(
@@ -493,6 +592,42 @@ class SettingsDialog(QDialog):
                 "Log File",
                 "Could not open the log file. Please open it manually.",
             )
+
+    def _refresh_capture_status(self):
+        """
+        Report the detected loopback/monitor endpoint (Windows & Linux).
+
+        WHY: the macOS tab derives status from the BlackHole installer; off-macOS
+        there is no installer, so status must come from the devices the capture
+        library actually sees — the user's only clue about a permission or routing
+        problem.
+        """
+        if not hasattr(self, "capture_status_label"):
+            return
+
+        info = self.ctx.recorder().get_backend_info()
+        if info.get("system_audio_available"):
+            self.capture_status_label.setText(
+                f"✓ System audio capture available: {info['system_audio_device']}"
+            )
+            self.capture_status_label.setStyleSheet("color: green;")
+        elif info.get("input_devices"):
+            self.capture_status_label.setText(
+                "⚠ No system-audio (loopback/monitor) device found. Only "
+                "microphones are available: " + ", ".join(info["input_devices"])
+            )
+            self.capture_status_label.setStyleSheet("color: orange;")
+        else:
+            self.capture_status_label.setText(
+                "✗ No capture devices visible. Check the system's microphone/"
+                "audio permission for StemSeparator."
+                + (
+                    f" ({info.get('soundcard_error')})"
+                    if info.get("soundcard_error")
+                    else ""
+                )
+            )
+            self.capture_status_label.setStyleSheet("color: red;")
 
     def _check_blackhole_status(self):
         """

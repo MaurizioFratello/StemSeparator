@@ -7,7 +7,6 @@ KI-gestützte Audio Stem Separation mit modernsten Open-Source-Modellen
 """
 import sys
 import os
-import fcntl
 import atexit
 import json
 from pathlib import Path
@@ -16,17 +15,27 @@ from typing import Optional, Callable
 # Füge Projekt-Root zum Python Path hinzu
 sys.path.insert(0, str(Path(__file__).parent))
 
-# Add bundled FFmpeg to PATH (if running from app bundle)
-# WHY: Allow app to work without requiring users to install FFmpeg via homebrew
-if getattr(sys, "frozen", False):
-    # Running as PyInstaller bundle
-    bundle_dir = Path(sys._MEIPASS)
-    ffmpeg_bin_dir = bundle_dir / "bin"
-    if ffmpeg_bin_dir.exists():
-        # Prepend to PATH so bundled FFmpeg is found first
-        os.environ["PATH"] = (
-            str(ffmpeg_bin_dir) + os.pathsep + os.environ.get("PATH", "")
-        )
+# Cross-platform bootstrap.
+# WHY: three things must happen before torch/Qt are imported on Windows and
+#      Linux: DLL search dirs for the bundled CUDA runtime, PATH entries for
+#      the bundled FFmpeg (audio-separator, pydub and pyrubberband shell out to
+#      it), and the `spawn` multiprocessing start method (a forked child cannot
+#      use the parent's CUDA context, and Windows has no fork at all).
+from utils.platform_utils import (
+    InstanceLock,
+    configure_multiprocessing,
+    configure_native_library_dirs,
+    ensure_binaries_on_path,
+    numba_cuda_safe_env,
+    runtime_report,
+    torch_library_dirs,
+)
+
+configure_native_library_dirs(torch_library_dirs())
+ensure_binaries_on_path()
+for _env_key, _env_value in numba_cuda_safe_env().items():
+    os.environ.setdefault(_env_key, _env_value)
+configure_multiprocessing()
 
 from utils.logger import get_logger
 from utils.i18n import set_language
@@ -37,7 +46,7 @@ logger = get_logger()
 
 # Single-instance lock file
 LOCK_FILE = USER_DIR / ".stemseparator.lock"
-_lock_file_handle = None
+_instance_lock = InstanceLock(LOCK_FILE)
 
 
 def acquire_lock():
@@ -46,60 +55,33 @@ def acquire_lock():
 
     WHY: Prevent multiple app instances from running simultaneously,
     which causes resource conflicts and infinite loop behavior.
+
+    The lock is an OS advisory file lock (`fcntl.flock` on macOS/Linux,
+    `msvcrt.locking` on Windows), so it is released by the kernel if the
+    process is killed — a crash can never strand a stale lock file.
     """
-    global _lock_file_handle
-
     try:
-        # Create lock file directory if needed
-        LOCK_FILE.parent.mkdir(parents=True, exist_ok=True)
+        if not _instance_lock.acquire():
+            logger.warning(f"Another instance is already running (lock: {LOCK_FILE})")
+            return False
 
-        # Try to open lock file in exclusive mode
-        _lock_file_handle = open(LOCK_FILE, "w")
-
-        # Try to acquire exclusive lock (non-blocking)
-        fcntl.flock(_lock_file_handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-
-        # Write PID to lock file
-        _lock_file_handle.write(str(os.getpid()) + "\n")
-        _lock_file_handle.flush()
-
-        # Register cleanup function
         atexit.register(release_lock)
-
         logger.info(f"Single-instance lock acquired: {LOCK_FILE}")
         return True
-
-    except (IOError, OSError) as e:
-        # Lock file is locked by another instance
-        if _lock_file_handle:
-            _lock_file_handle.close()
-            _lock_file_handle = None
-
-        logger.warning(f"Another instance is already running (lock: {LOCK_FILE})")
-        return False
+    except OSError as e:
+        # A filesystem that forbids the lock must not block startup: degrade
+        # to "no single-instance guarantee" rather than refusing to launch.
+        logger.warning(f"Could not acquire single-instance lock: {e}")
+        return True
 
 
 def release_lock():
     """Release single-instance lock"""
-    global _lock_file_handle
-
-    if _lock_file_handle:
-        try:
-            fcntl.flock(_lock_file_handle.fileno(), fcntl.LOCK_UN)
-            _lock_file_handle.close()
-            _lock_file_handle = None
-
-            # Remove lock file
-            if LOCK_FILE.exists():
-                LOCK_FILE.unlink()
-
-            logger.info("Single-instance lock released")
-        except Exception as e:
-            logger.warning(f"Error releasing lock: {e}")
+    if _instance_lock.acquired:
+        _instance_lock.release()
+        logger.info("Single-instance lock released")
 
 
-# Import os after path setup
-import os
 
 
 def check_dependencies(status_callback: Optional[Callable[[str], None]] = None):
@@ -149,6 +131,7 @@ def initialize_app(status_callback: Optional[Callable[[str], None]] = None):
     """
     logger.info("=" * 60)
     logger.info(f"Starting {APP_NAME} v{APP_VERSION}")
+    logger.info(f"Platform: {runtime_report()}")
     logger.info("=" * 60)
 
     if status_callback:
@@ -184,28 +167,18 @@ def main():
     splash: Optional["SplashScreen"] = None
     app: Optional["QApplication"] = None
 
-    # Lightweight CLI entry for separation subprocess when running as a frozen app.
-    # Check both command line flag and environment variable (belt and suspenders)
+    # Lightweight CLI entry for the separation worker when running as a frozen
+    # app. Both the flag and the env variable are accepted (belt and suspenders).
+    # WHY delegate: the worker protocol (params file in, result file out) must
+    # be identical for `python -m core.separation_subprocess` and the bundled
+    # executable, otherwise Windows/Linux frozen builds diverge from dev runs.
     if (
         "--separation-subprocess" in sys.argv
         or os.environ.get("STEMSEPARATOR_SUBPROCESS") == "1"
     ):
-        from core.separation_subprocess import run_separation_subprocess
+        from core.separation_subprocess import run_worker_from_argv
 
-        try:
-            params = json.loads(sys.stdin.read())
-            params["audio_file"] = Path(params["audio_file"])
-            params["output_dir"] = Path(params["output_dir"])
-            params["models_dir"] = Path(params["models_dir"])
-
-            stems = run_separation_subprocess(**params)
-            result = {"success": True, "stems": stems, "error": None}
-            print(json.dumps(result))
-            sys.exit(0)
-        except Exception as e:
-            result = {"success": False, "stems": {}, "error": str(e)}
-            print(json.dumps(result))
-            sys.exit(1)
+        sys.exit(run_worker_from_argv())
 
     try:
         # CRITICAL: Check for single instance (prevent multiple app instances)

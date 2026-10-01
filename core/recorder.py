@@ -1,5 +1,10 @@
 """
-System Audio Recorder mit BlackHole Support (macOS)
+System audio recorder.
+
+Capture engine is `soundcard` on every platform: macOS CoreAudio (with BlackHole
+as the virtual driver), Windows MediaFoundation/WASAPI loopback endpoints, and
+Linux PulseAudio/PipeWire monitor sources. ScreenCaptureKit is preferred on
+macOS 13+ when available.
 """
 
 from pathlib import Path
@@ -14,17 +19,23 @@ import threading
 from config import RECORDING_SAMPLE_RATE, RECORDING_CHANNELS, RECORDING_FORMAT, TEMP_DIR
 from utils.logger import get_logger
 from utils.error_handler import error_handler
+from utils import platform_utils
 from utils.audio_processing import trim_leading_silence
+
+SYSTEM_AUDIO_LABEL_SUFFIX = "System Audio"
 
 logger = get_logger()
 
 
 class RecordingBackend(Enum):
-    """Recording Backend Options"""
+    """Recording backend selection"""
 
-    SCREENCAPTURE_KIT = "screencapture_kit"  # macOS 13+ native ScreenCaptureKit
-    BLACKHOLE = "blackhole"  # BlackHole virtual audio driver
-    AUTO = "auto"  # Auto-select best available
+    SCREENCAPTURE_KIT = "screencapturekit"  # macOS 13+ native
+    BLACKHOLE = "blackhole"  # macOS virtual audio driver
+    WASAPI_LOOPBACK = "wasapi_loopback"  # Windows system audio (loopback client)
+    SYSTEM_LOOPBACK = "system_loopback"  # Linux PulseAudio/PipeWire monitor source
+    INPUT_DEVICE = "input_device"  # microphone / line-in on any OS
+    AUTO = "auto"
 
 
 class RecordingState(Enum):
@@ -55,6 +66,14 @@ class Recorder:
 
     def __init__(self, backend: RecordingBackend = RecordingBackend.AUTO):
         self.logger = logger
+        # WHY via platform_utils: one authoritative OS decision, so the recorder,
+        # packaging paths and subprocess flags cannot disagree with each other.
+        self.is_macos = platform_utils.is_macos()
+        self.is_windows = platform_utils.is_windows()
+        self._platform = platform_utils.os_name()
+        self._soundcard_error: Optional[str] = None
+        self.last_error: Optional[str] = None
+
         self.state = RecordingState.IDLE
 
         # Recording Parameters
@@ -111,16 +130,28 @@ class Recorder:
         self.logger.info(f"Recorder initialized with backend: {self._selected_backend}")
 
     def _import_soundcard(self) -> bool:
-        """Importiert SoundCard Library"""
+        """
+        Import soundcard (the capture engine on every platform).
+
+        WHY the broad except: soundcard's PulseAudio backend builds a client
+        name from `sys.argv` at import time and raises IndexError/other errors
+        when argv is empty (frozen builds, some test harnesses). Recording must
+        degrade to "no capture backend" with a visible reason instead of taking
+        the whole application down at start-up.
+        """
         try:
             import soundcard as sc
 
             self._soundcard = sc
+            self._soundcard_error = None
             self.logger.info("SoundCard library loaded")
             return True
-        except ImportError:
+        except Exception as e:
+            self._soundcard = None
+            self._soundcard_error = f"{type(e).__name__}: {e}"
             self.logger.warning(
-                "SoundCard not installed. BlackHole backend will not be available."
+                f"SoundCard unavailable ({self._soundcard_error}); system-audio "
+                "recording is disabled on this platform."
             )
             return False
 
@@ -142,76 +173,200 @@ class Recorder:
             return False
 
     def _select_best_backend(self):
-        """Auto-select the best available recording backend"""
-        # Prefer ScreenCaptureKit on macOS 13+ (no driver installation needed)
+        """
+        Auto-select the best available recording backend for this OS.
+
+        WHY the old behaviour was wrong: it fell through to the BlackHole label
+        whenever soundcard imported, so Windows/Linux sessions claimed a macOS
+        virtual-driver backend that cannot exist there, and system capture was
+        attempted through `all_microphones()` — which on Linux hides monitor
+        sources and on Windows hides loopback endpoints entirely.
+        """
+        system_device = self._find_system_audio_device()
+
         if self._screencapture and self._screencapture.is_available().available:
             self._selected_backend = RecordingBackend.SCREENCAPTURE_KIT
             self.logger.info(
                 "Auto-selected ScreenCaptureKit backend (native macOS 13+)"
             )
-        elif self._soundcard and self.find_blackhole_device():
-            self._selected_backend = RecordingBackend.BLACKHOLE
-            self.logger.info("Auto-selected BlackHole backend")
-        elif self._soundcard:
-            # SoundCard available but no BlackHole - still use it for other devices
-            self._selected_backend = RecordingBackend.BLACKHOLE
+        elif system_device is not None:
+            if self.is_macos:
+                self._selected_backend = RecordingBackend.BLACKHOLE
+            elif self.is_windows:
+                self._selected_backend = RecordingBackend.WASAPI_LOOPBACK
+            else:
+                self._selected_backend = RecordingBackend.SYSTEM_LOOPBACK
+            self.logger.info(
+                f"Auto-selected {self._selected_backend.value} backend "
+                f"(system capture via '{system_device.name}')"
+            )
+        elif self._soundcard and self.all_input_devices():
+            self._selected_backend = RecordingBackend.INPUT_DEVICE
             self.logger.warning(
-                "BlackHole not found, but SoundCard available for other devices"
+                "No system-audio capture device found; falling back to a "
+                "microphone/line-in device. Recordings will capture the room, "
+                "not the computer's playback."
             )
         else:
             self._selected_backend = None
-            self.logger.error("No recording backend available")
+            self.logger.error(
+                "No recording backend available"
+                + (f" ({self._soundcard_error})" if self._soundcard_error else "")
+            )
+
+    # ------------------------------------------------------------------
+    # Device discovery
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _is_system_capture_device(mic) -> bool:
+        """
+        True when a soundcard 'microphone' really mirrors speaker output.
+
+        WHY: the three platforms label loopback capture differently — soundcard
+        marks Windows loopback endpoints with `isloopback`, exposes
+        PulseAudio/PipeWire monitor sources as `device.class == 'monitor'`, and
+        macOS BlackHole appears as an ordinary device named 'BlackHole'. Textual
+        fallbacks cover driver-supplied names.
+        """
+        try:
+            if getattr(mic, "isloopback", False):
+                return True
+        except Exception:
+            pass
+
+        try:
+            info = mic._get_info()
+            if str(info.get("device.class", "")).lower() == "monitor":
+                return True
+        except Exception:
+            pass
+
+        name = (getattr(mic, "name", "") or "").lower()
+        return "monitor of" in name or "loopback" in name or "blackhole" in name
+
+    def label_for_device(self, mic) -> str:
+        """Combo-box label; round-trips through `_find_device`."""
+        name = getattr(mic, "name", "") or "Unknown device"
+        if self._is_system_capture_device(mic):
+            return f"{name} [{SYSTEM_AUDIO_LABEL_SUFFIX}]"
+        return name
+
+    def all_capture_devices(self) -> list:
+        """
+        Every recordable device, **including** loopback/monitor endpoints.
+
+        WHY `include_loopback=True`: without it soundcard filters out the Windows
+        loopback endpoints and the Pulse/PipeWire monitor sources — which is why
+        system-audio capture silently offered nothing outside macOS.
+        """
+        if not self._soundcard:
+            return []
+        try:
+            return list(self._soundcard.all_microphones(include_loopback=True))
+        except Exception as exc:
+            self.logger.error(f"Could not enumerate capture devices: {exc}")
+            return []
+
+    def all_input_devices(self) -> list:
+        """Physical microphones/line-in only (loopback endpoints excluded)."""
+        return [
+            d for d in self.all_capture_devices() if not self._is_system_capture_device(d)
+        ]
+
+    def system_audio_devices(self) -> list:
+        """Loopback/monitor endpoints that mirror speaker output."""
+        return [d for d in self.all_capture_devices() if self._is_system_capture_device(d)]
+
+    def _find_system_audio_device(self):
+        """Best system-audio capture endpoint for this platform, or None."""
+        candidates = self.system_audio_devices()
+        if not candidates:
+            return None
+
+        if self.is_macos:
+            preferred = next(
+                (d for d in candidates if "blackhole" in (d.name or "").lower()), None
+            )
+            return preferred or candidates[0]
+
+        # Prefer the monitor belonging to the current default output so the user
+        # records what they actually hear (PulseAudio names it
+        # "Monitor of <speaker name>").
+        default_name = ""
+        try:
+            default_name = (self._soundcard.default_speaker().name or "").lower()
+        except Exception:
+            default_name = ""
+        if default_name:
+            match = next(
+                (d for d in candidates if default_name in (d.name or "").lower()), None
+            )
+            if match is not None:
+                return match
+        return candidates[0]
+
+    def _find_device(self, name: Optional[str]):
+        """
+        Resolve a UI-selected label (or the platform default) to a device.
+
+        Accepts both the decorated label from the combo box and the raw driver
+        name, so values persisted in settings keep working after a label change.
+        """
+        devices = self.all_capture_devices()
+        if not devices:
+            self.last_error = (
+                "No capture devices are visible to the system. Check the OS "
+                "microphone/system-audio permission for StemSeparator."
+                + (f" ({self._soundcard_error})" if self._soundcard_error else "")
+            )
+            self.logger.error(self.last_error)
+            return None
+
+        if not name:
+            return self._find_system_audio_device()
+
+        wanted = name.replace(f" [{SYSTEM_AUDIO_LABEL_SUFFIX}]", "").strip().lower()
+        for device in devices:
+            device_name = (device.name or "").strip().lower()
+            if device_name == wanted or wanted in device_name:
+                return device
+
+        available = ", ".join(sorted({self.label_for_device(d) for d in devices}))
+        self.last_error = (
+            f"Recording device {name!r} not found. Available devices: {available}"
+        )
+        self.logger.error(self.last_error)
+        return None
 
     def get_available_devices(self) -> List[str]:
         """
-        Gibt Liste verfügbarer Audio-Devices zurück
+        Names of every device the recorder can capture from.
 
-        Returns:
-            Liste von Input-Device-Namen (nur diese können für Recording verwendet werden)
+        System-audio endpoints are labelled so the UI list makes the difference
+        between 'record the room' and 'record the computer' obvious on all three
+        platforms.
         """
-        if not self._soundcard:
-            return []
-
-        try:
-            microphones = self._soundcard.all_microphones()
-
-            devices = []
-
-            # Add only input devices - these are the only ones we can record from
-            for mic in microphones:
-                devices.append(mic.name)
-
-            return devices
-
-        except Exception as e:
-            self.logger.error(f"Error getting audio devices: {e}")
-            return []
+        return sorted({self.label_for_device(d) for d in self.all_capture_devices()})
 
     def find_blackhole_device(self) -> Optional[any]:
         """
-        Sucht nach BlackHole Audio-Device
+        Locate the BlackHole virtual device (macOS only).
 
-        Returns:
-            BlackHole Device oder None
+        WHY gated: BlackHole is a macOS CoreAudio driver; searching for it on
+        Windows/Linux could only ever fail, and the old code used that failure as
+        the default capture device for every platform.
         """
-        if not self._soundcard:
+        if not self._soundcard or not self.is_macos:
             return None
 
-        try:
-            # Suche in Microphones (Loopback)
-            microphones = self._soundcard.all_microphones()
+        for mic in self.all_capture_devices():
+            if "blackhole" in (mic.name or "").lower():
+                self.logger.info(f"Found BlackHole device: {mic.name}")
+                return mic
 
-            for mic in microphones:
-                if "blackhole" in mic.name.lower():
-                    self.logger.info(f"Found BlackHole device: {mic.name}")
-                    return mic
-
-            self.logger.warning("BlackHole device not found")
-            return None
-
-        except Exception as e:
-            self.logger.error(f"Error finding BlackHole device: {e}")
-            return None
+        self.logger.warning("BlackHole device not found")
+        return None
 
     def start_recording(
         self,
@@ -254,35 +409,33 @@ class Recorder:
             self.logger.error("SoundCard not available")
             return False
 
-        # Finde Device
-        if device_name:
-            self.logger.info(f"Looking for device: '{device_name}'")
-
-            # Suche spezifisches Device
-            device = None
-            for mic in self._soundcard.all_microphones():
-                if (
-                    device_name == mic.name
-                    or device_name in mic.name
-                    or mic.name in device_name
-                ):
-                    device = mic
-                    self.logger.info(f"Found matching device: {mic.name}")
-                    break
-        else:
-            # Default: BlackHole
-            device = self.find_blackhole_device()
+        # Resolve the capture device (loopback/monitor endpoints included).
+        self.logger.info(
+            f"Looking for capture device: {device_name!r} "
+            f"(backend: {getattr(self._selected_backend, 'value', None)})"
+        )
+        device = self._find_device(device_name)
 
         if not device:
-            self.logger.error(f"No recording device found for: {device_name}")
-            # Debug: Liste alle verfügbaren Microphones
-            try:
-                all_mics = self._soundcard.all_microphones()
-                self.logger.error(
-                    f"Available microphones: {[mic.name for mic in all_mics]}"
+            self.last_error = (
+                f"No recording device available for {device_name!r}. "
+                + (
+                    "System-audio capture needs a loopback endpoint: on Windows "
+                    "the default output's loopback client, on Linux a PulseAudio/"
+                    "PipeWire 'Monitor of ...' source. Record from a microphone, "
+                    "or install/enable such a device."
+                    if not self.is_macos
+                    else "Install BlackHole (or use ScreenCaptureKit on macOS 13+)."
                 )
-            except:
-                pass
+            )
+            self.logger.error(
+                "%s Available: %s",
+                self.last_error,
+                ", ".join(self.get_available_devices()) or "none",
+            )
+            error_handler.handle_error(
+                RuntimeError(self.last_error), context="recorder.start_recording"
+            )
             return False
 
         self.logger.info(f"Starting recording from: {device.name}")
@@ -881,7 +1034,7 @@ class Recorder:
         WHY: Allows users to check input levels before starting actual recording
 
         Args:
-            device_name: Name of the device to monitor (default: BlackHole)
+            device_name: Device to monitor (default: this platform's system-audio device)
             level_callback: Callback for audio level updates
 
         Returns:
@@ -899,27 +1052,18 @@ class Recorder:
             self.logger.error("SoundCard not available")
             return False
 
-        # Find device
-        if device_name:
-            self.logger.info(f"Looking for monitoring device: '{device_name}'")
-
-            device = None
-            for mic in self._soundcard.all_microphones():
-                if (
-                    device_name == mic.name
-                    or device_name in mic.name
-                    or mic.name in device_name
-                ):
-                    device = mic
-                    self.logger.info(f"Found matching device: {mic.name}")
-                    break
-        else:
-            # Default: BlackHole
-            device = self.find_blackhole_device()
+        # Find device (loopback/monitor endpoints included)
+        self.logger.info(f"Looking for monitoring device: {device_name!r}")
+        device = self._find_device(device_name)
 
         if not device:
-            self.logger.error(f"No monitoring device found for: {device_name}")
+            self.last_error = (
+                f"No monitoring device available for {device_name!r}. Available: "
+                + (", ".join(self.get_available_devices()) or "none")
+            )
+            self.logger.error(self.last_error)
             return False
+
 
         self.logger.info(f"Starting monitoring from: {device.name}")
 
@@ -1028,17 +1172,29 @@ class Recorder:
 
     def get_backend_info(self) -> dict:
         """
-        Get information about the current recording backend
+        Backend facts the recording UI needs to explain itself per platform.
 
-        Returns:
-            Dictionary with backend info
+        WHY the extra keys: the widget hard-coded BlackHole/ScreenCapture wording,
+        so on Windows/Linux it reported a missing macOS driver instead of the real
+        question — is a loopback/monitor endpoint present and permitted?
         """
+        system_device = self._find_system_audio_device()
+        input_devices = self.all_input_devices()
+
         return {
             "backend": self._selected_backend.value if self._selected_backend else None,
-            "screencapture_available": self._screencapture is not None
-            and self._screencapture.is_available().available,
-            "blackhole_available": self._soundcard is not None
-            and self.find_blackhole_device() is not None,
+            "platform": self._platform,
+            "soundcard_available": self._soundcard is not None,
+            "soundcard_error": self._soundcard_error,
+            "screencapture_available": bool(
+                self._screencapture and self._screencapture.is_available().available
+            ),
+            "blackhole_available": self.find_blackhole_device() is not None,
+            "system_audio_available": system_device is not None,
+            "system_audio_device": system_device.name if system_device else None,
+            "input_devices": [d.name for d in input_devices],
+            "devices": self.get_available_devices(),
+            "last_error": self.last_error,
         }
 
 
