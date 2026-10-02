@@ -30,6 +30,8 @@
 | **`DEVELOPMENT.md`** | Technische Details, Architektur, Best Practices | Entwickler |
 | **`INSTALL_CONDA.md`** | Conda Environment Setup | Neue Entwickler |
 | **`GUI_IMPLEMENTATION_SUMMARY.md`** | GUI Architektur, Komponenten, Design Patterns | GUI-Entwicklung |
+| **`PLATFORM_PARITY.md`** | Parity-Matrix macOS / Windows / Linux: gleiche Flüsse, OS-Adapter, erzwungene Unterschiede (REC-04) | Entwickler, QA |
+| **`QA_HARDWARE_CHECKLIST.md`** | Manuelle Checkliste für GPU/CUDA, Audio-Geräte und System-Audio (QA-03) | QA |
 
 ### 📝 Session-Reports (Historisch)
 

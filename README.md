@@ -6,7 +6,7 @@
 
 [![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)](https://github.com/MaurizioFratello/StemSeparator)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
-[![Platform](https://img.shields.io/badge/platform-macOS-lightgrey.svg)](https://www.apple.com/macos/)
+[![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg)](docs/PLATFORM_PARITY.md)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
 [Features](#-features) • [Installation](#-installation) • [Usage](#-usage) • [Documentation](#-documentation) • [Support](#-support)
@@ -17,15 +17,15 @@
 
 ## 🎯 Overview
 
-Stem Separator is a professional macOS application for AI-powered separation of audio stems (vocals, drums, bass, etc.) from music files. The application uses state-of-the-art deep learning models and provides an intuitive graphical user interface.
+Stem Separator is a professional desktop application for AI-powered separation of audio stems (vocals, drums, bass, etc.) from music files, running on macOS, Windows and Linux. The application uses state-of-the-art deep learning models and provides an intuitive graphical user interface.
 
 ### ✨ Highlights
 
 - 🎵 **Multiple AI Models**: Mel-Band RoFormer, BS-RoFormer, MDX-Net, Demucs v4
 - 🎚️ **Ensemble Separation**: Combines multiple models for maximum quality
-- 🎤 **System Audio Recording**: Direct recording of system audio (macOS)
-- 🎧 **Stem Player**: Real-time mixing with individual volume control
-- ⚡ **GPU Acceleration**: Apple Silicon (MPS) and NVIDIA (CUDA) support
+- 🎤 **System Audio Recording**: loopback capture on all three platforms — WASAPI on Windows, PulseAudio/PipeWire monitors on Linux, BlackHole or ScreenCaptureKit on macOS ([details](docs/PLATFORM_PARITY.md))
+- 🎧 **Stem Player**: real-time mixing with individual volume control and an output-device picker
+- ⚡ **GPU Acceleration**: NVIDIA CUDA (Windows/Linux) and Apple Silicon MPS (macOS), with an explicit, visible CPU fallback when no GPU is available
 - 🌍 **Multilingual**: German and English
 - 🎨 **Modern Dark Theme**: Professional, user-friendly interface
 
@@ -74,25 +74,26 @@ Stem Separator is a professional macOS application for AI-powered separation of 
 ## 📋 System Requirements
 
 ### Minimum
-- **Operating System**: macOS 10.15 (Catalina) or newer
-- **Python**: 3.10+ (3.11 recommended, 3.9 supported with compatibility layer)
-- **RAM**: 8 GB
+- **Operating System**: macOS 10.15+ · Windows 10/11 · Linux (glibc 2.28+, X11 or Wayland)
+- **Python**: 3.11 recommended (3.10+ supported)
+- **RAM**: 8 GB (16 GB recommended for large ensembles)
 - **Storage**: ~1.5 GB for models
 
 ### Recommended
-- **Operating System**: macOS 11.0+ (Big Sur) for Apple Silicon
-- **RAM**: 16 GB
-- **GPU**: Apple Silicon (M1/M2/M3) for MPS acceleration or NVIDIA GPU for CUDA
+- **GPU**: NVIDIA GPU with current driver for CUDA acceleration (Windows/Linux), or Apple Silicon for MPS (macOS). Without a supported GPU the app runs on CPU and says so — no silent downgrade.
+- **CUDA users**: install the CUDA build of torch/ONNX Runtime; see [docs/PACKAGING.md ## CUDA Installation](docs/PACKAGING.md#cuda-installation)
 
-### Optional (for System Audio Recording on older macOS)
-- **BlackHole 2ch**: Virtual audio device (fallback for macOS < 13.0, automatically installed if needed)
-- **Screen Recording Permission**: Required for ScreenCaptureKit on macOS 13+ (native, no driver needed)
+### Optional (for System Audio Recording on macOS)
+- **BlackHole 2ch**: virtual audio device (fallback for macOS < 13.0, automatically installed if needed)
+- **Screen Recording Permission**: required for ScreenCaptureKit on macOS 13+ (native, no driver needed)
+- Windows and Linux need **no extra driver**: loopback capture uses WASAPI and PulseAudio/PipeWire monitor sources.
+- Linux additionally needs the PortAudio runtime (`sudo apt install libportaudio2`) unless you use the packaged build, which bundles it.
 
 ---
 
 ## 💻 Installation
 
-### Option 1: Standalone macOS Application (Recommended for End Users)
+### Option 1: Standalone macOS Application (Recommended for End Users on macOS)
 
 **No Python installation required!** Download a pre-built application:
 
@@ -104,7 +105,7 @@ Stem Separator is a professional macOS application for AI-powered separation of 
 
 3. Launch the app (first time: right-click → "Open" to bypass Gatekeeper)
 
-**Build Instructions:** See [docs/PACKAGING.md](docs/PACKAGING.md) for details on creating app bundles.
+**Build Instructions:** See [docs/PACKAGING.md](docs/PACKAGING.md) for the macOS, Windows and Linux build recipes (`packaging/windows/StemSeparator.iss` produces the Windows installer; `packaging/linux/` produces the Linux onedir).
 
 ### Option 2: Development Installation (For Developers)
 
@@ -143,7 +144,9 @@ Models are automatically downloaded on first use.
 For manual pre-download:
 
 ```bash
-python -c "from core.model_manager import get_model_manager; get_model_manager().download_all_models()"
+python packaging/download_models.py            # fetch what is missing
+python packaging/download_models.py --force    # re-fetch everything
+python packaging/download_models.py --help     # list the model ids
 ```
 
 ---

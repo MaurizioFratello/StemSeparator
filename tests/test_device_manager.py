@@ -85,15 +85,30 @@ class TestDeviceManager:
         assert dm._device_info["cuda"].available is True
         assert dm._device_info["cuda"].memory_gb == 10.0
 
-    def test_select_best_device_mps(self):
-        """Teste Device-Auswahl: MPS wird bevorzugt"""
+    def test_select_best_device_mps_on_macos(self):
+        """On macOS the native accelerator wins even when CUDA also probes True."""
         dm = DeviceManager()
         dm._device_info["mps"] = DeviceInfo("mps", True, "MPS")
         dm._device_info["cuda"] = DeviceInfo("cuda", True, "CUDA")
         dm._device_info["cpu"] = DeviceInfo("cpu", True, "CPU")
 
-        dm._select_best_device()
+        # WHY the patch: _preferred_order() asks platform_utils which OS it is
+        # on; without the precondition the test only passes by accident of the
+        # developer's OS.
+        with patch("utils.platform_utils.is_macos", return_value=True):
+            dm._select_best_device()
         assert dm.get_device() == "mps"
+
+    def test_select_best_device_prefers_cuda_off_macos(self):
+        """Windows/Linux prefer CUDA; an MPS that cannot exist here is not probed."""
+        dm = DeviceManager()
+        dm._device_info["mps"] = DeviceInfo("mps", True, "MPS")
+        dm._device_info["cuda"] = DeviceInfo("cuda", True, "CUDA")
+        dm._device_info["cpu"] = DeviceInfo("cpu", True, "CPU")
+
+        with patch("utils.platform_utils.is_macos", return_value=False):
+            dm._select_best_device()
+        assert dm.get_device() == "cuda"
 
     def test_select_best_device_cuda(self):
         """Teste Device-Auswahl: CUDA wenn kein MPS"""
@@ -210,16 +225,26 @@ class TestDeviceManager:
         result = dm.set_device("unknown")
         assert result is False
 
-    def test_set_device_unavailable_with_fallback(self):
-        """Teste set_device() mit nicht verfügbarem Device (mit Fallback)"""
+    def test_set_device_unavailable_does_not_silently_fall_back(self):
+        """
+        A GPU that cannot be honoured fails visibly even with FALLBACK_TO_CPU on.
+
+        WHY: the shipped behaviour used to flip to CPU while returning True, so
+        a user who chose CUDA could not tell that GPU inference never ran. The
+        CPU retry is now the caller's decision (ErrorHandler.retry_with_fallback)
+        and shows up in the log plus SeparationResult.device_used; the config
+        flag must not resurrect the silent flip.
+        """
         with patch("core.device_manager.FALLBACK_TO_CPU", True):
             dm = DeviceManager()
             dm._device_info["cuda"] = DeviceInfo("cuda", False, "CUDA")
             dm._device_info["cpu"] = DeviceInfo("cpu", True, "CPU")
+            before = dm.get_device()
 
             result = dm.set_device("cuda")
-            assert result is True
-            assert dm.get_device() == "cpu"
+            assert result is False, "unavailable device must report failure"
+            assert dm.get_device() == before, "device must not change behind the caller's back"
+            assert dm.last_error and "cuda" in dm.last_error.lower()
 
     def test_set_device_unavailable_no_fallback(self):
         """Teste set_device() mit nicht verfügbarem Device (ohne Fallback)"""

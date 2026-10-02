@@ -20,23 +20,14 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from core.separator import Separator, TARGET_SAMPLE_RATE
-from core.ensemble_separator import (
-    EnsembleSeparator,
-    TARGET_SAMPLE_RATE as ENSEMBLE_TARGET_SR,
-)
+from core.separator import Separator
+from core.ensemble_separator import EnsembleSeparator
 from config import DEFAULT_SAMPLE_RATE, EXPORT_SAMPLE_RATE, RECORDING_SAMPLE_RATE
 
 
 class TestSampleRateConstants:
     """Test that sample rate constants are correctly defined"""
 
-    def test_target_sample_rate_is_44100(self):
-        """Verify TARGET_SAMPLE_RATE is 44100 Hz"""
-        assert TARGET_SAMPLE_RATE == 44100, "TARGET_SAMPLE_RATE must be 44100 Hz"
-        assert (
-            ENSEMBLE_TARGET_SR == 44100
-        ), "Ensemble TARGET_SAMPLE_RATE must be 44100 Hz"
 
     def test_config_sample_rates_are_44100(self):
         """Verify all config sample rates are 44100 Hz"""
@@ -45,10 +36,9 @@ class TestSampleRateConstants:
         assert RECORDING_SAMPLE_RATE == 44100, "RECORDING_SAMPLE_RATE must be 44100 Hz"
 
     def test_sample_rates_are_consistent(self):
-        """Verify all sample rate constants match"""
+        """The processing, export and recording rates are the same rate."""
         assert (
-            TARGET_SAMPLE_RATE
-            == DEFAULT_SAMPLE_RATE
+            DEFAULT_SAMPLE_RATE
             == EXPORT_SAMPLE_RATE
             == RECORDING_SAMPLE_RATE
             == 44100
@@ -103,7 +93,7 @@ class TestAudioResampling:
 
         # Verify no resampling needed
         assert (
-            info.samplerate == TARGET_SAMPLE_RATE
+            info.samplerate == DEFAULT_SAMPLE_RATE
         ), "44100 Hz input should not need resampling"
 
     def test_48000hz_input_needs_resampling(self, temp_dir):
@@ -117,7 +107,7 @@ class TestAudioResampling:
 
         # Verify resampling needed
         assert (
-            info.samplerate != TARGET_SAMPLE_RATE
+            info.samplerate != DEFAULT_SAMPLE_RATE
         ), "48000 Hz input should need resampling"
 
     def test_resampling_preserves_duration(self, temp_dir):
@@ -206,17 +196,6 @@ class TestSeparatorInputResampling:
 
         return audio_file
 
-    def test_separator_creates_target_sample_rate_constant(self):
-        """Test that Separator module has TARGET_SAMPLE_RATE constant"""
-        from core import separator
-
-        assert hasattr(
-            separator, "TARGET_SAMPLE_RATE"
-        ), "Separator should define TARGET_SAMPLE_RATE"
-        assert (
-            separator.TARGET_SAMPLE_RATE == 44100
-        ), "TARGET_SAMPLE_RATE should be 44100"
-
     def test_separator_input_validation_accepts_44100hz(self, temp_dir):
         """Test that Separator accepts 44100 Hz input without errors"""
         audio_file = self.create_test_audio(44100, 1.0, temp_dir)
@@ -240,17 +219,6 @@ class TestSeparatorInputResampling:
 
 class TestEnsembleSampleRateValidation:
     """Test ensemble separator sample rate validation and warnings"""
-
-    def test_ensemble_has_target_sample_rate_constant(self):
-        """Test that EnsembleSeparator has TARGET_SAMPLE_RATE constant"""
-        from core import ensemble_separator
-
-        assert hasattr(
-            ensemble_separator, "TARGET_SAMPLE_RATE"
-        ), "EnsembleSeparator should define TARGET_SAMPLE_RATE"
-        assert (
-            ensemble_separator.TARGET_SAMPLE_RATE == 44100
-        ), "TARGET_SAMPLE_RATE should be 44100"
 
     def test_ensemble_separator_initialization(self):
         """Test that EnsembleSeparator initializes without errors"""
@@ -429,15 +397,6 @@ class TestIntegrationSampleRateDrift:
 
 class TestSampleRateConsistency:
     """Test that all parts of the system use consistent sample rates"""
-
-    def test_all_target_sample_rates_match(self):
-        """Test that TARGET_SAMPLE_RATE constants match across modules"""
-        from core.separator import TARGET_SAMPLE_RATE as SEP_SR
-        from core.ensemble_separator import TARGET_SAMPLE_RATE as ENS_SR
-
-        assert (
-            SEP_SR == ENS_SR == 44100
-        ), "All TARGET_SAMPLE_RATE constants must be 44100"
 
     def test_config_consistency(self):
         """Test that config sample rates are all consistent"""

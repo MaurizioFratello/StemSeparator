@@ -16,6 +16,22 @@ from utils.logger import get_logger
 logger = get_logger()
 
 
+def _expand_home(path: Path) -> Path:
+    """
+    Expand a leading `~` / `~user` in a path-like value.
+
+    WHY: `Path.resolve()` has no concept of a home directory. Settings arrive
+    as `Path("~/Music/...")` (the string branch of `resolve_output_path` is not
+    taken by the settings layer), so the literal `~` component was anchored to
+    the current working directory and the app created a stray `~` folder inside
+    the installation.
+    """
+    text = str(path).strip()
+    if text.startswith("~"):
+        return Path(os.path.expanduser(text))
+    return path
+
+
 def resolve_output_path(path: Optional[Path], default: Path) -> Path:
     """
     Resolve output path to absolute, ensuring directory exists.
@@ -52,16 +68,16 @@ def resolve_output_path(path: Optional[Path], default: Path) -> Path:
             resolved = default.resolve()
             logger.debug(f"Empty path string, using default: {resolved}")
         else:
-            # Expand ~ to home directory
-            if path_str.startswith("~"):
-                path_str = os.path.expanduser(path_str)
+            # WHY shared helper: `~` must expand identically for str and Path
+            # input; the Path branch below is the one settings actually use.
+            path_str = str(_expand_home(Path(path_str)))
             resolved = Path(path_str).resolve()
             logger.debug(f"Resolved string path '{path}' to: {resolved}")
     else:
         # Path object
         try:
-            # Resolve to absolute (handles relative paths)
-            resolved = path.resolve()
+            # WHY: expand `~` before resolve(); see `_expand_home`.
+            resolved = _expand_home(path).resolve()
             logger.debug(f"Resolved path '{path}' to: {resolved}")
         except (OSError, RuntimeError) as e:
             # If resolution fails (e.g., path doesn't exist yet), try to construct absolute
@@ -93,14 +109,15 @@ def ensure_directory_exists(path: Path) -> Path:
         Path('/Users/name/output')  # Created and returned as absolute
     """
     try:
-        # Resolve to absolute path
-        resolved = path.resolve()
+        # WHY: same `~` handling as `resolve_output_path`; a home-relative path
+        # would otherwise be anchored to the current working directory.
+        resolved = _expand_home(path).resolve()
     except (OSError, RuntimeError):
         # If path doesn't exist yet, convert to absolute based on current working directory
         if path.is_absolute():
             resolved = path
         else:
-            resolved = Path.cwd() / path
+            resolved = Path.cwd() / _expand_home(path)
 
     # Create directory if it doesn't exist
     resolved.mkdir(parents=True, exist_ok=True)

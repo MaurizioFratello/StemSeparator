@@ -7,7 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Platform parity documentation (REC-04, QA-03)**
+  - `docs/PLATFORM_PARITY.md` publishes which flows are identical across macOS,
+    Windows and Linux, which use an OS-specific backend, and which differ because
+    the OS forces it (BlackHole on macOS vs driver-free loopback elsewhere)
+  - `docs/QA_HARDWARE_CHECKLIST.md` is the manual checklist CI cannot cover:
+    real CUDA/MPS enforcement, timing comparison, output-device and loopback
+    capture scenarios per platform
+- `tests/test_path_utils.py` pins output-path resolution behaviour, including the
+  `~` expansion cases that used to create a literal `~` directory
+
 ### Fixed
+- **Model discovery, downloads and saved paths**
+  - `ensure_writable_models_dir()` now proves writability with a real write probe:
+    `mkdir(exist_ok=True)` succeeds on an existing read-only directory, so a
+    read-only install reported "writable" and the download later failed with an
+    opaque error
+  - `_candidate_is_valid()` requires a regular file with a weight extension; it
+    previously returned "valid" for directories and foreign files, letting an empty
+    directory satisfy a model lookup
+  - `packaging/download_models.py` crashed on every invocation (`MODELS` was used
+    but never imported); `--help` started a multi-gigabyte download instead of
+    printing usage, and unknown options were ignored silently
+  - A `~/...` value in `user_settings.json` (as shipped in the example file) is now
+    expanded for `Path` input as well; it used to be anchored to the working
+    directory, writing stems into a stray `~` folder next to the executable
+  - Language switching, the file-selection slot and the recorder's "no device"
+    path raised `TypeError` because they passed printf-style arguments to a logger
+    that only accepts a single message; the failure was silent in packaged builds
+  - Model-manager tests no longer download weights from Hugging Face and no longer
+    depend on which weights happen to exist in the developer's cache
 - **Auto-BPM / Beat Service - Linux and Windows**
   - The bundled BeatNet helper now runs on Linux and Windows, not only macOS: it is
     discovered as a binary (`.exe` on Windows), from the frozen bundle, from `PATH`,

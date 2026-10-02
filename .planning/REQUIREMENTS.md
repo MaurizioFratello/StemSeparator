@@ -38,7 +38,7 @@
 - [ ] **REC-01**: User can capture **microphone or line-in** on Windows with clear privacy/permission errors when blocked.
 - [ ] **REC-02**: User can capture **system / endpoint loopback** (“what you hear”) via **WASAPI**-appropriate implementation behind the `Recorder` abstraction.
 - [ ] **REC-03**: **Device enumeration and selection** for capture matches Windows reality (multiple endpoints, Bluetooth quirks documented).
-- [ ] **REC-04**: **Parity matrix** published (macOS vs Windows): which flows match, which differ, and why (OS limits, DRM, etc.).
+- [x] **REC-04**: **Parity matrix** published (macOS vs Windows): which flows match, which differ, and why (OS limits, DRM, etc.). → `docs/PLATFORM_PARITY.md` (extended to Linux)
 
 ### BeatNet and auxiliary services
 
@@ -49,7 +49,7 @@
 
 - [ ] **QA-01**: **macOS** CI still passes; no regressions to existing shipping path without explicit decision.
 - [ ] **QA-02**: **GitHub Actions** includes a **Windows** job exercising imports/smoke tests with **CPU** torch (GPU not assumed on runners).
-- [ ] **QA-03**: **Manual test checklist** documents CUDA hardware validation and recording scenarios.
+- [x] **QA-03**: **Manual test checklist** documents CUDA hardware validation and recording scenarios. → `docs/QA_HARDWARE_CHECKLIST.md`
 - [ ] **QA-04**: **Documentation** updated for Windows install, CUDA install lines, and troubleshooting.
 
 ## v2 Requirements
@@ -60,7 +60,10 @@
 
 ### Platform
 
-- **PLT-01**: **Linux** as a primary desktop target — out of this milestone’s core scope.
+- **PLT-01**: **Linux** as a primary desktop target — **in scope for this port by explicit
+  user decision** (2026-10-02), overriding the original deferral: `utils/platform_utils.py`,
+  the recorder/player backends, packaging specs and the CI matrix all carry a Linux branch,
+  and Linux is where the cross-platform work is verified on real hardware.
 
 ## Out of Scope
 
@@ -74,34 +77,39 @@
 
 Which phases cover which requirements — filled when roadmap is created.
 
+Status legend — **Verified (Linux)**: exercised on this Linux host with real audio/GPU.
+**Implemented (Windows runner pending)**: the `win32` code path exists and was validated
+offline against fakes; it still needs a Windows run (QA-02) before it can be called done.
+**Pending**: not done.
+
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| WIN-01 | Phase 1 | Pending |
-| WIN-02 | Phase 1 | Pending |
-| WIN-03 | Phase 1 | Pending |
-| WIN-04 | Phase 1 | Pending |
+| WIN-01 | Phase 1 | Verified (Linux) — no `fcntl`; `msvcrt` branch implemented (Windows runner pending) |
+| WIN-02 | Phase 1 | Implemented (Windows runner pending) |
+| WIN-03 | Phase 1 | Implemented (Windows runner pending) |
+| WIN-04 | Phase 1 | Implemented (Windows runner pending) |
 | PKG-01 | Phase 2 | Pending |
 | PKG-02 | Phase 2 | Pending |
 | PKG-03 | Phase 2 | Pending |
 | PKG-04 | Phase 2 | Pending |
 | PKG-05 | Phase 2 | Pending |
-| INF-01 | Phase 3 | Pending |
-| INF-02 | Phase 3 | Pending |
-| INF-03 | Phase 3 | Pending |
-| INF-04 | Phase 3 | Pending |
-| INF-05 | Phase 3 | Pending |
-| PLY-01 | Phase 4 | Pending |
-| PLY-02 | Phase 4 | Pending |
-| REC-01 | Phase 5 | Pending |
-| REC-02 | Phase 5 | Pending |
-| REC-03 | Phase 5 | Pending |
-| REC-04 | Phase 5 | Pending |
-| SRV-01 | Phase 6 | Pending |
-| SRV-02 | Phase 6 | Pending |
-| QA-01 | Phase 6 | Pending |
-| QA-02 | Phase 6 | Pending |
-| QA-03 | Phase 6 | Pending |
-| QA-04 | Phase 6 | Pending |
+| INF-01 | Phase 3 | Verified (Linux) |
+| INF-02 | Phase 3 | Verified (Linux, real CUDA GPU) |
+| INF-03 | Phase 3 | Verified (Linux) |
+| INF-04 | Phase 3 | Verified (Linux); Windows subprocess flags implemented (Windows runner pending) |
+| INF-05 | Phase 3 | Verified (Linux) |
+| PLY-01 | Phase 4 | Verified (Linux) |
+| PLY-02 | Phase 4 | Verified (Linux) |
+| REC-01 | Phase 5 | Verified (Linux) |
+| REC-02 | Phase 5 | Verified (Linux) + Implemented (Windows runner pending) |
+| REC-03 | Phase 5 | Verified (Linux) |
+| REC-04 | Phase 5 | Done — `docs/PLATFORM_PARITY.md` |
+| SRV-01 | Phase 6 | Verified (Linux, source mode + JSON IPC) |
+| SRV-02 | Phase 6 | Verified (Linux) + Implemented (Windows runner pending) |
+| QA-01 | Phase 6 | Pending — matrix defined, no green run recorded yet |
+| QA-02 | Phase 6 | Pending — Windows/ubuntu jobs defined, not yet executed |
+| QA-03 | Phase 6 | Done — `docs/QA_HARDWARE_CHECKLIST.md` |
+| QA-04 | Phase 6 | Partial — README/CHANGELOG/index done, `docs/PACKAGING.md` in progress |
 
 **Coverage:**
 
@@ -111,4 +119,5 @@ Which phases cover which requirements — filled when roadmap is created.
 
 ---
 *Requirements defined: 2026-04-01*  
-*Last updated: 2026-04-01 after roadmap traceability (26 v1 requirements → Phases 1–6)*
+*Last updated: 2026-10-02 — traceability refreshed after the Linux/Windows port; statuses
+reflect what has been executed, not what has been written*

@@ -9,12 +9,12 @@ This roadmap delivers a **Windows port** with **bootstrap and path correctness**
 
 ## Phases
 
-- [ ] **Phase 1: Bootstrap & Windows paths** — Single-instance, APPDATA/temp/models/logs, FFmpeg discovery, frozen `_MEIPASS` paths
-- [ ] **Phase 2: Windows PyInstaller artifact (onedir)** — Spec, Qt/torch bundling, import order, VCRedist notes, clean-VM smoke
-- [ ] **Phase 3: CUDA inference & device UX on Windows** — CPU and CUDA separation, subprocess IPC, device selection and fallback visibility
-- [ ] **Phase 4: Playback & Windows audio I/O baseline** — Stem playback and graceful device/sample-rate behavior
-- [ ] **Phase 5: Recording parity (scope B)** — Mic/line-in, WASAPI loopback, enumeration, parity matrix vs macOS
-- [ ] **Phase 6: BeatNet service, CI & quality** — Packaged beatnet service, macOS CI preserved, Windows GHA job, docs and manual matrices
+- [x] **Phase 1: Bootstrap & Windows paths** — Single-instance, APPDATA/temp/models/logs, FFmpeg discovery, frozen `_MEIPASS` paths *(verified on Linux; Windows branches implemented, awaiting the CI runner)*
+- [ ] **Phase 2: PyInstaller artifacts (onedir)** — Windows + Linux specs, Qt/torch bundling, import order, VCRedist notes, clean-environment smoke *(in progress; Linux build is the local acceptance target)*
+- [x] **Phase 3: CUDA inference & device UX** — CPU and CUDA separation, subprocess IPC, device selection and fallback visibility *(real GPU + CPU runs measured on Linux)*
+- [x] **Phase 4: Playback & audio I/O baseline** — Stem playback, output-device picker, graceful device/sample-rate behaviour *(verified live on Linux)*
+- [x] **Phase 5: Recording parity (scope B)** — Mic/line-in, loopback capture (WASAPI / PulseAudio monitors / BlackHole), enumeration, parity matrix *(live capture verified on Linux)*
+- [ ] **Phase 6: BeatNet service, CI & quality** — Beat service verified on Linux; CI matrix defined but not yet executed; packaging docs outstanding
 
 ## Phase Details
 
@@ -96,12 +96,12 @@ This roadmap delivers a **Windows port** with **bootstrap and path correctness**
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Bootstrap & Windows paths | 0/TBD | Not started | - |
-| 2. Windows PyInstaller (onedir) | 0/TBD | Not started | - |
-| 3. CUDA inference & device UX | 0/TBD | Not started | - |
-| 4. Playback & audio I/O baseline | 0/TBD | Not started | - |
-| 5. Recording parity (scope B) | 0/TBD | Not started | - |
-| 6. BeatNet service, CI & quality | 0/TBD | Not started | - |
+| 1. Bootstrap & paths (Win/Linux) | done | Verified on Linux, Windows pending CI | - |
+| 2. PyInstaller artifacts (onedir) | in progress | In progress | - |
+| 3. CUDA inference & device UX | done | Verified on Linux (real GPU) | - |
+| 4. Playback & audio I/O baseline | done | Verified on Linux | - |
+| 5. Recording parity (scope B) | done | Verified on Linux; matrix published | - |
+| 6. BeatNet service, CI & quality | partial | Service verified; CI + packaging docs outstanding | - |
 
 ---
 *Roadmap created: 2026-04-01 — aligned with `.planning/research/SUMMARY.md` phase structure.*
