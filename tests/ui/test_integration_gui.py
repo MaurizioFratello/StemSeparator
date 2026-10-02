@@ -13,28 +13,24 @@ from PySide6.QtCore import Qt, QTimer
 from PySide6.QtTest import QTest
 
 from ui.main_window import MainWindow
-from core.separator import SeparationResult
-from core.recorder import RecordingInfo, RecordingState
-
+from core.recorder import RecordingState
 
 @pytest.mark.integration
 def test_complete_upload_workflow(qapp, reset_singletons, mock_audio_file, tmp_path):
     """
-    Integration test: Upload file → Select model → Start separation → View results
+    Integration test: add file → select model → start separation → task lands
+    in the global queue and the window switches to the queue tab.
 
-    WHY: Tests complete upload widget workflow as user would experience it
+    WHY written against the current API: the queue DRAWER was replaced by a
+    queue TAB during the port (`MainWindow._queue_widget`, content-stack index
+    2), the private `_add_file` is the public `add_file`, and
+    `_on_start_clicked` now just emits `file_queued` +
+    `start_queue_requested` — so the `audio_separator.Separator` patch of the
+    old version mocked a layer this workflow never touches. Patching
+    `QueueWorker` keeps the worker (and with it any real model download or
+    subprocess) out of the unit run while everything upstream of it is real.
     """
-    with patch("audio_separator.separator.Separator") as mock_separator_class:
-        # Mock successful separation
-        mock_sep_instance = MagicMock()
-        mock_sep_instance.separate.return_value = [
-            str(tmp_path / "test_vocals.wav"),
-            str(tmp_path / "test_drums.wav"),
-            str(tmp_path / "test_bass.wav"),
-            str(tmp_path / "test_other.wav"),
-        ]
-        mock_separator_class.return_value = mock_sep_instance
-
+    with patch("ui.widgets.queue_widget.QueueWorker"):
         # Create main window
         window = MainWindow()
         window.show()
@@ -44,33 +40,36 @@ def test_complete_upload_workflow(qapp, reset_singletons, mock_audio_file, tmp_p
         upload_widget = window._upload_widget
         window._content_stack.setCurrentWidget(upload_widget)
 
-        # Add file
-        upload_widget._add_file(mock_audio_file)
+        # Add file (public API; validates via file_manager)
+        upload_widget.add_file(mock_audio_file)
         assert upload_widget.file_list.count() == 1
 
         # Select file
         upload_widget.file_list.setCurrentRow(0)
         assert upload_widget.btn_start.isEnabled()
 
-        # Select model
-        upload_widget.model_combo.setCurrentIndex(0)
+        # Deterministic output location instead of the user's default dir.
+        upload_widget.output_path.setText(str(tmp_path))
 
-        # Start separation (now queues)
-        # Since start_queue triggers thread, we just verify it was queued
-        with patch("ui.widgets.queue_widget.QueueWorker"):
-            upload_widget._on_start_clicked()
+        # Select model (default selection must survive repopulation)
+        assert upload_widget.model_combo.count() > 0
+        model_id = upload_widget.model_combo.currentData()
 
-            # Should be in queue
-            queue_widget = window._queue_drawer.queue_widget
-            assert len(queue_widget.tasks) == 1
-            assert queue_widget.tasks[0].file_path == mock_audio_file
+        # Start separation (queues and requests start)
+        upload_widget._on_start_clicked()
 
-            # Drawer should be visible
-            assert window._queue_drawer.isVisible()
+        queue_widget = window._queue_widget
+        assert len(queue_widget.tasks) == 1
+        assert queue_widget.tasks[0].file_path == mock_audio_file
+        assert queue_widget.tasks[0].model_id == model_id
+
+        # The requested start switched the window to the queue tab.
+        assert window._content_stack.currentWidget() is queue_widget
+
 
 
 @pytest.mark.integration
-def test_recording_to_file_workflow(qapp, reset_singletons, tmp_path):
+def test_recording_to_file_workflow(qapp, qtbot, reset_singletons, tmp_path):
     """
     Integration test: Start recording → Stop → Save file → Verify
 
@@ -84,13 +83,34 @@ def test_recording_to_file_workflow(qapp, reset_singletons, tmp_path):
             mock_mics.return_value = [mock_device]
             mock_speakers.return_value = []
 
+            # Fake capture stream. TWO properties matter (a previous version
+            # had neither and leaked a live record loop through the whole
+            # suite): the fake must be PACED like a real device —
+            # soundcard.record(numframes=N) blocks for N/sample_rate seconds,
+            # an unpaced instant-return fake turns `_record_loop` into a
+            # GIL-hungry hot loop — and the test must go through the REAL
+            # `Recorder.stop_recording`, because that is what sets
+            # `_stop_event` and joins the thread. Content: a 0.5-peak sine so
+            # silence-trimming leaves the recording alone.
+            import numpy as np
+            import threading
+
+            phase = {"t": 0.0}
+
+            def fake_record(numframes):
+                time.sleep(numframes / 44100.0)
+                t = (np.arange(numframes) / 44100.0) + phase["t"]
+                phase["t"] += numframes / 44100.0
+                mono = (0.5 * np.sin(2 * np.pi * 440 * t)).astype(np.float32)
+                return np.stack([mono, mono], axis=1)
+
             # Mock recorder context
             mock_recorder_context = MagicMock()
             mock_recorder_context.__enter__ = MagicMock(
                 return_value=mock_recorder_context
             )
             mock_recorder_context.__exit__ = MagicMock(return_value=None)
-            mock_recorder_context.record = MagicMock(return_value=[[0.0, 0.0]] * 100)
+            mock_recorder_context.record = fake_record
 
             mock_device.recorder = MagicMock(return_value=mock_recorder_context)
 
@@ -107,32 +127,50 @@ def test_recording_to_file_workflow(qapp, reset_singletons, tmp_path):
             recording_widget._refresh_devices()
             assert recording_widget.device_combo.count() > 0
 
+            # Deterministic save location (no file dialog in this flow).
+            recording_widget.output_path.setText(str(tmp_path))
+
             # Start recording
             recording_widget._on_start_clicked()
 
-            # Wait briefly
-            QTest.qWait(200)
+            # Synchronise on ACTUAL capture, not wall time: `QTest.qWait`
+            # only pumps Qt events, and under GIL contention the Python
+            # record thread advances far slower than its device pacing
+            # (measured: 4 blocks in a 300 ms wait). `waitUntil` pumps the
+            # event loop while giving the worker air, making the "audio
+            # flowed" precondition deterministic.
+            qtbot.waitUntil(
+                lambda: len(recording_widget.recorder.recorded_chunks) >= 8,
+                timeout=5000,
+            )
 
             # Should be recording
             assert not recording_widget.btn_start.isEnabled()
             assert recording_widget.btn_stop.isEnabled()
 
-            # Stop recording
-            save_path = tmp_path / "test_recording.wav"
-            with patch("core.recorder.Recorder.stop_recording") as mock_stop:
-                mock_stop.return_value = RecordingInfo(
-                    duration_seconds=0.2,
-                    sample_rate=44100,
-                    channels=2,
-                    file_path=save_path,
-                    peak_level=0.5,
-                )
+            # Stop through the product path (the success information box is
+            # modal and would block the offscreen runner).
+            with patch("PySide6.QtWidgets.QMessageBox.information"):
+                recording_widget._on_stop_clicked()
 
-                with patch("PySide6.QtWidgets.QMessageBox.information"):
-                    recording_widget._on_stop_clicked()
+            recorder = recording_widget.recorder
+            assert recorder.state == RecordingState.IDLE
+            assert not [
+                t
+                for t in threading.enumerate()
+                if getattr(t, "_target", None) is not None
+                and getattr(t._target, "__self__", None) is recorder
+            ], "record loop leaked past stop_recording"
 
-                # Should have called stop
-                mock_stop.assert_called_once()
+            saved = list(tmp_path.glob("recording_*.wav"))
+            assert len(saved) == 1, f"expected one recording, got {saved}"
+
+            import soundfile as sf
+
+            data, sr = sf.read(str(saved[0]))
+            assert sr == 44100
+            assert 0.05 < data.shape[0] / sr < 2.0
+            assert 0.3 < float(np.max(np.abs(data))) <= 0.6
 
 
 @pytest.mark.integration
@@ -159,33 +197,20 @@ def test_queue_batch_processing_workflow(qapp, reset_singletons, tmp_path):
 
         test_files.append(test_file)
 
-    with patch("audio_separator.separator.Separator") as mock_separator_class:
-        # Mock separator
-        mock_sep_instance = MagicMock()
-
-        def mock_separate(audio_file, **kwargs):
-            # Simulate processing
-            return SeparationResult(
-                success=True,
-                input_file=Path(audio_file),
-                output_dir=tmp_path,
-                stems={"vocals": tmp_path / f"{Path(audio_file).stem}_vocals.wav"},
-                model_used="demucs_4s",
-                device_used="cpu",
-                duration_seconds=0.5,
-            )
-
-        mock_sep_instance.separate.side_effect = mock_separate
-        mock_separator_class.return_value = mock_sep_instance
-
+    # `QueueWorker` is the seam that would spawn the real separation
+    # subprocess (and model downloads) — patched, exactly as in
+    # `test_complete_upload_workflow`. The old patch of
+    # `audio_separator.separator.Separator` mocked a class this flow never
+    # imports: the queue runs the app's OWN `core.separator.Separator` in a
+    # worker process, invisible to that patch. The queue DRAWER became a
+    # queue TAB (`MainWindow._queue_widget`) during the port.
+    with patch("ui.widgets.queue_widget.QueueWorker"):
         # Create main window
         window = MainWindow()
         window.show()
         QTest.qWaitForWindowExposed(window)
 
-        # Get queue widget
-        queue_widget = window._queue_drawer.queue_widget
-        # window._content_stack.setCurrentWidget(queue_widget) # No longer in stack
+        queue_widget = window._queue_widget
 
         # Add files to queue
         for test_file in test_files:
@@ -195,14 +220,10 @@ def test_queue_batch_processing_workflow(qapp, reset_singletons, tmp_path):
         assert queue_widget.queue_table.rowCount() == 3
 
         # Start queue processing
-        with patch("PySide6.QtWidgets.QMessageBox.information"):
-            queue_widget._on_start_queue()
+        queue_widget.start_processing()
 
-            # Wait for processing to start
-            QTest.qWait(100)
-
-            # Should be processing
-            assert queue_widget.is_processing
+        # Should be processing
+        assert queue_widget.is_processing
 
 
 @pytest.mark.integration
@@ -256,10 +277,11 @@ def test_upload_to_queue_signal_workflow(qapp, reset_singletons, mock_audio_file
     QTest.qWaitForWindowExposed(window)
 
     upload_widget = window._upload_widget
-    queue_widget = window._queue_drawer.queue_widget
+    queue_widget = window._queue_widget  # the drawer became a queue TAB
 
-    # Add file to upload widget
-    upload_widget._add_file(mock_audio_file)
+    # Add file to upload widget (public API — the private `_add_file` the
+    # port-era test used no longer exists)
+    upload_widget.add_file(mock_audio_file)
     upload_widget.file_list.setCurrentRow(0)
 
     # Queue it
@@ -272,11 +294,20 @@ def test_upload_to_queue_signal_workflow(qapp, reset_singletons, mock_audio_file
 
 
 @pytest.mark.integration
-def test_recording_to_main_window_signal(qapp, reset_singletons, tmp_path):
+def test_recording_to_main_window_signal(
+    qapp, reset_singletons, tmp_path, mock_audio_file
+):
     """
-    Integration test: Recording saved → Signal to main window → Status update
+    Integration test: Recording saved → Signal to main window → status update
+    and the file handed to the upload widget.
 
-    WHY: Tests signal propagation from recording widget to main window
+    WHY the file must be a real WAV (a `.touch()`ed empty file hung this
+    suite): the product path `MainWindow._on_recording_saved` →
+    `UploadWidget.add_file` validates the audio file and answers an invalid
+    one with a MODAL `QMessageBox.warning` — correct UX for a user, a
+    deadlock for an offscreen runner. The previous mock made the flow
+    impossible to finish without patching away the very warning that proves
+    validation works.
     """
     window = MainWindow()
     window.show()
@@ -284,51 +315,67 @@ def test_recording_to_main_window_signal(qapp, reset_singletons, tmp_path):
 
     recording_widget = window._recording_widget
 
-    # Simulate recording saved
-    test_file = tmp_path / "recording.wav"
-    test_file.touch()
+    # Simulate recording saved (real, readable audio — see docstring).
+    test_file = mock_audio_file
 
     recording_widget.recording_saved.emit(test_file)
 
     # Process events
     QTest.qWait(100)
 
-    # Status bar should show notification
-    status_text = window.statusBar().currentMessage()
-    assert "recording" in status_text.lower() or test_file.name in status_text
+    # Status feedback lives in the EnhancedStatusBar's own label: its
+    # `showMessage` override renders into `_status_label` and never feeds
+    # QStatusBar::currentMessage — asserting currentMessage() tested a dead
+    # channel.
+    from PySide6.QtWidgets import QLabel
+
+    labels = [l.text() for l in window.statusBar().findChildren(QLabel)]
+    assert any("Recording saved" in t or test_file.name in t for t in labels), labels
+
+    # ... and the downstream effect the signal exists for: the upload widget
+    # received the file (validation passed, no warning dialog fired).
+    upload_widget = window._upload_widget
+    paths = [
+        upload_widget.file_list.item(i).data(Qt.UserRole)
+        for i in range(upload_widget.file_list.count())
+    ]
+    assert test_file in paths
 
 
 @pytest.mark.integration
 def test_language_switch_workflow(qapp, reset_singletons):
     """
-    Integration test: Switch language → Verify UI updates
+    Integration test: switch language → visible texts come from the new
+    catalogue.
 
-    WHY: Tests translation system integration
+    WHY rewritten: this exercised `window._language_actions`, a menu that no
+    longer exists (the MainWindow has no language UI; the real seam is
+    `AppContext.set_language` + `MainWindow._apply_translations`, invoked by
+    whoever persists the setting). Testing the seam that exists keeps the
+    i18n integration honest.
     """
     window = MainWindow()
     window.show()
     QTest.qWaitForWindowExposed(window)
 
-    # Get current language
-    current_lang = window._context.get_language()
+    # The shipped default is German (`DEFAULT_LANGUAGE = "de"`), so the test
+    # must pin a known start instead of assuming the host default.
+    window._context.set_language("en")
+    window._apply_translations()
+    assert window._context.translate("playback.output_label", "Output:") == "Output:"
 
-    # Find opposite language action
-    for lang_code, action in window._language_actions.items():
-        if lang_code != current_lang:
-            # Trigger language switch
-            action.trigger()
+    window._context.set_language("de")
+    window._apply_translations()
 
-            # Process events
-            QTest.qWait(50)
-
-            # Language should have changed
-            new_lang = window._context.get_language()
-            assert new_lang == lang_code
-            break
+    assert window._context.get_language() == "de"
+    # A German string from resources/translations/de.json must be live in
+    # the UI now (the playback output-label is translated; English-only
+    # fallback text would prove the catalogue is NOT wired).
+    assert window._context.translate("playback.output_label", "Output:") == "Ausgabe:"
 
 
 @pytest.mark.integration
-def test_player_load_stems_workflow(qapp, reset_singletons, tmp_path):
+def test_player_load_stems_workflow(qapp, qtbot, reset_singletons, tmp_path):
     """
     Integration test: Load stems into player → Verify controls enabled
 
@@ -358,16 +405,15 @@ def test_player_load_stems_workflow(qapp, reset_singletons, tmp_path):
     player_widget = window._player_widget
     window._content_stack.setCurrentWidget(player_widget)
 
-    # Load stems
+    # `_load_stems` hands parsing/loading to a BACKGROUND worker and enables
+    # the controls in `on_finished` — wait for the finished state instead of
+    # asserting the buttons one tick too early.
     player_widget._load_stems(list(stem_files.values()))
 
-    # Should have loaded stems
+    qtbot.waitUntil(lambda: player_widget.btn_play.isEnabled(), timeout=15000)
     assert len(player_widget.stem_files) == 4
     assert len(player_widget.stem_controls) == 4
-
-    # Play button should be enabled
-    assert player_widget.btn_play.isEnabled()
-    assert player_widget.btn_export.isEnabled()
+    assert set(player_widget.stem_files.values()) == set(stem_files.values())
 
 
 @pytest.mark.integration
@@ -389,7 +435,7 @@ def test_error_handling_workflow(qapp, reset_singletons, tmp_path):
 
     # Try to add invalid file
     with patch("PySide6.QtWidgets.QMessageBox.warning") as mock_warning:
-        upload_widget._add_file(invalid_file)
+        upload_widget.add_file(invalid_file)
 
         # Should show warning
         mock_warning.assert_called_once()
@@ -400,19 +446,18 @@ def test_error_handling_workflow(qapp, reset_singletons, tmp_path):
 
 @pytest.mark.integration
 @pytest.mark.slow
-def test_full_user_journey(qapp, reset_singletons, tmp_path):
+def test_full_user_journey(qapp, qtbot, reset_singletons, tmp_path):
     """
-    Integration test: Complete user journey from start to finish
+    Integration test: the complete happy path — open app, upload a file,
+    queue it, start the queue, open settings.
 
-    Steps:
-    1. Open app
-    2. Upload file
-    3. Start separation
-    4. View results in player
-    5. Queue another file
-    6. Change settings
-
-    WHY: Tests most common user workflow end-to-end
+    WHY rewritten against the current API: the private `_add_file` is gone
+    (public `add_file`), the queue drawer is a queue TAB, and the old
+    `audio_separator.separator.Separator` patch never intercepted this flow
+    anyway — the queue runs the app's own `core.separator.Separator` inside
+    `QueueWorker`, so `QueueWorker` itself is the honest seam to patch (same
+    choice as the other queue tests). The previous version finished with
+    `assert True`, which asserted nothing.
     """
     # Create test file
     test_file = tmp_path / "user_test.wav"
@@ -425,15 +470,10 @@ def test_full_user_journey(qapp, reset_singletons, tmp_path):
         wav.setframerate(44100)
         wav.writeframes(np.zeros((88200, 2), dtype=np.int16).tobytes())
 
-    with patch("audio_separator.separator.Separator") as mock_separator_class:
-        # Mock separator
-        mock_sep_instance = MagicMock()
-        mock_sep_instance.separate.return_value = [
-            str(tmp_path / "vocals.wav"),
-            str(tmp_path / "drums.wav"),
-        ]
-        mock_separator_class.return_value = mock_sep_instance
+    from ui.widgets.settings_dialog import SettingsDialog
 
+    with patch("ui.widgets.queue_widget.QueueWorker"), \
+            patch.object(SettingsDialog, "exec") as mock_exec:
         # Step 1: Open app
         window = MainWindow()
         window.show()
@@ -443,21 +483,34 @@ def test_full_user_journey(qapp, reset_singletons, tmp_path):
         # Step 2: Upload file
         upload_widget = window._upload_widget
         window._content_stack.setCurrentWidget(upload_widget)
-        upload_widget._add_file(test_file)
+        upload_widget.add_file(test_file)
         assert upload_widget.file_list.count() == 1
 
         # Step 3: Queue file
         upload_widget.file_list.setCurrentRow(0)
         upload_widget._on_queue_clicked()
 
-        queue_widget = window._queue_drawer.queue_widget
+        queue_widget = window._queue_widget
         assert len(queue_widget.tasks) == 1
+        assert queue_widget.tasks[0].file_path == test_file
 
-        # Step 4: Change settings
-        from ui.widgets.settings_dialog import SettingsDialog
+        # Step 4: Start the queue via the upload widget — the
+        # `start_queue_requested` signal wiring must switch the window to
+        # the queue tab.
+        upload_widget._on_start_clicked()
+        assert queue_widget.is_processing
+        assert window._content_stack.currentWidget() is queue_widget
 
-        with patch.object(SettingsDialog, "exec"):
-            window._show_settings()
+        # Step 5: Open settings — real wiring: the menu action path must
+        # construct the dialog AND run it modally.
+        window._show_settings()
+        assert mock_exec.called
 
-        # Journey complete
-        assert True  # If we got here, full journey succeeded
+        # Step 6: Language change reaches the visible texts (the old test
+        # listed "change settings" without ever asserting an effect).
+        window._context.set_language("de")
+        window._apply_translations()
+        assert window._context.translate(
+            "playback.output_label", "Output:"
+        ) == "Ausgabe:"
+

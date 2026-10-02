@@ -57,6 +57,20 @@ class TestBlackHoleStatus:
 class TestBlackHoleInstaller:
     """Tests für BlackHoleInstaller"""
 
+    @pytest.fixture(autouse=True)
+    def _act_as_macos(self, monkeypatch):
+        """
+        BlackHole speaks macOS shell tools (`brew`, `pkgutil`, `sudo installer`)
+        and the installer guards every entry on `check_macos()`. The tests mock
+        `subprocess.run` wholesale, so the code under test must believe it runs
+        on the platform those tools exist on — same patch target the
+        `check_macos` tests already use. This runs the macOS branch identically
+        on Linux/Windows CI instead of skipping it.
+        """
+        monkeypatch.setattr(
+            "core.blackhole_installer.platform.system", lambda: "Darwin"
+        )
+
     def test_initialization(self):
         """Teste Installer Initialisierung"""
         installer = BlackHoleInstaller()
@@ -131,6 +145,7 @@ class TestBlackHoleInstaller:
         mock_run.side_effect = [
             Mock(returncode=0),  # brew --version
             Mock(returncode=1, stdout=""),  # brew list --versions
+            Mock(returncode=1, stdout=""),  # pkgutil fallback: absent
         ]
 
         installer = BlackHoleInstaller()
@@ -324,7 +339,9 @@ class TestBlackHoleInstaller:
             Mock(returncode=0),  # brew --version (in check_homebrew)
             Mock(returncode=0),  # brew --version (in check_blackhole)
             Mock(returncode=1, stdout=""),  # brew list (not installed)
+            Mock(returncode=1, stdout=""),  # pkgutil fallback: absent
             Mock(returncode=0),  # brew install
+            Mock(returncode=0),  # sudo killall coreaudiod
             Mock(returncode=0),  # brew --version (verify)
             Mock(returncode=0, stdout="blackhole-2ch 0.4.0\n"),  # brew list (verify)
         ]
@@ -344,6 +361,7 @@ class TestBlackHoleInstaller:
             Mock(returncode=0),  # brew --version (check_homebrew)
             Mock(returncode=0),  # brew --version (check_blackhole)
             Mock(returncode=1, stdout=""),  # brew list (not installed)
+            Mock(returncode=1, stdout=""),  # pkgutil fallback: absent
             Mock(returncode=1, stderr="Installation failed"),  # brew install fails
         ]
 
@@ -362,6 +380,7 @@ class TestBlackHoleInstaller:
             Mock(returncode=0),  # brew --version (check_homebrew)
             Mock(returncode=0),  # brew --version (check_blackhole)
             Mock(returncode=1, stdout=""),  # brew list (not installed)
+            Mock(returncode=1, stdout=""),  # pkgutil fallback: absent
             subprocess.TimeoutExpired("brew install", 300),  # Install timeout
         ]
 
@@ -380,7 +399,9 @@ class TestBlackHoleInstaller:
             Mock(returncode=0),  # brew --version
             Mock(returncode=0),  # brew --version
             Mock(returncode=1, stdout=""),  # brew list (not installed)
+            Mock(returncode=1, stdout=""),  # pkgutil fallback: absent
             Mock(returncode=0),  # brew install
+            Mock(returncode=0),  # sudo killall coreaudiod
             Mock(returncode=0),  # brew --version
             Mock(returncode=0, stdout="blackhole-2ch 0.4.0\n"),  # brew list
         ]
@@ -417,6 +438,7 @@ class TestBlackHoleInstaller:
             Mock(returncode=0),  # brew --version
             Mock(returncode=0),  # brew --version
             Mock(returncode=1, stdout=""),  # brew list (not found)
+            Mock(returncode=1, stdout=""),  # pkgutil fallback: absent
         ]
 
         installer = BlackHoleInstaller()

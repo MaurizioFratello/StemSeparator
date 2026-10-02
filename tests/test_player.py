@@ -282,17 +282,26 @@ class TestAudioPlayer:
         np.testing.assert_array_almost_equal(mixed, expected, decimal=5)
 
     def test_mix_stems_master_volume(self, test_audio_files):
-        """Test mixing with master volume"""
+        """Master volume scales the summed mix; the limiter keeps peaks safe."""
         player = AudioPlayer()
         player.load_stems(test_audio_files)
 
-        player.set_master_volume(0.5)
+        # WHY a ratio instead of the old `<= 0.5` bound: stems add coherently,
+        # so a multi-stem sum sits near full scale and an absolute ceiling tied
+        # to the master value was never true. The product applies master, then
+        # normalises to 0.95 only when the sum would clip (`_mix_stems`).
+        player.set_master_volume(0.1)
+        quiet = np.max(np.abs(player._mix_stems(0, 44100)))
+        player.set_master_volume(0.2)
+        loud = np.max(np.abs(player._mix_stems(0, 44100)))
+        assert np.isclose(loud, quiet * 2.0, rtol=1e-5)
 
-        mixed = player._mix_stems(0, 44100)
-
-        # Check that master volume is applied
-        # (exact values depend on mixing, but should be scaled)
-        assert np.max(np.abs(mixed)) <= 0.5
+        # Overload path: full master on the coherent test stems sums past 1.0
+        # and must land limiter-bounded, never past the final clip.
+        player.set_master_volume(1.0)
+        hot = player._mix_stems(0, 44100)
+        assert np.max(np.abs(hot)) == pytest.approx(0.95, abs=1e-3)
+        assert np.all(np.abs(hot) <= 1.0)
 
     def test_play_without_stems(self, mock_rtmixer):
         """Test play without loaded stems"""

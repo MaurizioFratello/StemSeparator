@@ -302,8 +302,8 @@ class Animations:
         animation.setEasingCurve(QEasingCurve.OutQuad)
 
         # Scale back down
-        def scale_back():
-            back_animation = QPropertyAnimation(widget, b"size")
+        def scale_back() -> None:
+            back_animation = QPropertyAnimation(widget, b"size", widget)
             back_animation.setDuration(duration)
             back_animation.setStartValue(scaled_size)
             back_animation.setEndValue(current_size)

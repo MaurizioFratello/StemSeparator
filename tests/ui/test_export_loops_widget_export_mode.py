@@ -25,18 +25,20 @@ def qapp():
 
 @pytest.fixture
 def mock_player_widget(qapp):
-    """Create mock player widget"""
+    """Create a player-widget double with concrete loop and stem collections."""
     widget = Mock(spec=PlayerWidget)
     widget.stem_files = {}
     widget.has_stems_loaded = Mock(return_value=False)
     widget.detected_downbeat_times = None
     widget._bars_per_loop = 4
+    widget._get_all_loop_segments = Mock(return_value=[])
     widget.player = Mock()
     widget.player.get_duration = Mock(return_value=10.0)
     widget.ctx = Mock()
     widget.ctx.logger = Mock(return_value=Mock())
     widget.time_stretch_checkbox = Mock()
     widget.time_stretch_checkbox.isChecked = Mock(return_value=False)
+    widget.get_stretch_manager = Mock(return_value=None)
     return widget
 
 
@@ -65,18 +67,16 @@ class TestLoopVersionCheckbox:
         assert export_widget.loop_version_checkbox.isEnabled() is False
 
     def test_loop_version_checkbox_enabled_with_stretching(self, export_widget, mock_player_widget):
-        """Test that checkbox is enabled when time-stretching is available"""
-        # Enable time-stretching
+        """Test that checkbox is enabled when every stretched loop is available."""
         mock_player_widget.time_stretch_checkbox.isChecked = Mock(return_value=True)
-        
-        # Create mock manager with completed tasks
-        mock_manager = MagicMock()
-        mock_manager.is_running = False
-        mock_manager.completed_tasks = {'task1': Mock()}
+        mock_player_widget.stem_files = {"drums": __file__}
+        mock_player_widget._get_all_loop_segments = Mock(return_value=[(0.0, 2.0)])
+        mock_manager = Mock()
+        mock_manager.is_loop_ready = Mock(return_value=True)
         mock_player_widget.get_stretch_manager = Mock(return_value=mock_manager)
-        
+
         export_widget._update_loop_version_checkbox_state()
-        
+
         assert export_widget.loop_version_checkbox.isEnabled() is True
 
     def test_loop_version_checkbox_tooltip_no_stretching(self, export_widget, mock_player_widget):
@@ -89,17 +89,16 @@ class TestLoopVersionCheckbox:
         assert "Time-Stretching im Looping-Tab aktivieren" in export_widget.loop_version_checkbox.toolTip()
 
     def test_loop_version_checkbox_tooltip_processing(self, export_widget, mock_player_widget):
-        """Test checkbox tooltip when processing"""
+        """Test checkbox tooltip when stretching has not finished."""
         mock_player_widget.time_stretch_checkbox.isChecked = Mock(return_value=True)
-        
-        # Manager is running
-        mock_manager = MagicMock()
-        mock_manager.is_running = True
-        mock_manager.completed_tasks = {}
+        mock_player_widget.stem_files = {"drums": __file__}
+        mock_player_widget._get_all_loop_segments = Mock(return_value=[(0.0, 2.0)])
+        mock_manager = Mock()
+        mock_manager.is_loop_ready = Mock(return_value=False)
         mock_player_widget.get_stretch_manager = Mock(return_value=mock_manager)
-        
+
         export_widget._update_loop_version_checkbox_state()
-        
+
         assert "verarbeitet" in export_widget.loop_version_checkbox.toolTip()
 
 
@@ -162,25 +161,30 @@ class TestCheckboxStateManagement:
         assert result is False
 
     def test_has_stretched_loops_ready_true(self, export_widget, mock_player_widget):
-        """Test that ready loops are detected correctly"""
-        mock_manager = MagicMock()
-        mock_manager.is_running = False
-        mock_manager.completed_tasks = {'task1': Mock(), 'task2': Mock()}
+        """Test that readiness requires every stem loop to be cached."""
+        mock_player_widget.stem_files = {"drums": __file__, "bass": __file__}
+        mock_player_widget._get_all_loop_segments = Mock(
+            return_value=[(0.0, 2.0), (2.0, 4.0)]
+        )
+        mock_manager = Mock()
+        mock_manager.is_loop_ready = Mock(return_value=True)
         mock_player_widget.get_stretch_manager = Mock(return_value=mock_manager)
-        
+
         result = export_widget._has_stretched_loops_ready()
-        
+
         assert result is True
+        assert mock_manager.is_loop_ready.call_count == 4
 
     def test_has_stretched_loops_ready_false_processing(self, export_widget, mock_player_widget):
-        """Test that processing loops are not considered ready"""
-        mock_manager = MagicMock()
-        mock_manager.is_running = True
-        mock_manager.completed_tasks = {}
+        """Test that a missing cached loop is not considered ready."""
+        mock_player_widget.stem_files = {"drums": __file__}
+        mock_player_widget._get_all_loop_segments = Mock(return_value=[(0.0, 2.0)])
+        mock_manager = Mock()
+        mock_manager.is_loop_ready = Mock(return_value=False)
         mock_player_widget.get_stretch_manager = Mock(return_value=mock_manager)
-        
+
         result = export_widget._has_stretched_loops_ready()
-        
+
         assert result is False
 
     def test_has_stretched_loops_ready_false_no_manager(self, export_widget, mock_player_widget):
@@ -222,20 +226,19 @@ class TestExportModeWorkflow:
         assert settings1.sample_rate == settings2.sample_rate
 
     def test_loop_version_checkbox_updates_on_stretching(self, export_widget, mock_player_widget):
-        """Test that checkbox updates when stretching status changes"""
-        # Initially disabled
+        """Test that checkbox updates when stretching status changes."""
         export_widget._update_loop_version_checkbox_state()
         assert export_widget.loop_version_checkbox.isEnabled() is False
-        
-        # Enable time-stretching
+
         mock_player_widget.time_stretch_checkbox.isChecked = Mock(return_value=True)
-        mock_manager = MagicMock()
-        mock_manager.is_running = False
-        mock_manager.completed_tasks = {'task1': Mock()}
+        mock_player_widget.stem_files = {"drums": __file__}
+        mock_player_widget._get_all_loop_segments = Mock(return_value=[(0.0, 2.0)])
+        mock_manager = Mock()
+        mock_manager.is_loop_ready = Mock(return_value=True)
         mock_player_widget.get_stretch_manager = Mock(return_value=mock_manager)
-        
+
         export_widget._update_loop_version_checkbox_state()
-        
+
         assert export_widget.loop_version_checkbox.isEnabled() is True
 
 

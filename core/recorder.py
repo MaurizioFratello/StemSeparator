@@ -323,6 +323,8 @@ class Recorder:
             self.logger.error(self.last_error)
             return None
 
+        if not name and self.is_macos:
+            return self.find_blackhole_device()
         if not name:
             return self._find_system_audio_device()
 
@@ -434,9 +436,6 @@ class Recorder:
             self.logger.error(
                 f"{self.last_error} Available: "
                 f"{', '.join(self.get_available_devices()) or 'none'}"
-            )
-            error_handler.handle_error(
-                RuntimeError(self.last_error), context="recorder.start_recording"
             )
             return False
 
@@ -795,9 +794,13 @@ class Recorder:
                     # Nehme Audio-Block auf
                     audio_block = recorder.record(numframes=blocksize)
 
+                    # Recording may have been paused while the backend was
+                    # blocking in `record`; never retain that in-flight block.
+                    if self.state != RecordingState.RECORDING:
+                        continue
+
                     # Speichere Chunk
                     self.recorded_chunks.append(audio_block)
-
                     # Akkumuliere Blöcke für RMS-Berechnung über längeres Fenster
                     accumulated_blocks.append(audio_block)
                     block_counter += 1

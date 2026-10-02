@@ -53,21 +53,17 @@ def integration_test_audio_files():
 
 
 @pytest.fixture
-def integration_widget(qtbot, integration_test_audio_files):
-    """Create widget with stems and loops for integration tests"""
-    with patch("core.player.AudioPlayer._import_rtmixer"):
-        widget = PlayerWidget()
-        qtbot.addWidget(widget)
-        
-        temp_dir, file_paths = integration_test_audio_files
-        widget._load_stems(file_paths)
-        
-        # Simulate detected loops
-        widget.detected_loop_segments = [(0.0, 0.5), (0.5, 1.0), (1.0, 1.5), (1.5, 2.0)]
-        widget.detected_intro_loops = []
-        widget.detected_bpm = 120.0
-        
-        return widget
+def integration_widget(qtbot, integration_test_audio_files, reset_singletons):
+    """Create widget with loaded stems and deterministic loop metadata."""
+    widget = PlayerWidget()
+    qtbot.addWidget(widget)
+    _, file_paths = integration_test_audio_files
+    widget._load_stems(file_paths)
+    qtbot.waitUntil(lambda: widget.btn_play.isEnabled(), timeout=15000)
+    widget.detected_loop_segments = [(0.0, 0.5), (0.5, 1.0), (1.0, 1.5), (1.5, 2.0)]
+    widget.detected_intro_loops = []
+    widget.detected_bpm = 120.0
+    return widget
 
 
 # ============================================================================
@@ -78,10 +74,9 @@ def integration_widget(qtbot, integration_test_audio_files):
 class TestTimeStretchIntegration:
     """End-to-end integration tests for time-stretching"""
 
-    @patch("core.player.AudioPlayer._import_rtmixer")
     @patch("core.background_stretch_manager.BackgroundStretchManager")
     @patch("sounddevice.play")
-    def test_full_workflow_enable_process_play(self, mock_sd_play, mock_manager_class, mock_rtmixer, qtbot, integration_widget):
+    def test_full_workflow_enable_process_play(self, mock_sd_play, mock_manager_class, qtbot, integration_widget):
         """Test full workflow: Enable → Set BPM → Process → Play stretched loop"""
         widget = integration_widget
         
@@ -114,11 +109,10 @@ class TestTimeStretchIntegration:
         # Verify stretched playback was used
         mock_sd_play.assert_called_once()
 
-    @patch("core.player.AudioPlayer._import_rtmixer")
     @patch("core.background_stretch_manager.BackgroundStretchManager")
     @patch("sounddevice.play")
     @patch("core.player.AudioPlayer.play_loop_segment")
-    def test_toggle_workflow_normal_to_stretched(self, mock_normal_play, mock_sd_play, mock_manager_class, mock_rtmixer, qtbot, integration_widget):
+    def test_toggle_workflow_normal_to_stretched(self, mock_normal_play, mock_sd_play, mock_manager_class, qtbot, integration_widget):
         """Test toggle workflow: Enable → Process → Play stretched → Disable → Play normal"""
         widget = integration_widget
         widget.selected_loop_index = 0
@@ -145,10 +139,9 @@ class TestTimeStretchIntegration:
         mock_normal_play.assert_called_once()
         mock_sd_play.assert_not_called()
 
-    @patch("core.player.AudioPlayer._import_rtmixer")
     @patch("core.background_stretch_manager.BackgroundStretchManager")
     @patch("sounddevice.play")
-    def test_multiple_loops_processing(self, mock_sd_play, mock_manager_class, mock_rtmixer, qtbot, integration_widget):
+    def test_multiple_loops_processing(self, mock_sd_play, mock_manager_class, qtbot, integration_widget):
         """Test processing all loops and playing different loops"""
         widget = integration_widget
         widget.time_stretch_enabled = True
@@ -170,10 +163,9 @@ class TestTimeStretchIntegration:
         # Should have called sounddevice for each loop
         assert mock_sd_play.call_count == len(widget.detected_loop_segments)
 
-    @patch("core.player.AudioPlayer._import_rtmixer")
     @patch("core.background_stretch_manager.BackgroundStretchManager")
     @patch("sounddevice.play")
-    def test_repeat_mode_with_stretched_loops(self, mock_sd_play, mock_manager_class, mock_rtmixer, qtbot, integration_widget):
+    def test_repeat_mode_with_stretched_loops(self, mock_sd_play, mock_manager_class, qtbot, integration_widget):
         """Test repeat mode with stretched loops"""
         widget = integration_widget
         widget.time_stretch_enabled = True
@@ -194,8 +186,7 @@ class TestTimeStretchIntegration:
         audio_data = call_args[0][0]
         assert len(audio_data) > 22050  # Should be repeated
 
-    @patch("core.player.AudioPlayer._import_rtmixer")
-    def test_state_persistence_across_tab_switches(self, mock_rtmixer, qtbot, integration_widget):
+    def test_state_persistence_across_tab_switches(self, qtbot, integration_widget):
         """Test that time-stretch state persists across tab switches"""
         widget = integration_widget
         

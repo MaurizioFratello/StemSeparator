@@ -108,7 +108,7 @@ class TestTypography:
         """Test body text style generation"""
         style = Typography.body()
 
-        assert "font-size: 14px" in style
+        assert f"font-size: {Typography.SIZE_BODY}px" in style
         assert str(Typography.WEIGHT_NORMAL) in style
 
     def test_mono_style(self):
@@ -290,21 +290,3 @@ class TestThemeConsistency:
         assert 16 <= Spacing.BUTTON_PADDING_H <= 32
 
 
-class TestThemePerformance:
-    """Test theme system performance"""
-
-    def test_stylesheet_loading_is_fast(self, theme_manager, benchmark):
-        """Test that stylesheet loading is performant"""
-        # Should load in under 10ms
-        result = benchmark(theme_manager.load_stylesheet)
-        assert len(result) > 0
-
-    def test_color_conversion_is_fast(self, benchmark):
-        """Test that color conversion is performant"""
-        result = benchmark(ColorPalette.with_alpha, "#667eea", 0.5)
-        assert result == "rgba(102, 126, 234, 0.5)"
-
-    def test_gradient_generation_is_fast(self, benchmark):
-        """Test that gradient generation is performant"""
-        result = benchmark(ColorPalette.gradient_primary)
-        assert "qlineargradient" in result

@@ -9,7 +9,8 @@ executed** versus what still only exists as code.
 - Interpreter for everything: `/home/mauriziofratello/.venvs/stemsep/bin/python`
   (CPython 3.11, PySide6 6.10, numpy 2.3.4, librosa 0.11, scipy 1.16.3, soundfile,
   sounddevice, soundcard 0.4.5, onnxruntime 1.23.2 **CPU-only**, audio-separator 0.39.1,
-  torch 2.14.1+cu130, torchaudio 2.9.0+cpu, imageio-ffmpeg, pytest 9 + pytest-qt/mock/cov).
+  torch 2.14.1+cu130, torchaudio 2.9.0+cpu, imageio-ffmpeg, pytest 9 + pytest-qt/mock/cov
+  + pytest-timeout 2.4.0).
   No `pip` in that venv → install with `uv pip install --python <that python> ...`.
 - Host: Linux x64, **no sudo**, PipeWire running, two real CUDA GPUs
   (RTX 5090 + RTX PRO 6000 Blackwell, driver 595.91.07).
@@ -46,40 +47,122 @@ executed** versus what still only exists as code.
 | Time stretcher | `core/time_stretcher.py`: lazy pyrubberband/librosa imports, `rubberband_binary()` via `platform_utils.find_binary`, engine chain `rubberband-cli → pyrubberband → librosa-phase-vocoder` logging which ran. With CLI on PATH: 12 s → **9.600 s** at 1.25× in 0.44 s. Without CLI: librosa fallback, also exact, 2.85 s. All engines broken → `LibraryNotFoundError` naming every engine's reason. Module imports with pyrubberband **and** librosa blocked. |
 | BeatNet/DeepRhythm | Agent-executed: service over the client returned **120.0 BPM** (confidence 0.96, backend `cuda`) on the 120 BPM click track, CPU path also 120.0 BPM, termination left no orphans, 33/33 fake-torch device-policy cases, win32 spawn/kill branches exercised offline. Files: `utils/beat_service_client.py`, `packaging/beatnet_service/src/{device,pyaudio,__main__}.py`, `utils/audio_processing.py`. |
 
-## NOT verified — start here tomorrow
+## Verified since (2026-10-02, executed)
 
-1. **`core/model_manager.py` + `packaging/download_models.py`.** A killed agent left
-   ~750 lines claiming `MODEL_SEARCH_PATHS` lookup (writes to `MODELS_DIR`, per-file
-   provenance, lazy `MODELS_DIR` read so `tests/test_model_manager.py:26` monkeypatch
-   still works). `py_compile` passes; **none of its acceptance runs were ever executed**.
-   Prove: (a) model present only in a second search dir → reported available, no download;
-   (b) download destination is `MODELS_DIR` (stub `Separator`, no network);
-   (c) read-only `MODELS_DIR` doesn't crash init. Trust nothing the docstring claims until run.
-2. **Packaging (PKG-01..05) — effectively not started.** Previous job was OOM-killed after
-   only creating `packaging/vendor/linux/{bin,native}` (static ffmpeg 79 MB, ffprobe,
-   `libportaudio.so.2` — **gitignored, keep out of git**). Missing: Windows onedir spec,
-   Linux spec, real `.ico` (repo has only `.icns`/PNG), Inno Setup script,
-   `requirements.txt` CUDA-index split, `requirements-build.txt` `dmgbuild` marker,
-   audit of the mac specs' `excludes=["onnxruntime"]` (breaks MDX-Net), and
-   **`docs/PACKAGING.md` with a literal `## CUDA Installation` heading** — two error
-   strings already reference that anchor (`core/device_manager._cuda_unavailable_description`
-   and the worker's CUDA RuntimeError). Acceptance: build the Linux onedir here and run it.
-3. **CI matrix (QA-01/02)** — agent `CIMatrix-2` was still running at pause; it had already
-   written `.github/workflows/tests.yml`, `.planning/codebase/STACK.md`, `.planning/codebase/TESTING.md`.
-   Read those files and validate the YAML before re-delegating anything.
-4. **Phase 8 tests — `pytest` has NEVER been run in this port.** Expect: 4 pytest-collectible
-   files importing PyObjC (`tests/manual_deeprhythm_integration.py`, `test_ensemble_realworld.py`,
-   `obsolete_test_beat_detection.py`, `obsolete_test_audio_separation_lib.py`), ~15 files
-   monkeypatching `sys.platform="darwin"`, and tautological tests to **delete rather than
-   re-pin** (`test_macos_colors.py`, `test_macos_effects.py`, `test_screencapture_simple.py`).
-   `test_device_manager.py` will fail on the old silent-CPU-fallback `set_device` contract —
-   update it to the new one. Then add behavioral tests for platform_utils, device enforcement,
-   recorder backends (fake soundcard — reuse `.port_checkpoints/rec_matrix.py`), player
-   resolution/resample, worker IPC, stretcher chain.
-5. Docs/cleanup: README platform badges + install sections, CHANGELOG parity matrix (REC-04),
-   QA-03 manual CUDA checklist, then delete `packaging/vendor/bin/ffmpeg` symlink (throwaway),
-   `temp/` recordings, `logs/`, `user_settings.json`, `.stemseparator.lock`,
-   `.port_checkpoints/`, and update `.planning/STATE.md` + ROADMAP checkboxes.
+| Area | Evidence |
+| --- | --- |
+| model_manager acceptance | `tests/test_model_manager.py` **26 passed hermetic (~75 s)**: external search-dir hit → `source_label == "external"`, 0 `Separator` instantiations; downloads target writable `MODELS_DIR`; read-only 0o500 dir survives init, `ensure_models_dir()` False, `download_model` False. Found+fixed 2 latent bugs (write-probe, `is_file()`+weight allowlist). Two test bugs fixed on the way: `test_download_all_models` ran the REAL Separator and hung in an HTTPS stream (needs the `stub_separator` fixture — it only ever "passed" on a warm cache), and the stub had to write a real Demucs bundle (YAML + ≥MIN `.th`) because `_demucs_bundle_is_complete` correctly rejects a pile of zeros named `.yaml`. |
+| Recorder picker product bug | Refresh repopulated the combo without blocking Qt signals → `currentIndexChanged` persisted the first entry (a microphone on Linux/Windows), silently clobbering the saved `[System Audio]` source. Fixed with blockSignals + explicit `_on_device_changed(selected_index, persist=False)` dispatch after unblock; `_on_device_changed(index, persist=True)` gained the flag so a refresh can seed monitoring without ever writing settings (mirrors player_widget.py:811). |
+| Monitoring lifecycle | Live scaffold proof with the REAL recorder: construction seeds `_last_selected_device`; `show()` → `showEvent` starts monitoring (`is_monitoring: True`, label `Monitoring...`) with no manual handler calls; refresh-while-visible re-monitors and leaves saved settings untouched; hide stops. 3 permanent tests in `tests/test_device_widgets.py` (**20 passed**). |
+| BeatNet offline contracts | `tests/test_beat_service_client.py` **13 passed ×2 back-to-back in 0.05 s** (fake torch/Popen; real seams `platform_utils.popen_kwargs_for_console:378`, `numba_cuda_safe_env:418`): binary-name spelling, discovery precedence incl. `python -m src` fallback, availability, no-silent-CUDA-fallback, popen flags/env, group-kill + taskkill-fallback, pyaudio REALTIME/OFFLINE tiers. |
+| platform_utils | `tests/test_platform_utils.py` **37 passed ×2 in 0.03 s** (XDG/APPDATA/HOME fakes, `~` never literal, bundled-beats-PATH binary order, popen kwargs). Also fixed a docstring lie: `is_linux()` claimed `emscripten`, code accepts only `linux*`/`freebsd*`. |
+| CI hang guard | pytest-timeout + `timeout = 120`/`timeout_method = thread` (see `pytest.ini` WHY: the thread handler dumps stacks then `os._exit(1)` — aborts the WHOLE process, names the blocked test, does not yield a per-test failure line). It paid off immediately: located the HF-stream hang in 150 s that had silently killed two earlier suite runs. |
+| Product bug: cancel freezes the app | `core/background_stretch_manager.py`: `cancel()` held the manager `QMutex` while `_cancel_all_workers()` did `QThread.terminate()` + **unbounded** `wait()` on GIL-holding Python DSP threads — the terminate blocks on the GIL while the caller holds GIL+mutex → process-wide deadlock (observed: suite stalled at `test_background_manager_cancel`, pytest-timeout's timer thread starved too; SIGKILL after 3600 s). Rewritten: snapshot+clear under the lock, `requestInterruption()` + bounded 5 s joins OUTSIDE the lock, `terminate()` only as last resort behind a bounded wait; `run()` got three interrupt checkpoints (before load, after load, before emit). Regression test `test_cancel_survives_a_worker_that_ignores_the_interrupt` (hostile worker → cancel still bounded; old code = infinite). File: **18 passed in 5.94 s** (was an infinite stall at test 11). |
+
+## First full-suite census (2026-10-02)
+
+Baseline: `45 failed, 175 passed, 1 skipped, 1 xfailed, 1 xpassed` across the
+14 failing files (`/tmp/fail1.log` detail; whole-run map `/tmp/suite3.log`).
+
+- Resolved (all re-run green): animations 5 — unparented QPropertyAnimation
+  GC'd under offscreen, product fix parenting it to the widget
+  (`ui/theme/animations.py:307`); blackhole 6 — macOS guards added to
+  `check_blackhole_installed/check_blackhole_device/uninstall_blackhole`
+  (uninstall could have run `brew uninstall` on a linuxbrew host!) plus
+  Darwin-pinned mocks so the macOS branch runs on every CI; player 5 —
+  PortAudio persistence + the volume test asserted `<=0.5` for coherent
+  duplicates, rewritten to the real scaling/limiter contract; rms 1 (qtbot);
+  sampler_export 5; improved_bpm 1 — file rewritten as real assertions, the
+  librosa fallback halves a sparse 150 BPM click (74.9) inside the fold
+  window, so strict assertions cover only {60,90,120,180} and 150/200 assert
+  the octave family; export_loops_widget 7; time_stretcher 1 — restored the
+  >2-D `ProcessingError` guard that the engine-chain rewrite had dropped
+  (3-D input silently returned a corrupted array).
+- Agents delivered and were VERIFIED by rerun + diff audit: separator 2 +
+  chunk 1 + integration_separator 3 + ensemble 5 (`SepClusterFix`: 59 passed
+  incl. product fix `core/chunk_processor.py` — `should_chunk` consulted the
+  GLOBAL settings chunk length instead of the instance's own threshold, so a
+  tighter per-instance threshold never entered the chunked path);
+  integration_recording 3 (`RecIntegrations`: product fixes in
+  `core/recorder.py` — pause no longer ingests an in-flight block; macOS
+  default capture resolves strictly via BlackHole instead of any input; the
+  no-device start path called `error_handler.handle_error`, which does not
+  exist on `ErrorHandler` → latent AttributeError on every device-less start).
+- **GUI hang — real root causes (the earlier "HF download via worker" guess
+  was wrong, stack dumps decided):**
+  1. Product bug, same family as the recorder-picker clobber:
+     `UploadWidget._load_models()` repopulated `model_combo` WITHOUT blocking
+     signals, and `_on_model_changed` answers an un-downloaded model with a
+     MODAL "Model Not Downloaded" QMessageBox → the UI (and any offscreen
+     test) was held hostage in a dialog at startup or after any download
+     refresh just because the FIRST item happened to not be downloaded. Fixed
+     like the recorder picker: blockSignals around repopulation (try/finally),
+     selection preserved across refresh, `_update_button_states()` dispatched
+     explicitly. The ⚠ item text is the intended non-blocking signal.
+  2. Test-harness thread leak (advisory-confirmed, not psutil as the stack
+     dumps suggested): `test_recording_to_file_workflow` started a REAL
+     record loop, then mocked `Recorder.stop_recording` — bypassing
+     `_stop_event.set()` + join — while its instant-return fake `record()`
+     made the orphaned loop a GIL-hungry hot appender that starved every
+     later test (the psutil `_ppid_map` frames in timeout dumps were the
+     victim, not the blocker). `reset_singletons` only drops references.
+     Fixed: conftest teardown now quiesces leaked `Recorder._record_loop`
+     threads (set `_stop_event`, bounded join, force STOPPED) before clearing
+     singletons, and the test uses a PACED fake stream (sleeps
+     numframes/sr like a real device, 0.5-peak sine) through the REAL
+     `stop_recording`, asserting the written WAV, IDLE state and zero leaked
+     threads. A "throttle statusbar psutil scans" change made during this
+     diagnosis was a misattribution and was REVERTED — GUI-thread psutil cost
+     is a real concern but was NOT this hang's cause; do not resurrect it
+     without a reproduction.
+
+### Open findings (recorded, deliberately not acted on)
+
+- `detect_bpm` librosa fallback: a sparse 150 BPM click track reads as 74.9 —
+  half-tempo, and inside the 60-180 fold window so `_detect_bpm_librosa`'s
+  octave correction cannot catch it. Measured candidate: `aggregate=None`
+  (instead of `np.median`) reads 152.0 correctly and agrees with median on
+  the only real-audio file available here (120.2 on `e2e_media/mix.wav`) —
+  but that is click-track evidence; changing the validated median aggregate
+  needs real-music verification (the median exists per its comment to be
+  "robust to tempo variations"). DeepRhythm — the 95%-accuracy primary engine
+  for these tempi — is currently blocked on this host by the installed
+  torchaudio mismatch, so the fallback carries every local measurement.
+
+## Suite status (2026-10-02, executed)
+
+**Certified green run (2026-10-02): `942 passed, 1 skipped in 129.12 s`**
+(bg_26, `/tmp/complete3.log`; collection 1010 items, 0 errors; the single skip is
+the model-gated ensemble test). All 45 census failures, the `test_integration_gui`
+hang (→10/10), and
+the never-passing `tests/ui` graveyard resolved. The graveyard (player tabs,
+upload, scroll-areas, user-behavior, styled, theme — ~100 red) had NEVER passed on
+any OS: `_add_file`/`_language_actions`/`_queue_drawer`/`btn_export` exist in no
+commit (git-proven for `_add_file`); tests referencing them were rewritten to the
+current API or deleted per law (scroll suite deleted after a runtime probe proved
+`UploadWidget.findChildren(QScrollArea)` is empty; the real `stems_scroll` contract
+re-planted in `test_styled_components.TestPlayerStemScroll`).
+
+1. **Marker honesty (DONE, verified by parent rerun):** both `xfail` markers in
+   `tests/test_integration_recording.py` deleted with evidence — the E2E one
+   concealed a stale mock signature (`_run_separation` gained the port's
+   `quality_preset` positional; the TypeError failed all 3 retry attempts), the
+   performance one was starved by the pre-rewrite fake capture.
+   File: 15 passed isolated, 40 passed with the capture-device neighbor ×2.
+
+2. **Windows runtime** — win32 branches proven against fakes + static spec checks
+   only. A real 3-OS run (QA-01/02) needs the branch pushed to GitHub; user's call,
+   asked, no answer yet.
+3. **Final commit** (tests + fixes) — staging hygiene verified: `git add --dry-run
+   -A` = 54 paths, zero binaries; packaging already committed (`b5a22a9`).
+
+## Corrected premises (do not re-learn these the hard way)
+
+- The mac specs do **not** exclude onnxruntime — the old handoff claim was FALSE. It sits in `hiddenimports` (`StemSeparator-arm64.spec:321`, `StemSeparator-intel.spec:256`); every `excludes` list holds pytest/black/flake8-style entries. Darwin specs untouched.
+- Reproduce the Linux build with `python -m PyInstaller --noconfirm --clean packaging/linux/StemSeparator-linux.spec`; binary `dist/StemSeparator-linux/StemSeparator-linux` (65 MB exe, 7.3 G dist, ran frozen with `frozen: True`, bundled ffmpeg/ffprobe + bundled model verified). Vendor binaries come from `packaging/vendor/fetch_vendor.py` (`--check` verifies pinned SHA-256s); the dir is 474 MB and gitignored — `git add --dry-run -A` proves only specs/ico/iss/rthooks/generate_ico/README/fetch_vendor enter.
+- `packaging/windows/StemSeparator-win.spec` builds every path from `SPECPATH`, degrades with an actionable note when vendored binaries are absent; `.ico` has 16→256 px via `generate_ico.py`; `requirements-cuda.txt` pins cu128 wheels whose existence on download.pytorch.org was checked same-day (cp311 win_amd64 + manylinux_2_28_x86_64).
+- `tests/test_sample_rate_handling.py` aborted the WHOLE suite (imported a deleted constant); fixed by asserting the 44.1 kHz invariant instead of the dead name. Same class of blocker: any test importing a /tmp-only module is a CI-wide collection error — the two GUI scaffolds' `import pa_shim` must never reach a test file (the new widget tests inject fakes at `player._sounddevice_module`/`recorder._soundcard` instead).
+- The dev venv's `user_settings.json` is throwaway state; scaffolds that mutated persisted settings (`sm.settings["use_gpu"]=…; mgr.save()`) were converted to monkeypatched seams — pytest must never touch it.
 
 ## Recreating host prerequisites (they live in /tmp and may not survive a reboot)
 

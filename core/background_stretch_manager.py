@@ -130,6 +130,10 @@ class StretchWorker(QThread):
 
         try:
             # 1. Load loop segment from stem file
+            if self.isInterruptionRequested():
+                logger.debug(f"Worker cancelled before start: {self.task.task_id}")
+                return
+
             audio_data, sr = sf.read(str(self.task.stem_path), always_2d=False)
 
             loop_start_sample = int(self.task.loop_start * sr)
@@ -146,6 +150,10 @@ class StretchWorker(QThread):
 
             if loop_audio.size == 0:
                 raise ValueError("Extracted loop is empty")
+
+            if self.isInterruptionRequested():
+                logger.debug(f"Worker cancelled after load: {self.task.task_id}")
+                return
 
             # 2. Calculate stretch factor
             from core.time_stretcher import calculate_stretch_factor
@@ -176,6 +184,13 @@ class StretchWorker(QThread):
                 f"Completed: {self.task.task_id}, "
                 f"input={len(loop_audio)/sr:.2f}s, output={len(stretched_audio)/sr:.2f}s"
             )
+
+            if self.isInterruptionRequested():
+                logger.debug(
+                    f"Worker cancelled during stretch; result discarded: "
+                    f"{self.task.task_id}"
+                )
+                return
 
             self.task_completed.emit(self.task.task_id, stretched_audio)
 
@@ -258,9 +273,12 @@ class BackgroundStretchManager(QObject):
             sample_rate: Sample rate
         """
 
+        # WHY cancel BEFORE taking the state lock: `_cancel_all_workers` locks
+        # the same mutex itself and joins threads; QMutex is non-recursive, so
+        # nesting it inside a locker self-deadlocks.
+        self._cancel_all_workers()
         with QMutexLocker(self.mutex):
             # Clear previous state
-            self._cancel_all_workers()
             self.task_queue = PriorityQueue()
             self.completed_tasks.clear()
             self.failed_tasks.clear()
@@ -414,13 +432,37 @@ class BackgroundStretchManager(QObject):
                 self.all_completed.emit()
 
     def _cancel_all_workers(self):
-        """Cancel all active workers"""
+        """
+        Cancel active workers cooperatively, outside the manager mutex.
 
-        for worker in self.active_workers:
-            worker.terminate()
-            worker.wait()
+        WHY not `terminate()` + bare `wait()` (the old code): workers run
+        Python DSP under the GIL. `terminate()` blocks on the GIL while the
+        caller holds the GIL *and* the manager mutex, so the doomed thread can
+        never acquire the GIL and `wait()` never returns — freezing the app (or
+        the whole pytest process, including pytest-timeout's timer thread,
+        which starved on exactly this). Now: snapshot + clear under the lock so
+        `_on_worker_finished` no-ops for these workers, interrupt-request on
+        each (checked at the `run()` checkpoints), bounded joins OUTSIDE the
+        lock, and `terminate()` remains only as a last resort behind a bounded
+        wait so the escape hatch itself can never hang.
+        """
+        timeout_ms = 5000  # join ceiling per worker; DSP loops are seconds
 
-        self.active_workers.clear()
+        with QMutexLocker(self.mutex):
+            workers = list(self.active_workers)
+            self.active_workers.clear()
+
+        for worker in workers:
+            worker.requestInterruption()
+        for worker in workers:
+            if not worker.wait(timeout_ms):
+                logger.error(
+                    f"Worker {worker.task.task_id} ignored the interrupt "
+                    "request; forcing termination"
+                )
+                worker.terminate()
+                worker.wait(timeout_ms)
+
         logger.debug("All workers cancelled")
 
     def get_stretched_loop(
@@ -489,10 +531,10 @@ class BackgroundStretchManager(QObject):
     def cancel(self):
         """Cancel all background processing"""
 
+        self._cancel_all_workers()
         with QMutexLocker(self.mutex):
-            self._cancel_all_workers()
             self.is_running = False
-            logger.info("Background processing cancelled")
+        logger.info("Background processing cancelled")
 
     @staticmethod
     def _generate_task_id(stem_name: str, loop_index: int, target_bpm: float) -> str:

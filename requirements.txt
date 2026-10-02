@@ -29,7 +29,23 @@ deeprhythm==0.0.13  # Optional: Enhanced BPM detection with confidence scores
 # It has its own environment due to numba version conflicts.
 # The main app communicates via beat_service_client.py → beatnet-service binary
 
-# ML Models
+# ML Models - cross-platform CPU/dev baseline, see the note below before editing.
+#
+# WHY the pins stay a matched pair: torch 2.9.x only imports cleanly against the
+# torchaudio built from the same release; a mismatch dies inside the separation
+# worker with `ImportError: cannot import name ... from torch._C`.
+#
+# WHY this file is the CPU/dev path and never the CUDA path: the PyPI default of
+# `torch==2.9.0` is not one wheel but three different builds -
+#   win_amd64            CPU-only      (torch.cuda.is_available() -> False)
+#   manylinux x86_64     CUDA build    (pulls the nvidia-* runtime wheels)
+#   macosx arm64         Metal/MPS
+# CUDA-enabled wheels exist only on https://download.pytorch.org/whl/<cudaversion>
+# and must be requested with an explicit index URL; install requirements-cuda.txt
+# for them (docs/PACKAGING.md, section "CUDA Installation").
+# Verified 2026-10-02 against PyPI: torch/torchaudio/onnxruntime publish cp311
+# wheels for win_amd64 and manylinux, so `pip install -r requirements.txt` needs
+# no compiler and no marker on any of the three supported OSes.
 torch==2.9.0
 torchaudio==2.9.0
 onnxruntime==1.23.2
@@ -46,7 +62,18 @@ pytest==9.0.0
 pytest-qt==4.5.0
 pytest-cov==7.0.0
 pytest-mock==3.15.1
+pytest-timeout==2.4.0  # Bounds a hung test instead of hanging the whole run
 
 # Development
 black==25.9.0
 flake8==7.3.0
+
+# macOS-only extras deliberately NOT declared here.
+# WHY: utils/macos_integration.py and core/screencapture_recorder.py import
+#      pyobjc (Foundation/AppKit/Quartz) inside try/except ImportError, and the
+#      shipping darwin bundle is built from an environment that has none of them.
+#      Declaring them - even behind `; sys_platform == "darwin"` - would change
+#      what PyInstaller collects into the released .app (QA-01 forbids that as a
+#      side effect of this port). Install them by hand when working on the macOS
+#      ScreenCaptureKit path:
+#      pip install pyobjc-framework-Quartz pyobjc-framework-ScreenCaptureKit

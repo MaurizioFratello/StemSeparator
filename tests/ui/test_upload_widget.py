@@ -48,7 +48,7 @@ def test_upload_widget_add_file(qapp, reset_singletons, mock_audio_file):
     assert widget.file_list.count() == 0
 
     # Add file
-    widget._add_file(mock_audio_file)
+    widget.add_file(mock_audio_file)
 
     # File should be added
     assert widget.file_list.count() == 1
@@ -67,7 +67,7 @@ def test_upload_widget_add_invalid_file(qapp, reset_singletons, tmp_path):
     invalid_file.write_text("not an audio file")
 
     with patch("PySide6.QtWidgets.QMessageBox.warning") as mock_warning:
-        widget._add_file(invalid_file)
+        widget.add_file(invalid_file)
 
         # Should show warning
         mock_warning.assert_called_once()
@@ -83,7 +83,7 @@ def test_upload_widget_clear_files(qapp, reset_singletons, mock_audio_file):
     widget = UploadWidget()
 
     # Add file
-    widget._add_file(mock_audio_file)
+    widget.add_file(mock_audio_file)
     assert widget.file_list.count() == 1
 
     # Clear
@@ -99,7 +99,7 @@ def test_upload_widget_queue_signal(qapp, reset_singletons, mock_audio_file):
     widget = UploadWidget()
 
     # Add file and select it
-    widget._add_file(mock_audio_file)
+    widget.add_file(mock_audio_file)
     widget.file_list.setCurrentRow(0)
 
     # Connect signal spy
@@ -126,7 +126,7 @@ def test_upload_widget_start_separation(qapp, reset_singletons, mock_audio_file)
     widget = UploadWidget()
 
     # Add file and select it
-    widget._add_file(mock_audio_file)
+    widget.add_file(mock_audio_file)
     widget.file_list.setCurrentRow(0)
 
     # Connect signals

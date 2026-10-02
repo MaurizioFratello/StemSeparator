@@ -76,10 +76,12 @@ class ChunkProcessor:
             info = sf.info(str(audio_file))
             duration_seconds = info.duration
 
-            # Hole aktuelle chunk_length aus Settings
-            chunk_length = _get_chunk_length_from_settings()
+            # Honour the instance configuration so callers can choose a smaller
+            # threshold for constrained environments and deterministic tests.
+            chunk_length = self.chunk_length_seconds
 
-            # Chunk wenn länger als chunk_length + overlap
+            # Chunk when more than one chunk is required after accounting for
+            # overlap; a file exactly one chunk long stays on the single path.
             should_chunk = duration_seconds > (chunk_length + self.overlap_seconds)
 
             self.logger.debug(

@@ -159,45 +159,28 @@ class TestEnsembleSeparator:
         # Test weighted combination
         weights = {"vocals": [0.6, 0.4], "drums": [0.4, 0.6], "bass": [0.5, 0.5]}
 
-        combined = separator._combine_stems_weighted(
+        combined, sample_rate = separator._combine_stems_weighted(
             [result1, result2], weights, ["model1", "model2"]
         )
 
-        # Check results
-        assert "vocals" in combined
-        assert "drums" in combined
-        assert "bass" in combined
-
-        # Check shapes
-        assert combined["vocals"].shape[0] == 2  # Stereo
+        assert sample_rate == 44100
+        assert set(combined) == {"vocals", "drums", "bass"}
+        assert combined["vocals"].shape[0] == 2
         assert combined["drums"].shape[0] == 2
         assert combined["bass"].shape[0] == 2
-
-        # Check values are reasonable (not clipped)
         assert np.max(np.abs(combined["vocals"])) <= 1.0
         assert np.max(np.abs(combined["drums"])) <= 1.0
         assert np.max(np.abs(combined["bass"])) <= 1.0
 
-    def test_ensemble_configs_exist(self):
-        """Test that ensemble configs are properly defined"""
-        assert "balanced" in ENSEMBLE_CONFIGS
-        assert "quality" in ENSEMBLE_CONFIGS
-        assert "vocals_focus" in ENSEMBLE_CONFIGS
+    def test_staged_configs_define_vocal_and_residual_passes(self):
+        """Staged configurations provide every pass consumed by the UI workflow."""
+        expected_configs = {"balanced_staged", "quality_staged", "ultra_staged"}
 
-        # Check balanced config
-        balanced = ENSEMBLE_CONFIGS["balanced"]
-        assert "models" in balanced
-        assert "weights" in balanced
-        assert len(balanced["models"]) == 2
-        assert "vocals" in balanced["weights"]
-
-        # Check quality config
-        quality = ENSEMBLE_CONFIGS["quality"]
-        assert len(quality["models"]) == 3
-
-        # Check vocals_focus config
-        vocals = ENSEMBLE_CONFIGS["vocals_focus"]
-        assert len(vocals["models"]) == 2
+        assert set(ENSEMBLE_CONFIGS) == expected_configs
+        for config in ENSEMBLE_CONFIGS.values():
+            assert config["vocal_models"]
+            assert config["residual_models"]
+            assert config["vocal_weights"]
 
     def test_get_temp_dir(self, test_audio_files):
         """Test temporary directory creation"""

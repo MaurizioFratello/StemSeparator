@@ -608,6 +608,16 @@ def time_stretch_audio(
     if sample_rate <= 0:
         raise ValueError(f"Invalid sample rate: {sample_rate}")
 
+    # WHY an explicit ndim guard: every engine treats >2 dims meaninglessly
+    # (the phase vocoder stretches the LAST axis — a (100, 2, 2) input quietly
+    # emerged as a corrupted (100, 2, 1) array instead of failing). The
+    # documented formats are (samples,) and (samples, channels); anything else
+    # is a caller bug and must say so.
+    if audio.ndim > 2:
+        raise ProcessingError(
+            f"Unsupported audio shape {audio.shape}: expected (samples,) for "
+            "mono or (samples, channels) for stereo"
+        )
     # Log processing info
     duration_sec = len(audio) / sample_rate
     estimated_time = estimate_processing_time(duration_sec, stretch_factor, quality_preset)

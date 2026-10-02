@@ -367,6 +367,53 @@ def test_background_manager_cancel(qtbot, stem_files, loop_segments):
     assert manager.is_running is False
 
 
+def test_cancel_survives_a_worker_that_ignores_the_interrupt(
+    qtbot, stem_files, loop_segments, monkeypatch
+):
+    """
+    Regression: `cancel()` must return within a bounded time, ALWAYS.
+
+    WHY: the old implementation called `QThread.terminate()` + unbounded
+    `wait()` while holding the manager mutex. Workers run Python DSP under the
+    GIL, so a worker that never reached an interrupt checkpoint wedged the
+    whole process forever — observed for real: the full suite stalled here
+    and even pytest-timeout's timer thread starved (needed SIGKILL after an
+    hour). The fix bounds the cooperative join and reaches `terminate()` only
+    as a last resort behind a bounded wait; this test pins that a hostile
+    worker costs wall-clock time, never a hang.
+    """
+    import threading
+
+    inside = threading.Event()
+    release = threading.Event()  # deliberately never set
+
+    def hostile_stretch(audio, sr, factor, quality_preset=None, **kwargs):
+        inside.set()
+        release.wait()
+        return audio
+
+    monkeypatch.setattr("core.time_stretcher.time_stretch_audio", hostile_stretch)
+
+    manager = BackgroundStretchManager(max_workers=1)
+    manager.start_batch(
+        stem_files=stem_files,
+        loop_segments=loop_segments,
+        original_bpm=104,
+        target_bpm=120,
+        sample_rate=44100,
+    )
+    assert inside.wait(10), "worker never entered the stretch call"
+
+    started = time.monotonic()
+    manager.cancel()
+    elapsed = time.monotonic() - started
+
+    # cooperative join (5 s) + terminate fallback (bounded 5 s) + slack
+    assert elapsed < 30, f"cancel() took {elapsed:.1f}s — unbounded join is back"
+    assert manager.is_running is False
+    assert list(manager.active_workers) == []
+
+
 # ============================================================================
 # Test: Utility Functions
 # ============================================================================

@@ -101,11 +101,9 @@ class TestExportBasicFunctionality:
         assert result.success is True
         assert len(result.output_files) == 1
 
-        # Check filename format: <name>_<bpm>_<bars>t.wav
+        # Check filename format: <name>_<BPM>BPM_<bars>T.wav
         filename = result.output_files[0].name
-        assert "test_short_audio" in filename
-        assert "_120_" in filename
-        assert "_4t.wav" in filename
+        assert filename == "test_short_audio_120BPM_4T.wav"
 
     def test_export_filename_format_multiple(self, temp_audio_file, tmp_path):
         """Test filename format for multiple chunk export"""
@@ -124,13 +122,10 @@ class TestExportBasicFunctionality:
         assert result.success is True
         assert len(result.output_files) >= 3
 
-        # Check filename format: <name>_<bpm>_<bars>t_part<NN>.wav
+        # Check filename format: <name>_<BPM>BPM_<bars>T_<NN>.wav
         for idx, file_path in enumerate(result.output_files):
             filename = file_path.name
-            assert "test_audio" in filename
-            assert "_150_" in filename
-            assert "_2t_part" in filename
-            assert f"{idx + 1:02d}" in filename
+            assert filename == f"test_audio_150BPM_2T_{idx + 1:02d}.wav"
 
     def test_export_creates_output_dir(self, temp_audio_file, tmp_path):
         """Test that export creates output directory if it doesn't exist"""
@@ -201,9 +196,9 @@ class TestExportValidation:
         )
 
         assert result.success is True
-        # Check filename contains rounded BPM
+        # Check filename contains the rounded BPM tempo notation.
         filename = result.output_files[0].name
-        assert "_129_" in filename
+        assert "_129BPM_" in filename
 
 
 class TestExportAudioFormats:
@@ -388,17 +383,21 @@ class TestBPMDetection:
     """Tests for BPM detection helper function"""
 
     def test_detect_bpm_returns_valid(self, temp_audio_file):
-        """Test BPM detection on test file"""
-        bpm, message = detect_audio_bpm(temp_audio_file)
+        """The documented contract is a three-tuple (bpm, message, confidence)."""
+        bpm, message, confidence = detect_audio_bpm(temp_audio_file)
 
         # Should return a positive BPM value
         assert bpm > 0
         assert isinstance(bpm, float)
         assert message != ""
+        # WHY relaxed: confidence is None for the librosa fallback and a float
+        # for DeepRhythm — which engine answers depends on the host, so the
+        # only invariant is the type contract, not the value.
+        assert confidence is None or 0.0 <= confidence <= 1.0
 
     def test_detect_bpm_nonexistent_file(self):
         """Test BPM detection on non-existent file"""
-        bpm, message = detect_audio_bpm(Path("/nonexistent/file.wav"))
+        bpm, message, confidence = detect_audio_bpm(Path("/nonexistent/file.wav"))
 
         # Should fallback to 120 BPM
         assert bpm == 120.0

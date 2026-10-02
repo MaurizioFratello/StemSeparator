@@ -52,7 +52,27 @@ def reset_singletons():
 
     yield
 
-    # Cleanup again after test
+    # WHY: a mocked `Recorder.stop_recording` never sets `_stop_event`, so a
+    # test that started a real recording thread leaks a live loop that keeps
+    # appending chunks (and holds the Recorder via its bound target) long
+    # after the singleton reference is dropped — starving every subsequent
+    # test of the GIL, which is what made unrelated tests time out. Quiesce
+    # leaked record loops before forgetting the singletons.
+    import threading
+
+    for thread in threading.enumerate():
+        target = getattr(thread, "_target", None)
+        instance = getattr(target, "__self__", None)
+        if instance is not None and instance.__class__.__name__ == "Recorder":
+            instance._stop_event.set()
+            thread.join(timeout=2.0)
+            try:
+                import core.recorder as _recorder_module
+
+                instance.state = _recorder_module.RecordingState.STOPPED
+            except Exception:
+                pass
+
     core.separator._separator = None
     core.recorder._recorder = None
     core.model_manager._model_manager = None

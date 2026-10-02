@@ -182,61 +182,77 @@ class TestSeparator:
         assert result.duration_seconds == 5.0
         assert result.model_used == "demucs"
 
-    @patch("audio_separator.separator.Separator")
-    def test_run_separation_mock(self, mock_audio_sep, test_audio_file):
-        """Teste _run_separation() mit Mock"""
-        # Mock AudioSeparator
-        mock_instance = MagicMock()
-        mock_instance.separate.return_value = [
-            str(test_audio_file.parent / "test_vocals.wav"),
-            str(test_audio_file.parent / "test_other.wav"),
-        ]
-        mock_audio_sep.return_value = mock_instance
-
+    def test_run_separation_mock(self, test_audio_file, monkeypatch):
+        """Runs the isolated worker with the selected preset and device."""
         sep = Separator()
+        captured_params = {}
+
+        class CompletedProcess:
+            returncode = 0
+
+            def communicate(self, input=None, timeout=None):
+                return ('{"success": true, "stems": {"vocals": "' + str(
+                    test_audio_file.parent / "test_vocals.wav"
+                ) + '"}}', "")
+
+        def fake_popen(command, **kwargs):
+            captured_params.update(
+                __import__("json").loads(
+                    Path(command[-1]).read_text(encoding="utf-8")
+                )
+            )
+            return CompletedProcess()
+
+        monkeypatch.setattr("core.separator.subprocess.Popen", fake_popen)
 
         stems = sep._run_separation(
-            test_audio_file, "demucs_6s", test_audio_file.parent, device="cpu"
+            test_audio_file,
+            "demucs_6s",
+            test_audio_file.parent,
+            "balanced",
+            device="cpu",
         )
 
-        # AudioSeparator wurde erstellt
-        assert mock_audio_sep.called
+        assert captured_params["device"] == "cpu"
+        assert captured_params["preset_params"] == {}
+        assert captured_params["preset_attributes"]["demucs_shifts"] == 2
 
-        # Stems wurden returned
-        assert isinstance(stems, dict)
-
-    @patch("audio_separator.separator.Separator", side_effect=ImportError)
-    def test_run_separation_import_error(self, mock_audio_sep, test_audio_file):
-        """Teste _run_separation() wenn audio-separator nicht installiert"""
+    def test_run_separation_device_setting(self, test_audio_file, monkeypatch):
+        """Passes the requested device to the isolated worker."""
         sep = Separator()
+        captured_params = {}
 
-        with pytest.raises(Exception):  # SeparationError
-            sep._run_separation(test_audio_file, "demucs_6s", test_audio_file.parent)
+        class CompletedProcess:
+            returncode = 0
 
-    @patch("audio_separator.separator.Separator")
-    def test_run_separation_device_setting(self, mock_audio_sep, test_audio_file):
-        """Teste dass Device korrekt gesetzt wird"""
-        # Mock AudioSeparator
-        mock_instance = MagicMock()
-        mock_instance.separate.return_value = []
-        mock_audio_sep.return_value = mock_instance
+            def communicate(self, input=None, timeout=None):
+                return ('{"success": true, "stems": {"vocals": "' + str(
+                    test_audio_file.parent / "test_vocals.wav"
+                ) + '"}}', "")
 
-        sep = Separator()
-
-        with patch.object(
-            sep.device_manager, "set_device", return_value=True
-        ) as mock_set:
-            try:
-                sep._run_separation(
-                    test_audio_file, "demucs_6s", test_audio_file.parent, device="mps"
+        def fake_popen(command, **kwargs):
+            captured_params.update(
+                __import__("json").loads(
+                    Path(command[-1]).read_text(encoding="utf-8")
                 )
-            except:
-                pass  # Kann fehlschlagen, uns geht's nur um set_device
+            )
+            return CompletedProcess()
 
-            mock_set.assert_called_with("mps")
+        monkeypatch.setattr("core.separator.subprocess.Popen", fake_popen)
+        monkeypatch.setattr(sep.device_manager, "set_device", lambda device: True)
+
+        sep._run_separation(
+            test_audio_file,
+            "demucs_6s",
+            test_audio_file.parent,
+            "balanced",
+            device="mps",
+        )
+
+        assert captured_params["device"] == "mps"
 
     def test_run_separation_device_fail(self, test_audio_file):
-        """Teste _run_separation() wenn Device-Setting fehlschlägt"""
+        """Raises before launching a worker when device selection fails."""
         sep = Separator()
 
         with patch.object(sep.device_manager, "set_device", return_value=False):
@@ -245,6 +261,7 @@ class TestSeparator:
                     test_audio_file,
                     "demucs_6s",
                     test_audio_file.parent,
+                    "balanced",
                     device="invalid",
                 )
 

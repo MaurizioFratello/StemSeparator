@@ -48,7 +48,7 @@ def is_windows() -> bool:
 
 
 def is_linux() -> bool:
-    """Linux (and, deliberately, the BSD/`emscripten` fallthrough)."""
+    """Linux, and the BSD fallthrough — a `freebsd*` platform string counts."""
     plat = _platform_string()
     return plat.startswith("linux") or plat.startswith("freebsd")
 

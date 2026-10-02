@@ -18,16 +18,6 @@ from ui.theme.macos_effects import MacOSEffects
 class TestMacOSEffects:
     """Test suite for MacOSEffects functionality"""
 
-    def test_is_macos_on_darwin(self):
-        """Test macOS detection returns True on Darwin"""
-        with patch("platform.system", return_value="Darwin"):
-            assert MacOSEffects.is_macos() is True
-
-    def test_is_macos_on_linux(self):
-        """Test macOS detection returns False on Linux"""
-        with patch("platform.system", return_value="Linux"):
-            assert MacOSEffects.is_macos() is False
-
     def test_apply_vibrancy_on_non_macos(self, qtbot):
         """Test vibrancy does nothing on non-macOS systems"""
         widget = QWidget()

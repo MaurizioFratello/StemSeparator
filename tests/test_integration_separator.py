@@ -59,11 +59,8 @@ def long_audio_file():
 class TestSeparatorIntegration:
     """Integration Tests für den kompletten Separation-Workflow"""
 
-    @patch("audio_separator.separator.Separator")
     @patch("core.separator.get_chunk_processor")
-    def test_separate_with_chunking_workflow(
-        self, mock_get_cp, mock_audio_sep, long_audio_file
-    ):
+    def test_separate_with_chunking_workflow(self, mock_get_cp, long_audio_file):
         """
         Integration Test: Kompletter Workflow für große Datei mit Chunking
 
@@ -80,40 +77,27 @@ class TestSeparatorIntegration:
         test_cp = ChunkProcessor(chunk_length_seconds=4, overlap_seconds=1)
         mock_get_cp.return_value = test_cp
 
-        # Mock AudioSeparator für jeden Chunk
-        def mock_separate(audio_file_path):
-            """
-            Simuliert Stem-Separation:
-            Erstellt Mock-Stems (vocals, drums, bass, other)
-            """
-            audio_file = Path(audio_file_path)
-            output_dir = audio_file.parent
-
-            # Lade Original Audio
-            audio_data, sr = sf.read(str(audio_file), always_2d=True)
-
-            # Erstelle Mock-Stems (einfach: Original Audio + leichte Variation)
+        # The production path delegates each chunk to the subprocess worker.
+        # Stub its boundary instead of the former in-process audio-separator.
+        def fake_run_separation(
+            audio_file, model_id, output_dir, quality_preset, device="cpu", **kwargs
+        ):
+            audio_file = Path(audio_file)
+            audio_data, sample_rate = sf.read(str(audio_file), always_2d=True)
             stems = {}
-            for stem_name in ["vocals", "drums", "bass", "other"]:
+            for stem_name, factor in {
+                "vocals": 0.8,
+                "drums": 0.6,
+                "bass": 0.4,
+                "other": 0.2,
+            }.items():
                 stem_file = output_dir / f"{audio_file.stem}_{stem_name}.wav"
+                sf.write(str(stem_file), audio_data * factor, sample_rate)
+                stems[stem_name] = stem_file
+            return stems
 
-                # Einfache Variation: Stem = Original * Faktor
-                factor = {"vocals": 0.8, "drums": 0.6, "bass": 0.4, "other": 0.2}[
-                    stem_name
-                ]
-                stem_data = audio_data * factor
-
-                sf.write(str(stem_file), stem_data, sr)
-                stems[stem_name] = str(stem_file)
-
-            return list(stems.values())
-
-        mock_instance = MagicMock()
-        mock_instance.separate.side_effect = mock_separate
-        mock_audio_sep.return_value = mock_instance
-
-        # Erstelle Separator
         sep = Separator()
+        sep._run_separation = fake_run_separation
 
         # Progress Tracking
         progress_calls = []
@@ -147,14 +131,8 @@ class TestSeparatorIntegration:
             "chunk" in msg.lower() or "merg" in msg.lower() for msg in messages
         ), "No chunking/merging mentioned in progress"
 
-        # Check dass AudioSeparator mehrmals aufgerufen wurde (für jeden Chunk)
-        # Bei 12s Audio mit 5s Chunks + 1s Overlap = ~3-4 Chunks
-        assert (
-            mock_instance.separate.call_count >= 3
-        ), f"Expected at least 3 chunks, got {mock_instance.separate.call_count}"
-
+        assert len(result.stems) == 4
         print(f"\n✓ Chunking workflow successful:")
-        print(f"  - Chunks processed: {mock_instance.separate.call_count}")
         print(f"  - Stems created: {len(result.stems)}")
         print(f"  - Progress updates: {len(progress_calls)}")
 
@@ -222,60 +200,39 @@ class TestSeparatorIntegration:
         print(f"  - Merged:   {stem_length} samples ({stem_length/stem_sr:.2f}s)")
         print(f"  - Diff:     {length_diff} samples ({length_diff/original_sr:.3f}s)")
 
-    @patch("audio_separator.separator.Separator")
     @patch("core.separator.get_chunk_processor")
-    def test_chunking_progress_tracking(
-        self, mock_get_cp, mock_audio_sep, long_audio_file
-    ):
-        """
-        Test dass Progress korrekt getrackt wird bei Chunking
-
-        Wichtig für UI-Feedback
-        """
-        # Erstelle ChunkProcessor mit kleineren Chunks für Tests
+    def test_chunking_progress_tracking(self, mock_get_cp, long_audio_file):
+        """Chunk processing keeps UI progress visible through worker isolation."""
         from core.chunk_processor import ChunkProcessor
 
         test_cp = ChunkProcessor(chunk_length_seconds=4, overlap_seconds=1)
         mock_get_cp.return_value = test_cp
 
-        mock_instance = MagicMock()
-        mock_instance.separate.return_value = []
-        mock_audio_sep.return_value = mock_instance
+        def fake_run_separation(
+            audio_file, model_id, output_dir, quality_preset, device="cpu", **kwargs
+        ):
+            audio_data, sample_rate = sf.read(str(audio_file), always_2d=True)
+            stem_file = output_dir / f"{Path(audio_file).stem}_vocals.wav"
+            sf.write(str(stem_file), audio_data, sample_rate)
+            return {"vocals": stem_file}
 
         sep = Separator()
+        sep._run_separation = fake_run_separation
 
         progress_calls = []
 
         def callback(msg, pct):
             progress_calls.append((msg, pct))
-            print(f"  [{pct:3d}%] {msg}")
 
         result = sep.separate(long_audio_file, progress_callback=callback)
 
-        # Check Progress-Sequenz
-        assert len(progress_calls) > 0
-
-        # Progress sollte monoton steigend sein (mit kleinen Ausnahmen)
+        assert result.success
         percentages = [pct for _, pct in progress_calls]
-
-        # Erster Progress sollte niedrig sein
-        assert percentages[0] < 30, "First progress too high"
-
-        # Letzter Progress sollte hoch sein
-        assert percentages[-1] >= 80, "Final progress too low"
-
-        # Check dass Chunking-relevante Messages vorhanden sind
+        assert percentages[0] < 30
+        assert percentages[-1] >= 80
         messages = [msg.lower() for msg, _ in progress_calls]
-
-        has_chunking_msg = any("chunk" in msg for msg in messages)
-        has_merging_msg = any("merg" in msg for msg in messages)
-
-        assert has_chunking_msg, "No chunking progress messages"
-        assert has_merging_msg, "No merging progress messages"
-
-        print(f"\n✓ Progress tracking working:")
-        print(f"  - Total updates: {len(progress_calls)}")
-        print(f"  - Progress range: {percentages[0]}% -> {percentages[-1]}%")
+        assert any("chunk" in msg for msg in messages)
+        assert any("merg" in msg for msg in messages)
 
     @patch("audio_separator.separator.Separator")
     @patch("core.separator.get_chunk_processor")

@@ -64,6 +64,13 @@ class BlackHoleInstaller:
         Returns:
             (installed, version) Tuple
         """
+        if not self.check_macos():
+            # WHY: this probes macOS package managers (`brew`, `pkgutil`); a
+            # Linux machine CAN have a `brew` on PATH (linuxbrew) and would
+            # otherwise get real subprocess spawns of commands that only mean
+            # something on macOS. Same guard as `install_blackhole` uses.
+            return False, None
+
         if not self.check_homebrew_installed():
             return False, None
 
@@ -118,6 +125,9 @@ class BlackHoleInstaller:
         Returns:
             True wenn Device gefunden
         """
+        if not self.check_macos():
+            return False
+
         try:
             # Versuche über Recorder
             from core.recorder import get_recorder
@@ -263,6 +273,13 @@ class BlackHoleInstaller:
         Returns:
             (success, error_message) Tuple
         """
+        if not self.check_macos():
+            # WHY: uninstall shells out to `brew uninstall` — without this
+            # guard a machine with linuxbrew would really remove packages.
+            # `install_blackhole` already guards identically.
+            return False, "Not running on macOS"
+
+
         if not self.check_homebrew_installed():
             return False, "Homebrew not available"
 

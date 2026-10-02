@@ -5,15 +5,22 @@ PURPOSE: Test that theme system integrates correctly with UI widgets.
 CONTEXT: Ensures styled components render correctly and maintain theme consistency.
 """
 
-import pytest
-from pathlib import Path
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
-from PySide6.QtWidgets import QPushButton, QProgressBar, QLabel, QTableWidget, QComboBox
-from PySide6.QtCore import Qt
+from PySide6.QtWidgets import (
+    QComboBox,
+    QLabel,
+    QProgressBar,
+    QPushButton,
+    QScrollArea,
+    QTableWidget,
+    QTableWidgetItem,
+)
+from PySide6.QtCore import QAbstractAnimation
 
-from ui.theme import ThemeManager, ColorPalette
+from ui.theme import ColorPalette, ThemeManager
 from ui.widgets.loading_spinner import LoadingSpinner
+from ui.widgets.player_widget import PlayerWidget
 from ui.widgets.pulse_animation import PulseAnimation
 
 
@@ -298,12 +305,12 @@ class TestPulseAnimation:
 
         # Start animation
         pulse.start()
-        assert pulse.animation.state() == pulse.animation.Running
+        assert pulse.animation.state() == QAbstractAnimation.State.Running
         assert pulse.isVisible()
 
         # Stop animation
         pulse.stop()
-        assert pulse.animation.state() != pulse.animation.Running
+        assert pulse.animation.state() != QAbstractAnimation.State.Running
         assert not pulse.isVisible()
 
     def test_pulse_color_change(self, qtbot):
@@ -405,3 +412,41 @@ class TestWidgetPropertyDynamicUpdates:
 
         ThemeManager.set_widget_property(button, "buttonStyle", "success")
         assert button.property("buttonStyle") == "success"
+
+
+class TestPlayerStemScroll:
+    """Test the scroll container used for mixer stem controls."""
+
+    def test_loaded_stem_controls_stay_in_resizable_mixer_viewport(
+        self, qtbot, reset_singletons, tmp_path
+    ):
+        """Loading many stems keeps controls inside the horizontal mixer viewport."""
+        widget = PlayerWidget()
+        qtbot.addWidget(widget)
+        widget.resize(360, 480)
+        widget.show()
+
+        stems = {
+            f"stem_{index}": tmp_path / f"track_(Stem {index}).wav"
+            for index in range(12)
+        }
+
+        # WHY: Mixer control creation is synchronous; bypass audio I/O so this
+        # test covers layout ownership rather than background decoding.
+        with patch.object(widget, "_load_stems_async"):
+            widget.load_separation_result(stems)
+
+        qtbot.waitUntil(lambda: len(widget.stem_controls) == len(stems))
+
+        assert widget.stems_scroll.widgetResizable()
+        assert widget.stems_scroll.frameShape() == QScrollArea.NoFrame
+        assert widget.stems_scroll.viewport().isAncestorOf(
+            widget.stems_scroll_widget
+        )
+        controls = list(widget.stem_controls.values())
+        assert len(controls) == len(stems)
+        assert all(
+            widget.stems_scroll.viewport().isAncestorOf(control)
+            for control in controls
+        )
+        assert widget.stems_container.count() == len(controls)

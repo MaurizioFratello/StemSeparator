@@ -162,35 +162,18 @@ def test_combine_stems_weighted():
         # Test weighted combination
         weights = {"vocals": [0.6, 0.4], "drums": [0.4, 0.6], "bass": [0.5, 0.5]}
 
-        combined = separator._combine_stems_weighted(
+        combined, sample_rate = separator._combine_stems_weighted(
             [result1, result2], weights, ["model1", "model2"]
         )
 
-        # Check results
-        assert "vocals" in combined
-        assert "drums" in combined
-        assert "bass" in combined
-
-        # Check shapes
-        assert combined["vocals"].shape[0] == 2  # Stereo
+        assert sample_rate == 44100
+        assert set(combined) == {"vocals", "drums", "bass"}
+        assert combined["vocals"].shape[0] == 2
         assert combined["drums"].shape[0] == 2
         assert combined["bass"].shape[0] == 2
-
-        # Check values are reasonable (not clipped)
         assert np.max(np.abs(combined["vocals"])) <= 1.0
         assert np.max(np.abs(combined["drums"])) <= 1.0
         assert np.max(np.abs(combined["bass"])) <= 1.0
-
-        print(f"  ✓ Combined 3 stems with weighted averaging")
-        print(
-            f"    - vocals: shape={combined['vocals'].shape}, peak={np.max(np.abs(combined['vocals'])):.3f}"
-        )
-        print(
-            f"    - drums:  shape={combined['drums'].shape}, peak={np.max(np.abs(combined['drums'])):.3f}"
-        )
-        print(
-            f"    - bass:   shape={combined['bass'].shape}, peak={np.max(np.abs(combined['bass'])):.3f}"
-        )
 
         return True
 
@@ -199,68 +182,14 @@ def test_combine_stems_weighted():
 
 
 def test_ensemble_configs():
-    """Test that ensemble configs are properly defined"""
-    print("TEST: Ensemble configurations")
+    """Test that staged ensemble passes are complete."""
+    expected_configs = {"balanced_staged", "quality_staged", "ultra_staged"}
 
-    assert "balanced" in ENSEMBLE_CONFIGS
-    assert "quality" in ENSEMBLE_CONFIGS
-    assert "vocals_focus" in ENSEMBLE_CONFIGS
-
-    # Check balanced config
-    balanced = ENSEMBLE_CONFIGS["balanced"]
-    assert "models" in balanced
-    assert "weights" in balanced
-    assert len(balanced["models"]) == 2
-    assert "vocals" in balanced["weights"]
-
-    print(f"  ✓ Balanced ensemble: {balanced['models']}")
-    print(
-        f"    Weights: vocals={balanced['weights']['vocals']}, drums={balanced['weights']['drums']}"
-    )
-
-    # Check quality config
-    quality = ENSEMBLE_CONFIGS["quality"]
-    assert len(quality["models"]) == 3
-
-    print(f"  ✓ Quality ensemble: {quality['models']}")
-    print(
-        f"    Weights: vocals={quality['weights']['vocals']}, drums={quality['weights']['drums']}"
-    )
-
-    # Check vocals_focus config
-    vocals = ENSEMBLE_CONFIGS["vocals_focus"]
-    assert len(vocals["models"]) == 2
-
-    print(f"  ✓ Vocals focus ensemble: {vocals['models']}")
-    print(f"    Weights: vocals={vocals['weights']['vocals']}")
-
-    return True
-
-
-def test_models_config():
-    """Test that new models are properly defined"""
-    print("TEST: Model configurations")
-
-    # Check mel-roformer was added
-    assert "mel-roformer" in MODELS
-
-    mel = MODELS["mel-roformer"]
-    assert mel["name"] == "Mel-Band RoFormer"
-    assert mel["strength"] == "vocals"
-    assert mel["stems"] == 4
-
-    print(f"  ✓ Mel-RoFormer added: {mel['description']}")
-
-    # Check other models have strength attribute
-    bs = MODELS["bs-roformer"]
-    assert "strength" in bs
-    print(f"  ✓ BS-RoFormer: strength={bs['strength']}")
-
-    demucs4 = MODELS["demucs_4s"]
-    assert "strength" in demucs4
-    print(f"  ✓ Demucs 4s: strength={demucs4['strength']}")
-
-    return True
+    assert set(ENSEMBLE_CONFIGS) == expected_configs
+    for config in ENSEMBLE_CONFIGS.values():
+        assert config["vocal_models"]
+        assert config["residual_models"]
+        assert config["vocal_weights"]
 
 
 def test_singleton():

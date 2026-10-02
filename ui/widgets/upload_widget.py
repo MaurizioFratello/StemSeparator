@@ -198,38 +198,62 @@ class UploadWidget(QWidget):
         self.ensemble_checkbox.stateChanged.connect(self._on_ensemble_toggled)
 
     def _load_models(self):
-        """Load available models into dropdown"""
+        """
+        Load available models into the dropdown.
+
+        WHY signals are blocked while populating: `clear()`, `addItem()` and
+        `setCurrentIndex()` each fire `currentIndexChanged`, and
+        `_on_model_changed` answers an un-downloaded model with a MODAL
+        "Model Not Downloaded" prompt — so merely (re)building the list (at
+        startup, or after any download completes at :446) held the whole UI
+        hostage in a dialog for a model the user never picked, and under
+        offscreen test runners it simply deadlocked the window. The ⚠ marker
+        in the item text is the intended non-blocking signal for
+        not-downloaded models; the prompt belongs to user-initiated selection
+        only. The button-state refresh the handler performs is dispatched
+        explicitly after unblocking.
+        """
         model_manager = self.ctx.model_manager()
 
-        # Clear existing items to prevent duplicates
-        self.model_combo.clear()
+        previously_selected = self.model_combo.currentData()
 
-        for model_id, model_info in model_manager.available_models.items():
-            # Format: "Description - Stems - Model Name" (with ⚠ for non-downloaded)
-            # Example: "⚡ Fast karaoke creation - Vocals, Instrumental - MDX-Net Vocals"
-            status = "⚠ " if not model_info.downloaded else ""
+        self.model_combo.blockSignals(True)
+        try:
+            self.model_combo.clear()
 
-            # Get description (remove emoji and "stem" suffix for cleaner look)
-            description = (
-                model_info.description if hasattr(model_info, "description") else ""
-            )
+            for model_id, model_info in model_manager.available_models.items():
+                # Format: "Description - Stems - Model Name" (with ⚠ for non-downloaded)
+                # Example: "⚡ Fast karaoke creation - Vocals, Instrumental - MDX-Net Vocals"
+                status = "⚠ " if not model_info.downloaded else ""
 
-            # Get stem names
-            if hasattr(model_info, "stem_names") and model_info.stem_names:
-                stems_info = ", ".join(model_info.stem_names)
-            else:
-                stems_info = f"{model_info.stems} stems"
+                description = (
+                    model_info.description if hasattr(model_info, "description") else ""
+                )
 
-            # Combine: Description - Stems - Name
-            text = f"{status}{description} - {stems_info} - {model_info.name}"
-            self.model_combo.addItem(text, userData=model_id)
+                if getattr(model_info, "stem_names", None):
+                    stems_info = ", ".join(model_info.stem_names)
+                elif hasattr(model_info, "stems"):
+                    stems_info = f"{model_info.stems} stems"
+                else:
+                    stems_info = ""
 
-        # Select default model
-        default_model = model_manager.get_default_model()
-        for i in range(self.model_combo.count()):
-            if self.model_combo.itemData(i) == default_model:
-                self.model_combo.setCurrentIndex(i)
-                break
+                text = f"{status}{description} - {stems_info} - {model_info.name}"
+                self.model_combo.addItem(text, userData=model_id)
+
+            # Keep the user's selection when it still exists (refresh after a
+            # download must not jump back to the default), else select default.
+            target = previously_selected
+            if (
+                target is None
+                or self.model_combo.findData(target) < 0
+            ):
+                target = model_manager.get_default_model()
+            index = self.model_combo.findData(target)
+            self.model_combo.setCurrentIndex(index if index >= 0 else -1)
+        finally:
+            self.model_combo.blockSignals(False)
+
+        self._update_button_states()
 
     @Slot(list)
     def _on_files_dropped(self, file_paths: List[Path]):

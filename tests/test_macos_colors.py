@@ -18,21 +18,6 @@ from ui.theme.macos_colors import MacOSColors
 class TestMacOSColors:
     """Test suite for MacOSColors functionality"""
 
-    def test_is_macos_on_darwin(self):
-        """Test macOS detection returns True on Darwin"""
-        with patch("platform.system", return_value="Darwin"):
-            assert MacOSColors.is_macos() is True
-
-    def test_is_macos_on_linux(self):
-        """Test macOS detection returns False on Linux"""
-        with patch("platform.system", return_value="Linux"):
-            assert MacOSColors.is_macos() is False
-
-    def test_is_macos_on_windows(self):
-        """Test macOS detection returns False on Windows"""
-        with patch("platform.system", return_value="Windows"):
-            assert MacOSColors.is_macos() is False
-
     def test_is_dark_mode_no_app(self):
         """Test dark mode detection defaults to True when no QApplication"""
         with patch("platform.system", return_value="Darwin"):

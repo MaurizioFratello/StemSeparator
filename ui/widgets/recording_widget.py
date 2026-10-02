@@ -226,6 +226,13 @@ class RecordingWidget(QWidget):
 
         WHY: Devices can change when hardware is connected/disconnected
         """
+        # WHY block signals: `clear()`/`addItem()` fire `currentIndexChanged`, and
+        # `_on_device_changed` persists the current entry. Without blocking, merely
+        # refreshing the list overwrote the user's saved device with the first
+        # enumerated entry — an arbitrary microphone on Windows/Linux, which is the
+        # exact REC-02 failure this port exists to remove. The player widget already
+        # blocks for the same reason (player_widget.py:781).
+        self.device_combo.blockSignals(True)
         self.device_combo.clear()
 
         # Check if ScreenCaptureKit is available
@@ -241,6 +248,20 @@ class RecordingWidget(QWidget):
         if not devices and not screencapture_available:
             self.device_combo.addItem("No devices found", userData=None)
             self.ctx.logger().warning("No audio devices found")
+            # Restore notifications before leaving, or the picker stays dead.
+            self.device_combo.blockSignals(False)
+            # The picker no longer holds a usable device; clear the marker so
+            # `showEvent` cannot start monitoring a device that just vanished.
+            self._last_selected_device = None
+            # WHY also stop monitoring and reset the label: a device can vanish
+            # while the tab is open (unplugged, held by another app); clearing
+            # only the marker left the level meter reading a dead stream under a
+            # stale "Monitoring..." label. Same guard as `hideEvent`: never touch
+            # an active recording.
+            if self.recorder.is_monitoring() and not self.recorder.is_recording():
+                self.recorder.stop_monitoring()
+            if not self.recorder.is_recording():
+                self.state_label.setText("Ready")
             return
 
         # Add physical devices to combo box
@@ -282,6 +303,17 @@ class RecordingWidget(QWidget):
             selected_index = 0
 
         self.device_combo.setCurrentIndex(selected_index)
+        self.device_combo.blockSignals(False)
+        # WHY dispatch manually: the index change above was invisible to signals,
+        # yet the selection handler still has to run — it seeds
+        # `_last_selected_device`, which is what `showEvent` and the
+        # post-recording restart use to decide what to monitor, and it starts the
+        # level meter when the tab is visible. `persist=False`: a refresh is not
+        # a user decision, so it may show and monitor an auto-selected fallback
+        # but must never write settings — the saved name survives untouched for
+        # the next plug-in, exactly like the player picker, which re-applies the
+        # device to the engine (player_widget.py:811) without persisting.
+        self._on_device_changed(selected_index, persist=False)
         self.ctx.logger().info(
             f"Refreshed devices: {len(devices) + (1 if screencapture_available else 0)}"
             f" found, selected "
@@ -299,21 +331,26 @@ class RecordingWidget(QWidget):
             self.output_path.setText(directory)
 
     @Slot(int)
-    def _on_device_changed(self, index: int):
+    def _on_device_changed(self, index: int, persist: bool = True):
         """
         Handle device selection change - start monitoring only if tab is visible
 
         WHY: Allows users to see input levels before starting recording
              Only monitors when tab is active to save resources
+
+        WHY `persist`: connected to `currentIndexChanged` it always persists —
+        that is a genuine user selection. `_refresh_devices` calls it directly
+        after repopulating under blocked signals with `persist=False`, so a
+        refresh can seed the monitored device and the level meter without ever
+        inventing or overwriting a user preference (REC-02).
         """
         # Get selected device and remember it (persisted so the choice survives
         # restarts — REC-01 requires the selected input/system source to stick).
         device_data = self.device_combo.currentData()
         self._last_selected_device = device_data
-        if device_data and device_data != "__screencapture__":
+        if persist and device_data and device_data != "__screencapture__":
             self.ctx.settings_manager().set_recording_device(device_data)
             self.ctx.settings_manager().save()
-
         if not device_data:
             # No device selected (e.g., "No devices found")
             return

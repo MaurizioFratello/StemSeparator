@@ -6,17 +6,19 @@ See: `.planning/PROJECT.md` (updated 2026-04-01)
 
 **Core value:** Reliable stem separation and playback in one desktop app — Windows users get CUDA when available and safe CPU fallback; recording and capture parity with macOS (scope B) where the OS allows.
 
-**Current focus:** Verification sweep on Linux + packaging (Phase 2 artefacts) and the first execution of the CI matrix
+**Current focus:** First-ever complete suite run (background, `/tmp/complete1.log`), then the tests+fixes commit and the CI push decision
 
 ## Current Position
 
 Phase: **6** of **6** — code complete for Phases 1, 3, 4, 5, 6 and verified by execution on
-this Linux host; Phase 2 (packaging artefacts) in progress  
-Plan: Phases 1/3/4/5/6 implemented; PKG-01..05 and the CI runs outstanding  
-Status: **Implementing — no known product defect open**  
-Last activity: **2026-10-02** — model-manager acceptance run, packaging CLI repaired,
-path/expansion bug fixed, device contract tests updated, parity + QA docs published  
-Progress: `[███████░░░]` ~70% (evidence per requirement in `REQUIREMENTS.md` traceability)
+this Linux host; Phase 2 (packaging) **committed** (`b5a22a9`)  
+Plan: Phases 1/3/4/5/6 implemented; QA-01/02 CI runs outstanding (need user push decision)  
+Status: **GREEN** — first-ever complete suite run: `942 passed, 1 skipped in 129 s`
+(bg_26, `/tmp/complete3.log`; single skip = model-gated ensemble test)  
+Last activity: **2026-10-02** — triage closed incl. the never-passing `tests/ui`
+graveyard (rewritten to current APIs or deleted with runtime evidence) and the
+last two xfail markers (real cause: stale `_run_separation` mock signatures)  
+Progress: `[█████████]` ~90% (remaining: CI green run QA-01/02 — needs push decision)
 
 ## Performance Metrics
 
@@ -26,7 +28,8 @@ Progress: `[███████░░░]` ~70% (evidence per requirement in `
 - Reference measurements: separation of a 12 s clip, preset `fast` — CUDA 2.61 s, CPU 4.47 s;
   time stretch 12 s → 9.600 s @1.25× in 0.44 s (rubberband CLI) / 2.85 s (librosa fallback);
   live system-audio capture 3.00 s stereo, peak 0.96
-- Test collection on Linux: **711 tests, 0 collection errors** (first time in this port)
+- Full-suite execution on Linux: **942 passed, 1 skipped, 0 markers** (certification
+  run 2026-10-02; collection 1010 items, 0 errors)
 
 **By phase:**
 
@@ -54,9 +57,11 @@ Progress: `[███████░░░]` ~70% (evidence per requirement in `
 
 ### Pending Todos
 
-- PKG-01..05: Windows/Linux specs, real `.ico`, Inno script, requirements CUDA layering, `docs/PACKAGING.md` (with the `## CUDA Installation` anchor two error strings reference)
-- Execute the CI matrix (jobs defined: 3 OS × Python 3.11/3.12, CPU torch, xvfb + libportaudio2 on Linux) and record a green run
-- First full `pytest` run on this host (collection is clean; suite not yet executed) and convert `.port_checkpoints/` scripts into permanent behavioural tests
+- Complete-run triage: any residual failure in files the census never reached (suite3.log died at
+  ~73%) — tracked in `.planning/PORT_STATE.md`
+- Execute the CI matrix (jobs defined: 3 OS × Python 3.11/3.12, CPU torch, xvfb + libportaudio2 on
+  Linux) and record a green run — BLOCKED on the user's push-to-GitHub decision
+- ~~PKG-01..05~~ committed as `b5a22a9` (packaging); ~~first full pytest run~~ in flight bg_20
 
 ### Blockers/Concerns
 
@@ -64,8 +69,9 @@ Progress: `[███████░░░]` ~70% (evidence per requirement in `
 - **Memory ceiling on this box**: the local inference endpoint holds ~24 GB; two jobs were OOM-killed. Torch/PyInstaller work must be serialised, one heavy process at a time.
 - **`/tmp` prerequisites are volatile** (PortAudio lib + shim, rubberband CLI, test media): recreation commands in `.planning/PORT_STATE.md`.
 
-## Session Continuity
 
+## Session Continuity
 Last session: 2026-10-02  
-Stopped at: Phases 1/3/4/5/6 verified on Linux; packaging agent running the build  
-Resume file: `.planning/PORT_STATE.md` (commits `d845196`, `b165497`)
+Stopped at: suite certified green (942/1-skip); both commits landing (packaging
+`b5a22a9`, tests+fixes next); QA-01/02 CI awaits the user's push decision  
+Resume file: `.planning/PORT_STATE.md` (commits `d845196`, `b165497`, `b36092e`, `b5a22a9`)

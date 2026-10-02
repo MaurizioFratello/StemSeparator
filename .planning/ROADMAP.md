@@ -9,12 +9,18 @@ This roadmap delivers a **Windows port** with **bootstrap and path correctness**
 
 ## Phases
 
-- [x] **Phase 1: Bootstrap & Windows paths** — Single-instance, APPDATA/temp/models/logs, FFmpeg discovery, frozen `_MEIPASS` paths *(verified on Linux; Windows branches implemented, awaiting the CI runner)*
-- [ ] **Phase 2: PyInstaller artifacts (onedir)** — Windows + Linux specs, Qt/torch bundling, import order, VCRedist notes, clean-environment smoke *(in progress; Linux build is the local acceptance target)*
-- [x] **Phase 3: CUDA inference & device UX** — CPU and CUDA separation, subprocess IPC, device selection and fallback visibility *(real GPU + CPU runs measured on Linux)*
-- [x] **Phase 4: Playback & audio I/O baseline** — Stem playback, output-device picker, graceful device/sample-rate behaviour *(verified live on Linux)*
-- [x] **Phase 5: Recording parity (scope B)** — Mic/line-in, loopback capture (WASAPI / PulseAudio monitors / BlackHole), enumeration, parity matrix *(live capture verified on Linux)*
-- [ ] **Phase 6: BeatNet service, CI & quality** — Beat service verified on Linux; CI matrix defined but not yet executed; packaging docs outstanding
+- [ ] **Phase 1: Bootstrap & Windows paths** — Single-instance, APPDATA/temp/models/logs, FFmpeg discovery, frozen `_MEIPASS` paths
+      *Code complete; verified by execution on Linux. Windows success criteria need the CI runner — the status table below is the authoritative record.*
+- [ ] **Phase 2: PyInstaller artifacts (onedir)** — Windows + Linux specs, Qt/torch bundling, import order, VCRedist notes, clean-environment smoke
+      *Linux onedir built and run on this host; Windows spec validated statically only.*
+- [ ] **Phase 3: CUDA inference & device UX on Windows** — CPU and CUDA separation, subprocess IPC, device selection and fallback visibility
+      *Verified on Linux including a real CUDA GPU run; Windows `win32` branches validated against fakes only.*
+- [ ] **Phase 4: Playback & Windows audio I/O baseline** — Stem playback and graceful device/sample-rate behaviour
+      *Verified live on Linux (device listing, rate recovery, failure modes); Windows endpoints untested.*
+- [ ] **Phase 5: Recording parity (scope B)** — Mic/line-in, WASAPI loopback, enumeration, parity matrix vs macOS
+      *Live loopback capture verified on Linux; parity matrix published (REC-04 done). WASAPI path untested on Windows.*
+- [ ] **Phase 6: BeatNet service, CI & quality** — Packaged beatnet service, macOS CI preserved, Windows GHA job, docs and manual matrices
+      *Service verified on Linux (CPU + CUDA backends, no orphans); CI matrix defined but never executed; QA-03 published.*
 
 ## Phase Details
 

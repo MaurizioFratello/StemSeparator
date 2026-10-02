@@ -75,17 +75,16 @@ class TestAnimations:
         assert animation.endValue() == 1.0
 
     def test_fade_in_with_callback(self, qtbot):
-        """Test fade in calls callback when finished"""
+        """Test fade in calls callback when finished."""
         widget = QWidget()
         qtbot.addWidget(widget)
 
         callback = Mock()
         animation = Animations.fade_in(widget, duration=50, on_finished=callback)
 
-        # Wait for animation to complete
-        qtbot.wait(100)
+        with qtbot.waitSignal(animation.finished, timeout=200):
+            pass
 
-        # Callback should have been called
         callback.assert_called_once()
 
     def test_fade_out_creates_opacity_effect(self, qtbot):
@@ -100,31 +99,29 @@ class TestAnimations:
         assert isinstance(widget.graphicsEffect(), QGraphicsOpacityEffect)
 
     def test_fade_out_hides_widget_when_done(self, qtbot):
-        """Test fade out hides widget after animation"""
+        """Test fade out hides widget after animation."""
         widget = QWidget()
         widget.show()
         qtbot.addWidget(widget)
 
-        Animations.fade_out(widget, duration=50, hide_when_done=True)
+        animation = Animations.fade_out(widget, duration=50, hide_when_done=True)
 
-        # Wait for animation to complete
-        qtbot.wait(100)
+        with qtbot.waitSignal(animation.finished, timeout=200):
+            pass
 
-        # Widget should be hidden
         assert not widget.isVisible()
 
     def test_fade_out_doesnt_hide_if_disabled(self, qtbot):
-        """Test fade out doesn't hide widget if hide_when_done=False"""
+        """Test fade out keeps widget visible when hiding is disabled."""
         widget = QWidget()
         widget.show()
         qtbot.addWidget(widget)
 
-        Animations.fade_out(widget, duration=50, hide_when_done=False)
+        animation = Animations.fade_out(widget, duration=50, hide_when_done=False)
 
-        # Wait for animation to complete
-        qtbot.wait(100)
+        with qtbot.waitSignal(animation.finished, timeout=200):
+            pass
 
-        # Widget should still be visible
         assert widget.isVisible()
 
     def test_slide_in_from_bottom(self, qtbot):
@@ -192,19 +189,18 @@ class TestAnimations:
         assert animation is not None
 
     def test_slide_out_hides_when_done(self, qtbot):
-        """Test slide out hides widget after animation"""
+        """Test slide out hides widget after animation."""
         widget = QWidget()
         widget.show()
         qtbot.addWidget(widget)
 
-        Animations.slide_out(
+        animation = Animations.slide_out(
             widget, direction="bottom", distance=20, duration=50, hide_when_done=True
         )
 
-        # Wait for animation to complete
-        qtbot.wait(100)
+        with qtbot.waitSignal(animation.finished, timeout=200):
+            pass
 
-        # Widget should be hidden
         assert not widget.isVisible()
 
     def test_scale_in_animation(self, qtbot):
@@ -225,50 +221,45 @@ class TestAnimations:
         assert widget.size() == QSize(100, 100)
 
     def test_scale_in_with_callback(self, qtbot):
-        """Test scale in calls callback when finished"""
+        """Test scale in calls callback when finished."""
         widget = QWidget()
         widget.resize(100, 100)
         qtbot.addWidget(widget)
 
         callback = Mock()
-        Animations.scale_in(widget, duration=50, on_finished=callback)
+        animation = Animations.scale_in(widget, duration=50, on_finished=callback)
 
-        # Wait for animation
-        qtbot.wait(100)
+        with qtbot.waitSignal(animation.finished, timeout=200):
+            pass
 
-        # Callback should have been called
         callback.assert_called_once()
 
     def test_pulse_animation(self, qtbot):
-        """Test pulse animation"""
+        """Test pulse returns to its original size."""
         widget = QWidget()
         widget.resize(100, 100)
         qtbot.addWidget(widget)
 
         animation = Animations.pulse(widget, duration=50, scale_factor=1.1)
 
-        # Animation should be created
-        assert animation is not None
+        with qtbot.waitSignal(animation.finished, timeout=200):
+            pass
 
-        # Wait for full pulse (up and down)
-        qtbot.wait(150)
-
-        # Widget should be back to original size
-        assert widget.size() == QSize(100, 100)
+        qtbot.waitUntil(lambda: widget.size() == QSize(100, 100), timeout=200)
 
     def test_pulse_with_callback(self, qtbot):
-        """Test pulse calls callback when finished"""
+        """Test pulse calls callback after scaling back down."""
         widget = QWidget()
         widget.resize(100, 100)
         qtbot.addWidget(widget)
 
         callback = Mock()
-        Animations.pulse(widget, duration=30, on_finished=callback)
+        animation = Animations.pulse(widget, duration=30, on_finished=callback)
 
-        # Wait for full pulse
-        qtbot.wait(100)
+        with qtbot.waitSignal(animation.finished, timeout=200):
+            pass
 
-        # Callback should have been called
+        qtbot.waitUntil(lambda: callback.called, timeout=200)
         callback.assert_called_once()
 
     def test_smooth_scroll_vertical(self, qtbot):

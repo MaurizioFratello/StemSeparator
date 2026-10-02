@@ -66,9 +66,20 @@ def stub_separator(monkeypatch):
             StubSeparator.instances.append(self)
 
         def load_model(self, model_filename=None, **kwargs):
-            _write_weight(
-                Path(self.kwargs["model_file_dir"]), model_filename
-            )
+            target_dir = Path(self.kwargs["model_file_dir"])
+            if model_filename and model_filename.endswith(".yaml"):
+                # WHY a real bundle: Demucs models are verified through
+                # `_demucs_bundle_is_complete`, which parses the YAML and demands a
+                # big-enough `.th` beside it — a pile of zero bytes named `.yaml`
+                # is correctly rejected, so the stub must write the shape of a
+                # bundle instead of faking one.
+                target_dir.mkdir(parents=True, exist_ok=True)
+                (target_dir / model_filename).write_text(
+                    "models:\n  htdemucs_tp0: {}\n", encoding="utf-8"
+                )
+                _write_weight(target_dir, "htdemucs_tp0.th")
+            else:
+                _write_weight(target_dir, model_filename)
             return object()
 
     monkeypatch.setattr(sep_module, "Separator", StubSeparator)
@@ -247,15 +258,18 @@ class TestModelManager:
         result = manager.download_model("unknown_model")
         assert result is False
 
-    def test_download_all_models(self, model_manager_with_temp_dir):
-        """Teste download_all_models"""
+    def test_download_all_models(self, model_manager_with_temp_dir, stub_separator):
+        """Every catalogued model goes through the downloader and reports success."""
+        # WHY the stub here too: without it this test ran the real Separator,
+        # streamed multi-hundred-megabyte weights from Hugging Face and then
+        # hung in the socket read — it only ever "passed" on machines whose
+        # audio-separator cache happened to be warm.
         manager = model_manager_with_temp_dir
 
         results = manager.download_all_models()
 
         assert isinstance(results, dict)
         assert len(results) == len(MODELS)
-        # Alle sollten erfolgreich sein
         assert all(results.values())
 
     def test_get_default_model(self, model_manager_with_temp_dir):
@@ -342,3 +356,74 @@ class TestModelManager:
 
         assert manager1 is manager2
         assert isinstance(manager1, ModelManager)
+
+
+@pytest.mark.unit
+class TestModelDiscoveryEdges:
+    """
+    Regressions for the two holes the acceptance run found in this port.
+
+    WHY these exist as tests: both bugs were latent in the original 711-test
+    suite — a read-only install and a weight outside MODELS_DIR were simply
+    never exercised, so the loose checks survived until someone ran them.
+    """
+
+    def test_weight_in_a_secondary_search_dir_needs_no_download(
+        self, tmp_path, monkeypatch, stub_separator
+    ):
+        """
+        A weight that exists outside MODELS_DIR must be reported available with
+        its origin labelled and no `Separator` constructed — instantiating the
+        class is precisely what triggers audio-separator's re-download, which
+        is the behaviour the search paths exist to prevent.
+        """
+        # WHY not the Demucs default: its YAML must be beside its weights to
+        # count (`_demucs_bundle_is_complete`), which would test that rule
+        # instead of the search-path lookup. An MDX `.onnx` is one file.
+        model_id = "mdx_vocals_hq"
+        writable = tmp_path / "writable"
+        external = tmp_path / "external-cache"
+        _write_weight(external, MODELS[model_id]["model_filename"])
+        monkeypatch.setattr("core.model_manager.MODELS_DIR", writable)
+        monkeypatch.setattr(
+            "core.model_manager.MODEL_SEARCH_PATHS", [external, writable]
+        )
+
+        manager = ModelManager()
+
+        assert manager.is_model_downloaded(model_id) is True
+        info = manager.get_model_info(model_id)
+        assert info.downloaded is True
+        assert info.path.parent == external
+        assert info.source_label == "external"
+        assert stub_separator.instances == []
+
+    def test_read_only_models_dir_survives_init_and_declines_download(
+        self, tmp_path, monkeypatch, stub_separator
+    ):
+        """
+        WHY: `mkdir(exist_ok=True)` succeeds on an existing 0o500 directory, so
+        the old check called a read-only install "writable" and the download
+        died later inside audio-separator with an opaque error. The write probe
+        must answer the real question, and start-up must degrade to a visible
+        refusal (False + no Separator) instead of a crash.
+        """
+        import os
+
+        if hasattr(os, "geteuid") and os.geteuid() == 0:
+            pytest.skip("permission bits are not enforced for root")
+
+        read_only = tmp_path / "installed-models"
+        read_only.mkdir()
+        read_only.chmod(0o500)
+        monkeypatch.setattr("core.model_manager.MODELS_DIR", read_only)
+        monkeypatch.setattr(
+            "core.model_manager.MODEL_SEARCH_PATHS", [read_only]
+        )
+        try:
+            manager = ModelManager()  # start-up must not raise
+            assert manager.ensure_models_dir() is False
+            assert manager.download_model(DEFAULT_MODEL) is False
+            assert stub_separator.instances == []
+        finally:
+            read_only.chmod(0o700)

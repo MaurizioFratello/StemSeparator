@@ -17,6 +17,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     capture scenarios per platform
 - `tests/test_path_utils.py` pins output-path resolution behaviour, including the
   `~` expansion cases that used to create a literal `~` directory
+- **Cross-platform test coverage** — the behaviours the port had to prove are now
+  permanent tests instead of throwaway scripts:
+  `tests/test_player_output_devices.py` (device listing, sample-rate recovery, the
+  playback failure modes), `tests/test_recorder_capture_devices.py` (loopback
+  enumeration and the backend matrix for all three OSes),
+  `tests/test_device_widgets.py` (both pickers, persistence, hot-unplug fallback),
+  `tests/test_time_stretcher_engines.py` (engine chain, BPM math, the
+  all-engines-missing error), `tests/test_device_manager_preferences.py`
+  (`use_gpu`/`compute_device` translation and reload) and
+  `tests/test_separation_device_enforcement.py` (worker device enforcement and the
+  subprocess launch contract)
+- `tests/test_sample_rate_handling.py` no longer aborts the entire suite: it
+  imported `TARGET_SAMPLE_RATE`, a constant removed months ago, which turned every
+  run into a collection error; the 44.1 kHz invariant is asserted directly now
+- **Test-hang guard** — `pytest-timeout` plus `timeout = 120` and
+  `timeout_method = thread` in `pytest.ini`: a test blocked on a device or
+  subprocess that never answers aborts the run within minutes and dumps the
+  stacks, naming the blocked test, instead of parking the CI job until the
+  runner-level timeout hours later with no indication of which test hung
+  (the thread method ends the whole process, so the offending test gets fixed
+  or isolated rather than quietly skipped)
+- **Linux and Windows packaging** — `packaging/linux/StemSeparator-linux.spec` and
+  `packaging/windows/StemSeparator-win.spec` (onedir, torch/PySide6/onnxruntime
+  collection, vendored FFmpeg), a multi-size `StemSeparator.ico`, an Inno Setup
+  script, `packaging/vendor/fetch_vendor.py` for the pinned binaries that stay out
+  of git, `requirements-cuda.txt` for the CUDA layer, and `docs/PACKAGING.md`
+  sections for building on Linux and Windows (including `## CUDA Installation`)
+- `.github/workflows/tests.yml` runs the suite on macOS, Windows and Linux across
+  Python 3.11 and 3.12 with CPU-only torch, so the macOS path stays covered while
+  the ported platforms are exercised
 
 ### Fixed
 - **Model discovery, downloads and saved paths**
@@ -38,6 +68,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     that only accepts a single message; the failure was silent in packaged builds
   - Model-manager tests no longer download weights from Hugging Face and no longer
     depend on which weights happen to exist in the developer's cache
+- **Recording device picker overwrote the saved choice** — refreshing the device
+  list (opening the tab, pressing Refresh, hot-plugging hardware) rebuilt the combo
+  without blocking Qt signals, so the `currentIndexChanged` handler persisted the
+  first entry that happened to be added. On Windows/Linux that is a microphone, so
+  the saved system-audio source was silently replaced and the next recording
+  captured the room. The repopulation now blocks signals, as the playback picker
+  already did
+- **The saved-device warning was unreachable on Linux** — the recorder only listed
+  microphones it could open, so loopback endpoints were never enumerated and a
+  pinned `[System Audio]` device resolved to nothing; enumeration now requests
+  loopback devices explicitly on every platform
 - **Auto-BPM / Beat Service - Linux and Windows**
   - The bundled BeatNet helper now runs on Linux and Windows, not only macOS: it is
     discovered as a binary (`.exe` on Windows), from the frozen bundle, from `PATH`,
@@ -54,6 +95,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     processes (and their GPU memory); the whole process group is drained
   - `detect_bpm` survives a broken DeepRhythm/torchaudio install - it used to raise
     out of the module import - and reports why it fell back to librosa
+
+- **Upload screen opened a modal dialog by itself** — (re)building the model
+  dropdown fired `currentIndexChanged` for every item, and the change handler
+  answers a not-downloaded model with a modal "Model Not Downloaded" prompt:
+  the app could hold the UI hostage in a download dialog for a model the user
+  never picked (at startup, or after any model finished downloading). The
+  ⚠ marker in the item text is the intended non-blocking signal; the prompt
+  now fires only on user-initiated selection, and a refresh keeps the current
+  selection instead of jumping back to the default
+
+- **Stability fixes surfaced by the first full test-suite run**
+  - Cancelling background time-stretching could freeze the entire application:
+    `cancel()` force-terminated worker threads while holding the manager mutex,
+    and terminating a Python thread blocks on the interpreter lock the canceller
+    itself holds. Cancellation is now cooperative with bounded waits
+  - Pausing a recording could still ingest one in-flight audio block, so the
+    resumed file contained a chunk recorded "during" the pause
+  - Starting a recording with no usable device raised `AttributeError`
+    (called a method the error handler does not have) instead of showing the
+    actionable failure
+  - On macOS, leaving the capture device on auto could silently open any input
+    the OS reports; the default now resolves strictly via BlackHole
+  - The BlackHole check/uninstall entry points could run `brew` commands on
+    Linux hosts (linuxbrew exists); they now refuse to act off-macOS
+  - `ChunkProcessor.should_chunk()` consulted the global settings chunk length
+    instead of the instance's own threshold, so callers that configure tighter
+    chunking (constrained environments, tests) never entered the chunked path
+  - Time-stretching no longer accepts >2-dimensional arrays and returns a
+    silently corrupted result; it raises `ProcessingError` naming the shape
+  - Widget back-animations that were only referenced from a local variable were
+    garbage-collected mid-playback under some platforms (visible stutter);
+    they are now parented to the widget they animate
 
 ### Planned
 - Windows/Linux support for system audio recording
