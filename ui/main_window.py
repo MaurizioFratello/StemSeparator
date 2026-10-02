@@ -230,6 +230,11 @@ class MainWindow(QMainWindow):
         # Connect PlayerWidget stem status to refresh Export widgets
         self._player_widget.stems_loaded_changed.connect(self._on_stems_loaded_changed)
 
+        # Queue-tab hand-off: double-clicking a completed row loads its stems
+        # into the Player mixer (the only previous route was manual file
+        # picking in the Player tab).
+        self._queue_widget.stems_load_requested.connect(self._on_queue_stems_load)
+
         # Enhanced status bar with log monitoring and resource usage
         from ui.widgets.enhanced_statusbar import EnhancedStatusBar
 
@@ -587,6 +592,12 @@ class MainWindow(QMainWindow):
         self._content_stack.setCurrentIndex(0)
         self._btn_upload.setChecked(True)
         self._upload_widget.add_file(file_path)
+
+    @Slot(list)
+    def _on_queue_stems_load(self, stem_paths: list) -> None:
+        """Load finished queue stems into the Player tab and reveal it."""
+        self._player_widget.load_stem_files(stem_paths)
+        self._content_stack.setCurrentWidget(self._player_widget)
 
     @Slot(bool)
     def _on_stems_loaded_changed(self, stems_loaded: bool) -> None:

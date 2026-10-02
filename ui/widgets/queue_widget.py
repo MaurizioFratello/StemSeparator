@@ -160,6 +160,9 @@ class QueueWidget(QWidget):
     status_updated = Signal(str, int)  # message, progress_percent
     queue_started = Signal()
     queue_finished = Signal()
+    # list[Path]: stem files of a double-clicked completed task, ordered as
+    # the model's `stem_names`; MainWindow loads them into the Player tab.
+    stems_load_requested = Signal(list)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -213,6 +216,10 @@ class QueueWidget(QWidget):
         self.queue_table.setSelectionBehavior(QTableWidget.SelectRows)
         self.queue_table.setSelectionMode(QTableWidget.SingleSelection)
         self.queue_table.setAlternatingRowColors(True)  # Modern alternating rows
+
+        # WHY: finished stems had no path into the Player tab (the reported
+        # dead end) — double-clicking a completed row hands its stems over.
+        self.queue_table.cellDoubleClicked.connect(self._on_row_double_clicked)
 
         # Set column widths
         header = self.queue_table.horizontalHeader()
@@ -501,6 +508,35 @@ class QueueWidget(QWidget):
 
             self._update_table_row(index)
             self._update_status()
+
+    @Slot(int, int)
+    def _on_row_double_clicked(self, row: int, _column: int) -> None:
+        """
+        Hand a completed task's stems to the Player tab via signal.
+
+        WHY: finished stems had no route into the mixer (the reported dead
+        end); the user had to go hunting for the files manually. Rows whose
+        result is incomplete or whose files vanished no-op instead of
+        emitting a partial load.
+        """
+        if row >= len(self.tasks):
+            return
+        task = self.tasks[row]
+        result = task.result
+        if task.status != TaskStatus.COMPLETED or not result or not result.stems:
+            return
+
+        from config import MODELS  # deferred: keeps this module import light
+
+        names = (MODELS.get(task.model_id) or {}).get("stem_names") or []
+        rank = {name.lower(): idx for idx, name in enumerate(names)}
+        ordered = sorted(
+            result.stems.items(), key=lambda kv: rank.get(kv[0].lower(), len(rank))
+        )
+        paths = [Path(path) for _name, path in ordered]
+        existing = [path for path in paths if path.exists()]
+        if existing:
+            self.stems_load_requested.emit(existing)
 
     @Slot(int, str)
     def _on_task_error(self, index: int, error_message: str):

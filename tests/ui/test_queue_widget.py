@@ -210,3 +210,83 @@ def test_queue_widget_start_processing(
     assert widget.is_processing
     assert not widget.btn_start.isEnabled()
     assert widget.btn_stop.isEnabled()
+
+
+@pytest.mark.unit
+class TestStemsHandoff:
+    """Double-clicking a completed row hands its stems to the Player tab.
+
+    WHY: finished stems had no route into the mixer (reported dead end);
+    the emitted order must follow the model's `stem_names`, not dict luck.
+    """
+
+    @staticmethod
+    def _completed_task(tmp_path, stems_map):
+        task = QueueTask(file_path=tmp_path / "take.wav", model_id="demucs_4s")
+        task.status = TaskStatus.COMPLETED
+        files = {}
+        for name, rel in stems_map.items():
+            f = tmp_path / rel
+            f.write_bytes(b"RIFFfake")
+            files[name] = f
+        task.result = SeparationResult(
+            success=True,
+            input_file=task.file_path,
+            output_dir=tmp_path,
+            stems=files,
+            model_used="demucs_4s",
+            device_used="cpu",
+            duration_seconds=1.0,
+        )
+        return task
+
+    def test_completed_row_emits_stems_in_model_order(self, qapp, reset_singletons, tmp_path):
+        widget = QueueWidget()
+        widget.tasks.append(
+            self._completed_task(
+                tmp_path,
+                {
+                    "Other": "take_(Other)_htdemucs.wav",
+                    "Bass": "take_(Bass)_htdemucs.wav",
+                    "Drums": "take_(Drums)_htdemucs.wav",
+                    "Vocals": "take_(Vocals)_htdemucs.wav",
+                },
+            )
+        )
+        emitted = []
+        widget.stems_load_requested.connect(emitted.append)
+
+        widget._on_row_double_clicked(0, 0)
+
+        assert len(emitted) == 1
+        assert [p.name for p in emitted[0]] == [
+            "take_(Vocals)_htdemucs.wav",
+            "take_(Drums)_htdemucs.wav",
+            "take_(Bass)_htdemucs.wav",
+            "take_(Other)_htdemucs.wav",
+        ]
+
+    def test_failed_row_emits_nothing(self, qapp, reset_singletons, tmp_path):
+        widget = QueueWidget()
+        task = self._completed_task(tmp_path, {"Vocals": "take_(Vocals).wav"})
+        task.status = TaskStatus.FAILED
+        widget.tasks.append(task)
+        emitted = []
+        widget.stems_load_requested.connect(emitted.append)
+
+        widget._on_row_double_clicked(0, 0)
+
+        assert emitted == []
+
+    def test_missing_files_emit_nothing(self, qapp, reset_singletons, tmp_path):
+        widget = QueueWidget()
+        task = self._completed_task(tmp_path, {"Vocals": "take_(Vocals).wav"})
+        for path in task.result.stems.values():
+            path.unlink()
+        widget.tasks.append(task)
+        emitted = []
+        widget.stems_load_requested.connect(emitted.append)
+
+        widget._on_row_double_clicked(0, 0)
+
+        assert emitted == []

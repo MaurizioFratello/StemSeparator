@@ -2,9 +2,14 @@ name: Tests
 
 on:
   push:
-    branches: [ main, develop ]
+    # WHY feature/**: a push event runs the workflow version carried by the
+    # pushed branch itself, so feature branches (this port's `feature/
+    # new-worktree`) get CI without waiting for a PR to be opened. PRs to the
+    # shipping branches run the head-carried workflow via pull_request below.
+    branches: [ main, develop, 'feature/**' ]
   pull_request:
     branches: [ main, develop ]
+  workflow_dispatch:
 
 env:
   PIP_DISABLE_PIP_VERSION_CHECK: '1'

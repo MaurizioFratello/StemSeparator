@@ -2999,6 +2999,15 @@ class PlayerWidget(QWidget):
         # Update button states (all should be disabled now)
         self._update_button_states()
 
+    def load_stem_files(self, file_paths: List[Path]) -> None:
+        """
+        Public entry for other tabs (Queue hand-off) to load finished stems.
+
+        WHY: `_load_stems` is the background loader with all the UI refresh
+        logic; the Queue tab needs a stable public seam to hand stems over.
+        """
+        self._load_stems([Path(p) for p in file_paths])
+
     def _load_stems(self, file_paths: list[Path]):
         """
         Load stem files into player using background worker.

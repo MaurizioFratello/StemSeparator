@@ -40,6 +40,23 @@ def _require_ffmpeg(logger_sub) -> None:
 
 VALID_DEVICES = ("cpu", "cuda", "mps")
 
+# Parenthesised stem tags audio-separator writes into output names, e.g.
+# `track_(Vocals)_htdemucs.wav`. Authority for what counts as a stem file in
+# the leftover-file fallback search.
+KNOWN_STEMS = {
+    "vocals",
+    "vocal",
+    "instrumental",
+    "drums",
+    "drum",
+    "bass",
+    "other",
+    "piano",
+    "guitar",
+    "no_vocals",
+    "no_other",
+}
+
 
 def _available_onnx_providers() -> list:
     try:
@@ -340,25 +357,19 @@ def run_separation_subprocess(
         raise TypeError(f"Expected list from audio-separator, got {type(output_files)}")
 
     if len(output_files) == 0:
-        logger_sub.warning("audio-separator returned empty list - searching for output files")
-
-        # Search for files in multiple locations
-        search_locations = [
-            (Path.cwd(), "subprocess working directory"),
-            (Path(output_dir), "specified output directory"),
-        ]
-
-        for search_path, location_name in search_locations:
-            pattern = f"{Path(audio_file).stem}*"
-            found_files = list(search_path.glob(pattern))
-            logger_sub.info(f"Searching {location_name} ({search_path}) for '{pattern}': found {len(found_files)} files")
-            if found_files:
-                logger_sub.info(f"Found files: {[f.name for f in found_files]}")
-                # Use found files if they exist
-                output_files = [str(f) for f in found_files if f.suffix in ['.wav', '.mp3', '.flac']]
-                if output_files:
-                    logger_sub.info(f"Using discovered files as output: {output_files}")
-                    break
+        # WHY: deliberately NO rescue search. The previous "empty list -> glob
+        # the output dir" fallback laundered failed runs into phantom
+        # successes twice: once by adopting the *input file* as a bogus stem
+        # (which got the user's recording renamed), and again by adopting
+        # stale-but-correctly-tagged outputs of an earlier run, masking a GPU
+        # OOM and short-circuiting the CPU fallback chain. If audio-separator
+        # returned nothing, this attempt failed: raise and let the parent's
+        # retry chain pick the next strategy.
+        logger_sub.error(
+            "audio-separator returned an empty output list - separation failed "
+            f"(audio: {audio_file}, model: {model_filename})"
+        )
+        raise ValueError("audio-separator produced no output files")
     if isinstance(output_files, list):
         for file_path in output_files:
             file_path = Path(file_path)
@@ -390,26 +401,13 @@ def run_separation_subprocess(
             # contain parentheses in the filename (e.g., "Song(2025)_(Vocals).wav")
             matches = re.findall(r"\(([^)]+)\)", file_path.stem)
 
-            # Known stem names to help identify the correct match
-            known_stems = {
-                "vocals",
-                "vocal",
-                "instrumental",
-                "drums",
-                "drum",
-                "bass",
-                "other",
-                "piano",
-                "guitar",
-                "no_vocals",
-                "no_other",
-            }
+            # Known stem names come from the module-level KNOWN_STEMS.
 
             stem_name = None
             if matches:
                 # Try to find a known stem name in the matches (prefer last occurrence)
                 for match in reversed(matches):
-                    if match.lower() in known_stems:
+                    if match.lower() in KNOWN_STEMS:
                         stem_name = match
                         break
 

@@ -203,9 +203,15 @@ class TestSeparator:
             returncode = 0
 
             def communicate(self, input=None, timeout=None):
-                return ('{"success": true, "stems": {"vocals": "' + str(
-                    test_audio_file.parent / "test_vocals.wav"
-                ) + '"}}', "")
+                import json
+
+                # The mock mirrors the parent-enforced contract: demucs_6s
+                # delivers all six stems.
+                stems = {
+                    name: str(test_audio_file.parent / f"test_{name.lower()}.wav")
+                    for name in ("Vocals", "Drums", "Bass", "Piano", "Guitar", "Other")
+                }
+                return (json.dumps({"success": True, "stems": stems}), "")
 
         def fake_popen(command, **kwargs):
             captured_params.update(
@@ -238,9 +244,14 @@ class TestSeparator:
             returncode = 0
 
             def communicate(self, input=None, timeout=None):
-                return ('{"success": true, "stems": {"vocals": "' + str(
-                    test_audio_file.parent / "test_vocals.wav"
-                ) + '"}}', "")
+                import json
+
+                # Contract-complete payload (see test_run_separation_mock).
+                stems = {
+                    name: str(test_audio_file.parent / f"test_{name.lower()}.wav")
+                    for name in ("Vocals", "Drums", "Bass", "Piano", "Guitar", "Other")
+                }
+                return (json.dumps({"success": True, "stems": stems}), "")
 
         def fake_popen(command, **kwargs):
             captured_params.update(

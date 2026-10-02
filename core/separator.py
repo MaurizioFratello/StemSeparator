@@ -738,6 +738,20 @@ class Separator:
                 self.logger.error(error_msg)
                 raise SeparationError(error_msg)
 
+            # WHY: partial GPU crashes used to slip through the worker's
+            # leftover-file search as a bogus "success". The model's
+            # contracted stem count is the parent-side authority: refuse
+            # incomplete output so the retry chain re-runs the job for real.
+            expected_stems = MODELS.get(model_id, {}).get("stems", 0)
+            if expected_stems and len(stems) < expected_stems:
+                error_msg = (
+                    f"Incomplete separation: got {len(stems)} of {expected_stems} "
+                    f"expected stems for {model_id} ({sorted(stems)}). "
+                    f"Output directory: {output_dir}"
+                )
+                self.logger.error(error_msg)
+                raise SeparationError(error_msg)
+
             self.logger.info(
                 f"Subprocess separation complete: {len(stems)} stems created"
             )
