@@ -153,8 +153,9 @@ re-planted in `test_styled_components.TestPlayerStemScroll`).
 2. **Windows runtime** — win32 branches proven against fakes + static spec checks
    only. A real 3-OS run (QA-01/02) needs the branch pushed to GitHub; user's call,
    asked, no answer yet.
-3. **Final commit** (tests + fixes) — staging hygiene verified: `git add --dry-run
-   -A` = 54 paths, zero binaries; packaging already committed (`b5a22a9`).
+3. **Commits landed** — tests+fixes `6a38215`, then the live-session fixes:
+   `1e4fbc2` (vendor-dir discovery), `e817d99` (parent FFmpeg gate),
+   `bd6f42b` (rescue-search deletion + queue→Player hand-off).
 
 ## Corrected premises (do not re-learn these the hard way)
 
@@ -163,6 +164,28 @@ re-planted in `test_styled_components.TestPlayerStemScroll`).
 - `packaging/windows/StemSeparator-win.spec` builds every path from `SPECPATH`, degrades with an actionable note when vendored binaries are absent; `.ico` has 16→256 px via `generate_ico.py`; `requirements-cuda.txt` pins cu128 wheels whose existence on download.pytorch.org was checked same-day (cp311 win_amd64 + manylinux_2_28_x86_64).
 - `tests/test_sample_rate_handling.py` aborted the WHOLE suite (imported a deleted constant); fixed by asserting the 44.1 kHz invariant instead of the dead name. Same class of blocker: any test importing a /tmp-only module is a CI-wide collection error — the two GUI scaffolds' `import pa_shim` must never reach a test file (the new widget tests inject fakes at `player._sounddevice_module`/`recorder._soundcard` instead).
 - The dev venv's `user_settings.json` is throwaway state; scaffolds that mutated persisted settings (`sm.settings["use_gpu"]=…; mgr.save()`) were converted to monkeypatched seams — pytest must never touch it.
+- `fetch_vendor.py` installs into `packaging/vendor/<platform>/bin` (linux/bin,
+  windows/bin); the specs read those paths directly. `bundled_binary_dirs()`
+  must probe the platform dir too (fixed `1e4fbc2`, pinned by
+  `TestBundledBinaryDirs`) — probing only the flat `vendor/bin` silently broke
+  source-mode separation on Linux.
+- The worker's "empty list -> glob the output dir" rescue search is DELETED
+  (`bd6f42b`). It laundered failures twice: adopted the INPUT recording as a
+  bogus stem (queue renamed the user's take) and adopted a previous run's
+  stale outputs, faking success and permanently deading the GPU-OOM -> CPU
+  fallback chain. Never reintroduce it: empty result = failed attempt, the
+  parent's retry chain handles strategy fallback.
+- Live GPU->CPU proof (fresh temp out dir, sglang holding VRAM): attempt 1 CUDA
+  fails, "Success on attempt 2" on CPU, 4 stems age<1 s, input intact. Replays
+  MUST target a fresh empty output dir or stale stems invalidate the claim.
+- Queue tab hands stems to the Player mixer via
+  `QueueWidget.stems_load_requested` (double-click completed row, ordered by
+  config `stem_names`) -> `MainWindow._on_queue_stems_load` ->
+  `PlayerWidget.load_stem_files()`.
+- PyInstaller with a `.spec`: `--collect-all`/`--specpath` are makespec-only
+  flags and hard-fail; use `--noconfirm --distpath … --workpath …` only.
+- `tests.yml` triggers now include `push: feature/**` and `workflow_dispatch`
+  (before that, a feature-branch push ran NOTHING — CI claims were aspirational).
 
 ## Recreating host prerequisites (they live in /tmp and may not survive a reboot)
 
