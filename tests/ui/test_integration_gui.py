@@ -514,3 +514,95 @@ def test_full_user_journey(qapp, qtbot, reset_singletons, tmp_path):
             "playback.output_label", "Output:"
         ) == "Ausgabe:"
 
+
+
+@pytest.mark.integration
+def test_queue_completed_row_loads_stems_into_player_stems_page(
+    qapp, reset_singletons, qtbot, tmp_path
+):
+    """Full hand-off: completed queue row -> real signal -> MainWindow ->
+    async Player loader -> populated, VISIBLE Stems sub-page.
+
+    WHY this exists: the hand-off was first implemented against the OUTER
+    content stack only; the Player's inner page stack (Stems/Playback/
+    Looping) then stayed on the previously selected sub-page and the
+    freshly loaded mixer strips remained invisible — the exact user
+    complaint ("stems never show up in the stems tab"). Signal-capture
+    unit tests could not see this; the assertion here is the visible end
+    state. Starts from a hostile state (Playback sub-page) to pin it.
+    """
+    import numpy as np
+    import soundfile as sf
+
+    from core.separator import SeparationResult
+    from ui.widgets.queue_widget import QueueTask, TaskStatus
+
+    window = MainWindow()
+    window.show()
+    QTest.qWaitForWindowExposed(window)
+
+    # Four REAL loadable WAVs: the player performs genuine I/O + resampling
+    # (a touched file would trigger modal validation and deadlock offscreen).
+    sr = 44100
+    tone = (0.5 * np.sin(2 * np.pi * 440 * np.arange(sr // 2) / sr)).astype("float32")
+    stems = {}
+    for name in ("Vocals", "Drums", "Bass", "Other"):
+        path = tmp_path / f"take_({name}).wav"
+        sf.write(str(path), np.column_stack([tone, tone]), sr)
+        stems[name] = path
+
+    task = QueueTask(file_path=tmp_path / "take.wav", model_id="demucs_4s")
+    task.status = TaskStatus.COMPLETED
+    task.result = SeparationResult(
+        success=True,
+        input_file=tmp_path / "take.wav",
+        output_dir=tmp_path,
+        stems=stems,
+        model_used="demucs_4s",
+        device_used="cpu",
+        duration_seconds=1.0,
+    )
+    window._queue_widget.tasks.append(task)
+
+    # Hostile starting state: Playback sub-page selected through the sidebar.
+    window._btn_playback.click()
+    assert window._player_widget.get_current_page() == 1
+
+    player = window._player_widget
+    # WHY waitSignal and not the synchronous flags: stem_controls and
+    # stems_list are populated inside _load_stems BEFORE _load_stems_async
+    # starts, and has_stems_loaded() only checks len(stem_files).
+    # stems_loaded_changed(True) is emitted exclusively from
+    # LoadStemsWorker.on_finished after the real I/O + resampling
+    # (player_widget.py:3155) — that is the completion to await.
+    with qtbot.waitSignal(player.stems_loaded_changed, timeout=8000) as finished:
+        # The completed-row double-click entry point (emits the real signal).
+        window._queue_widget._on_row_double_clicked(0, 0)
+    assert finished.args == [True]
+
+    # State that only the async success path applies:
+    assert player.position_slider.isEnabled()
+
+    assert window._content_stack.currentWidget() is player
+    assert (
+        player.get_current_page() == 0
+    ), "the hand-off must land on the Stems sub-page"
+    page0 = player._page_stack.widget(0)
+    assert page0.isVisible(), "the Stems page must actually be shown"
+
+    # Stems page (index 0) owns the file list — that is its populated state.
+    texts = [player.stems_list.item(i).text() for i in range(player.stems_list.count())]
+    assert player.stems_list.count() == 4
+    for stem in ("Vocals", "Drums", "Bass", "Other"):
+        assert any(text.startswith(f"{stem}:") for text in texts)
+
+    # The mixer strips live on the Playback page (index 1, own layout in
+    # _create_playback_tab) — select it and assert the visible mixer.
+    window._btn_playback.click()
+    assert player.get_current_page() == 1
+    assert set(player.stem_controls) == {"Vocals", "Drums", "Bass", "Other"}
+    for control in player.stem_controls.values():
+        assert control.isVisible(), (
+            "mixer strips must be visible once their page is selected"
+        )
+

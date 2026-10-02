@@ -595,9 +595,22 @@ class MainWindow(QMainWindow):
 
     @Slot(list)
     def _on_queue_stems_load(self, stem_paths: list) -> None:
-        """Load finished queue stems into the Player tab and reveal it."""
+        """Load finished queue stems into the Player's Stems sub-page.
+
+        WHY `click()`: it replicates the sidebar's own navigation exactly —
+        outer stack switch, inner page selection (0 = Stems) and sidebar
+        checked-state sync. A bare `setCurrentWidget` hand-off left the
+        previously selected Playback/Looping sub-page visible, hiding the
+        freshly loaded stems.
+        """
+        # WHY this order: selecting the Stems sub-page FIRST replicates the
+        # manual load flow the user verifies by hand; Qt shows widgets added
+        # to a visible chain but leaves children added under a hidden page
+        # hidden. (The loader additionally shows each strip explicitly, so
+        # the order is belt-and-braces, not the mechanism).
+        self._btn_stems.click()
         self._player_widget.load_stem_files(stem_paths)
-        self._content_stack.setCurrentWidget(self._player_widget)
+
 
     @Slot(bool)
     def _on_stems_loaded_changed(self, stems_loaded: bool) -> None:
