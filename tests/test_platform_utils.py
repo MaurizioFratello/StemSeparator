@@ -225,6 +225,96 @@ class TestExecutables:
         assert os.environ["PATH"] == os.pathsep.join([str(extra), str(bundled), str(system), "/original"])
 
 
+class TestBundledBinaryDirs:
+    """WHY: fetch_vendor.py installs into `packaging/vendor/<platform>/bin`;
+    source-mode separation silently died when discovery probed only the flat
+    `packaging/vendor/bin` (the live bug this pins)."""
+
+    @staticmethod
+    def _fake_repo(monkeypatch, tmp_path):
+        monkeypatch.setattr(platform, "__file__", str(tmp_path / "utils" / "platform_utils.py"))
+        monkeypatch.setattr(platform, "is_frozen", lambda: False)
+        vendor = tmp_path / "packaging" / "vendor"
+        for sub in ("bin", "linux/bin", "windows/bin"):
+            (vendor / sub).mkdir(parents=True)
+        return vendor
+
+    @pytest.mark.parametrize(("value", "own", "foreign"), [("linux", "linux/bin", "windows/bin"), ("win32", "windows/bin", "linux/bin")])
+    def test_probes_flat_and_own_platform_dir_only(self, monkeypatch, set_platform, tmp_path, value, own, foreign):
+        set_platform(value)
+        vendor = self._fake_repo(monkeypatch, tmp_path)
+
+        dirs = platform.bundled_binary_dirs()
+
+        assert vendor / "bin" in dirs
+        assert vendor / own in dirs
+        assert vendor / foreign not in dirs
+
+    def test_macos_source_checkout_probes_only_the_flat_dir(self, monkeypatch, set_platform, tmp_path):
+        set_platform("darwin")
+        vendor = self._fake_repo(monkeypatch, tmp_path)
+
+        assert platform.bundled_binary_dirs() == [vendor / "bin"]
+
+    def test_nonexistent_vendor_dirs_are_filtered(self, monkeypatch, set_platform, tmp_path):
+        set_platform("linux")
+        monkeypatch.setattr(platform, "__file__", str(tmp_path / "utils" / "platform_utils.py"))
+        monkeypatch.setattr(platform, "is_frozen", lambda: False)
+
+        assert platform.bundled_binary_dirs() == []
+
+
+@pytest.fixture
+def worker_precheck_logger():
+    class _Logger:
+        def __init__(self):
+            self.errors = []
+
+        def error(self, message):
+            self.errors.append(message)
+
+    return _Logger()
+
+
+class TestWorkerFFmpegPrecheck:
+    """WHY: audio-separator's bare `ffmpeg -version` probe produced three
+    opaque FileNotFoundError retries; the worker must fail once with the
+    fetch_vendor remediation."""
+
+    def test_passes_silently_when_ffmpeg_is_resolvable(self, monkeypatch, worker_precheck_logger):
+        from core import separation_subprocess as worker
+        monkeypatch.setattr(worker.shutil, "which", lambda name: "/usr/bin/ffmpeg" if name == "ffmpeg" else None)
+
+        worker._require_ffmpeg(worker_precheck_logger)
+
+        assert worker_precheck_logger.errors == []
+
+    def test_missing_ffmpeg_raises_with_fetch_vendor_remediation(self, monkeypatch, worker_precheck_logger):
+        from core import separation_subprocess as worker
+        monkeypatch.setattr(worker.shutil, "which", lambda name: None)
+
+        with pytest.raises(FileNotFoundError, match="fetch_vendor"):
+            worker._require_ffmpeg(worker_precheck_logger)
+
+        assert worker_precheck_logger.errors and "FFmpeg" in worker_precheck_logger.errors[0]
+
+    def test_windows_probes_the_exe_name(self, monkeypatch, worker_precheck_logger):
+        from core import separation_subprocess as worker
+        monkeypatch.setattr(sys, "platform", "win32")
+        seen = []
+
+        def which(name):
+            seen.append(name)
+            return "C:/tools/ffmpeg.exe" if name == "ffmpeg.exe" else None
+
+        monkeypatch.setattr(worker.shutil, "which", which)
+
+        worker._require_ffmpeg(worker_precheck_logger)
+
+        assert seen == ["ffmpeg.exe"]
+        assert worker_precheck_logger.errors == []
+
+
 class TestRuntimeFlags:
     @pytest.mark.parametrize(
         ("value", "expected"),

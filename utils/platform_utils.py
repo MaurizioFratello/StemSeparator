@@ -215,10 +215,17 @@ def bundled_binary_dirs() -> List[Path]:
                     mac_root / "Contents" / "Resources" / "bin",
                 ]
 
-    # Development checkout: `packaging/vendor/bin` after running the
-    # binary-download helper.
-    from_source = Path(__file__).resolve().parent.parent / "packaging" / "vendor" / "bin"
-    candidates.append(from_source)
+    # Development checkout: `fetch_vendor.py` installs the pinned binaries
+    # under `packaging/vendor/<platform>/bin`; the flat `packaging/vendor/bin`
+    # is also probed so a manual drop-in keeps working. (WHY both: an earlier
+    # layout used the flat dir and the specs/fetcher moved to platform dirs —
+    # probing only the flat one silently broke source-mode separation.)
+    vendor_root = Path(__file__).resolve().parent.parent / "packaging" / "vendor"
+    candidates.append(vendor_root / "bin")
+    if is_windows():
+        candidates.append(vendor_root / "windows" / "bin")
+    elif not is_macos():
+        candidates.append(vendor_root / "linux" / "bin")
 
     return [path for path in candidates if path.is_dir()]
 

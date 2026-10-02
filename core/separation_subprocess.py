@@ -13,6 +13,29 @@ from pathlib import Path
 from typing import Dict, Optional
 import re
 import logging
+import shutil
+
+
+def _require_ffmpeg(logger_sub) -> None:
+    """
+    Fail fast (and actionably) when FFmpeg cannot be executed.
+
+    WHY: audio-separator validates FFmpeg by invoking the bare command
+    `ffmpeg -version`; with the binary missing that surfaces as a raw
+    FileNotFoundError repeated across the app's three retry attempts, hiding
+    the actual remedy (vendored binaries never fetched) behind traceback
+    noise. One clear error here tells the user exactly what to run.
+    """
+    exe_names = ("ffmpeg.exe", "ffmpeg") if sys.platform == "win32" else ("ffmpeg",)
+    if any(shutil.which(name) for name in exe_names):
+        return
+    message = (
+        "FFmpeg executable not found on PATH. From the project root run "
+        "`python packaging/vendor/fetch_vendor.py --platform linux` "
+        "(or --platform windows); installing FFmpeg system-wide also works."
+    )
+    logger_sub.error(message)
+    raise FileNotFoundError(message)
 
 
 VALID_DEVICES = ("cpu", "cuda", "mps")
@@ -254,6 +277,10 @@ def run_separation_subprocess(
     logger_sub.info(f"Audio file (absolute): {Path(audio_file).absolute()}")
     logger_sub.info(f"Models directory: {Path(models_dir).absolute()}")
     logger_sub.info(f"Model ID: {model_id}, Model file: {model_filename}")
+
+    # audio-separator probes FFmpeg by running `ffmpeg -version`; check once,
+    # here, so a missing binary is one actionable message, not three retries.
+    _require_ffmpeg(logger_sub)
 
     try:
         # Create separator instance
