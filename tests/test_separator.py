@@ -13,6 +13,18 @@ from unittest.mock import Mock, patch, MagicMock
 from core.separator import Separator, SeparationResult, get_separator
 
 
+@pytest.fixture(autouse=True)
+def _assume_ffmpeg_present(monkeypatch):
+    """
+    Neutralize the parent FFmpeg gate for this file's wholesale mocks.
+
+    WHY: every test here stubs the subprocess/audio layers, so a host- or
+    runner-dependent FFmpeg lookup would only add nondeterminism. The gate's
+    own contract is pinned explicitly in TestFFmpegGate below.
+    """
+    monkeypatch.setattr(Separator, "_ffmpeg_available", lambda self: True)
+
+
 @pytest.fixture
 def test_audio_file():
     """Erstellt temporäre Test-Audio-Datei"""
@@ -360,3 +372,28 @@ class TestSeparator:
 
         # Duration sollte gesetzt sein
         assert result.duration_seconds >= 0
+
+
+class TestFFmpegGate:
+    """Public contract of the parent-side FFmpeg gate.
+
+    WHY: the live failure was three opaque FileNotFoundError retries because
+    the worker PATH missed the vendored binary; the gate must abort before
+    any worker spawn and name the fetch_vendor remedy instead.
+    """
+
+    def test_missing_ffmpeg_aborts_before_any_worker(self, test_audio_file, monkeypatch):
+        sep = Separator()
+        monkeypatch.setattr(sep, "_ffmpeg_available", lambda: False)
+        popen_calls = []
+        monkeypatch.setattr(
+            "core.separator.subprocess.Popen",
+            lambda *a, **k: popen_calls.append((a, k)),
+        )
+
+        result = sep.separate(test_audio_file, model_id="demucs_4s")
+
+        assert result.success is False
+        assert "fetch_vendor" in result.error_message
+        assert popen_calls == []
+

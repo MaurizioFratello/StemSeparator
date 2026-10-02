@@ -13,6 +13,7 @@ import subprocess
 import json
 import sys
 import os
+import shutil
 import uuid
 import numpy as np
 import soundfile as sf
@@ -41,6 +42,7 @@ from utils.platform_utils import (
     bundled_binary_dirs,
     is_frozen,
     is_macos,
+    is_windows,
     numba_cuda_safe_env,
     popen_kwargs,
     system_binary_dirs,
@@ -78,6 +80,20 @@ class Separator:
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
         self.logger.info("Separator initialized")
+
+    def _ffmpeg_available(self) -> bool:
+        """
+        True when an FFmpeg executable is reachable the way the worker sees it.
+
+        WHY: mirrors the PATH construction of the worker spawn (bundled dirs
+        first, then well-known installs, then the ambient PATH) so the
+        parent-side gate can never contradict what the child would find.
+        """
+        exe = "ffmpeg.exe" if is_windows() else "ffmpeg"
+        for directory in bundled_binary_dirs() + system_binary_dirs():
+            if (directory / exe).is_file():
+                return True
+        return bool(shutil.which(exe) or shutil.which("ffmpeg"))
 
     def separate(
         self,
@@ -189,6 +205,21 @@ class Separator:
             self.logger.error(error_msg)
             return self._create_error_result(
                 audio_file, output_dir, error_msg, time.time() - start_time
+            )
+
+        # WHY: audio-separator shells out to a bare `ffmpeg` inside every
+        # worker; without the binary each of the three retries would burn a
+        # subprocess spawn and die identically. Gate once, before any retry
+        # work, with the concrete remedy.
+        if not self._ffmpeg_available():
+            error_msg = (
+                "FFmpeg executable not found. From the project root run "
+                "`python packaging/vendor/fetch_vendor.py --platform linux` "
+                "(or --platform windows); installing FFmpeg system-wide also works."
+            )
+            self.logger.error(error_msg)
+            return self._create_error_result(
+                audio_file, output_dir, error_msg, time.time() - start_time, model_id
             )
 
         # Output-Verzeichnis

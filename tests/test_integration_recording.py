@@ -459,6 +459,13 @@ class TestRecordingToSeparationWorkflow:
 class TestRecordingToSeparationEndToEnd:
     """End-to-End Tests: Recording → Separation"""
 
+    @pytest.fixture(autouse=True)
+    def _assume_ffmpeg_present(self, monkeypatch):
+        """WHY: worker spawn is mocked here; the FFmpeg gate's contract is
+        pinned in tests/test_separator.py::TestFFmpegGate, and its host
+        lookup would only add runner nondeterminism to this workflow test."""
+        monkeypatch.setattr(Separator, "_ffmpeg_available", lambda self: True)
+
     def test_record_and_separate_workflow(self, mock_blackhole_available):
         """
         End-to-End Test: Kompletter Workflow Recording → Separation

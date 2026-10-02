@@ -278,8 +278,10 @@ def run_separation_subprocess(
     logger_sub.info(f"Models directory: {Path(models_dir).absolute()}")
     logger_sub.info(f"Model ID: {model_id}, Model file: {model_filename}")
 
-    # audio-separator probes FFmpeg by running `ffmpeg -version`; check once,
-    # here, so a missing binary is one actionable message, not three retries.
+    # The parent (`core/separator.py::separate`) already gates on FFmpeg
+    # before the retry chain; this is the last line of defence for direct
+    # worker invocations and for PATH drift between gate and spawn.
+    # audio-separator itself only probes FFmpeg via a bare `ffmpeg -version`.
     _require_ffmpeg(logger_sub)
 
     try:
