@@ -458,6 +458,277 @@ This directory contains:
 
 The bundled app resources (models, translations) remain in the read-only app bundle.
 
+**Windows:** `%LOCALAPPDATA%\StemSeparator\` (falls back to `%APPDATA%`), with
+downloaded model weights under `%LOCALAPPDATA%\StemSeparator\Cache\models\`.
+
+**Linux:** `$XDG_DATA_HOME/StemSeparator/` (falls back to
+`~/.local/share/StemSeparator/`), with downloaded model weights under
+`~/.cache/StemSeparator/models/`.
+
+Both come from `utils.platform_utils.user_data_dir()` /
+`user_cache_dir()`; the values the frozen Linux build actually used are printed
+in its runtime log (see the `Platform: {...}` line below).
+
+## Building for Linux
+
+The Linux build is a PyInstaller **onedir** bundle: `dist/StemSeparator-linux/`
+holds the launcher and an `_internal/` directory with the interpreter, the
+collected libraries and the bundled resources. Onedir is deliberate — the
+alternative (onefile) unpacks ~7 GB of torch/onnxruntime into `/tmp` on every
+launch.
+
+```bash
+# 0. From the repository root, with the interpreter you build with.
+PY=/path/to/venv/bin/python            # CPython 3.11
+
+# 1. Vendor the native inputs (gitignored; see packaging/vendor/README.md).
+"$PY" packaging/vendor/fetch_vendor.py --platform linux
+"$PY" packaging/vendor/fetch_vendor.py --check --platform linux
+
+# 2. Application + build dependencies.
+"$PY" -m pip install -r requirements.txt -r requirements-build.txt
+
+# 3. Build. KMP_DUPLICATE_LIB_OK/OMP_NUM_THREADS mirror what
+#    core/separator.py sets for its separation workers: torch ships its own
+#    OpenMP runtime and a second one loaded by a dependency aborts the process.
+export KMP_DUPLICATE_LIB_OK=TRUE OMP_NUM_THREADS=1
+"$PY" -m PyInstaller --noconfirm --clean packaging/linux/StemSeparator-linux.spec
+
+# 4. Smoke-test headless, then run it for real on a desktop session.
+QT_QPA_PLATFORM=offscreen ./dist/StemSeparator-linux/StemSeparator-linux
+```
+
+The result of step 3 on this machine (7.3 GB, ~2 min):
+
+```
+[StemSeparator-linux.spec] collected 32 audio_separator data file(s)
+[StemSeparator-linux.spec] bundling ffmpeg from .../packaging/vendor/linux/bin -> bin/
+[StemSeparator-linux.spec] bundling ffprobe from .../packaging/vendor/linux/bin -> bin/
+[StemSeparator-linux.spec] rubberband CLI not found; time stretching uses the pyrubberband/librosa chain
+[StemSeparator-linux.spec] collected 36 NVIDIA CUDA library file(s)
+128375 INFO: Build complete! The results are available in: .../dist
+```
+
+and the headless smoke test (step 4) logs — the same lines land in
+`~/.local/share/StemSeparator/logs/app.log`:
+
+```
+INFO     Single-instance lock acquired: /home/.../.local/share/StemSeparator/.stemseparator.lock
+INFO     Starting Stem Separator v1.0.3
+INFO     Platform: {'os': 'Linux', 'platform': 'linux', 'frozen': True,
+         'data_dir': '/home/.../.local/share/StemSeparator',
+         'cache_dir': '/home/.../.cache/StemSeparator',
+         'ffmpeg': '/home/.../dist/StemSeparator-linux/_internal/bin/ffmpeg',
+         'ffprobe': '/home/.../dist/StemSeparator-linux/_internal/bin/ffprobe',
+         'rubberband': None, 'multiprocessing': 'spawn'}
+INFO     Model 'demucs_4s' found and verified (bundled: .../_internal/resources/models/htdemucs.yaml)
+INFO     Initialization complete
+```
+
+`ffmpeg`/`ffprobe` resolving *inside* the bundle is the acceptance criterion for
+the vendoring: those paths come from `utils.platform_utils.bundled_binary_dirs()`,
+which probes `<sys._MEIPASS>/bin` first. The separation worker reaches the same
+directory through `utils.platform_utils.ensure_binaries_on_path()` plus the
+`PATH` that `core/separator.py` prepends for the child, so `audio-separator`'s
+own probe reports the vendored build instead of a system one:
+
+```
+INFO - FFmpeg installed: ffmpeg version 7.0.2-static https://johnvansickle.com/ffmpeg/
+```
+
+Requirements for the target machine:
+
+* **glibc >= 2.34.** PySide6 6.10 publishes only `manylinux_2_34` wheels
+  (Ubuntu 22.04+, Debian 12+), so an older distro cannot install the
+  dependencies at all.
+* A working `xcb` (X11) or Wayland session for the GUI; the offscreen plugin
+  (`_internal/PySide6/Qt/plugins/platforms/libqoffscreen.so`, bundled) is for
+  headless runs only and is what CI uses.
+* `libasound.so.2`, `libjack.so.0`, `libpulse.so.0` for the vendored PortAudio
+  (see `packaging/vendor/README.md`).
+
+## Building for Windows
+
+Run this **on a Windows 10/11 x64 machine** — the spec, the Inno Setup script and
+the vendor layout are complete and statically checked, but no Windows build was
+produced from this Linux workstation.
+
+```bat
+REM 0. CPython 3.11 (the wheel set below is cp311), from the repository root.
+py -3.11 -m venv .venv & .venv\Scripts\activate
+
+REM 1. Vendor FFmpeg (gitignored; see packaging/vendor/README.md).
+python packaging\vendor\fetch_vendor.py --platform windows
+python packaging\vendor\fetch_vendor.py --check --platform windows
+
+REM 2. The application icon is generated from the source PNG; commit the result.
+python packaging\windows\generate_ico.py
+
+REM 3. Dependencies. CPU-only installs plain requirements.txt; a GPU build adds
+REM    requirements-cuda.txt (see "CUDA Installation" below).
+pip install -r requirements.txt -r requirements-build.txt
+
+REM 4. Build the onedir into dist\StemSeparator\
+pyinstaller --noconfirm --clean packaging\windows\StemSeparator-win.spec
+
+REM 5. Produce the installer (Inno Setup 6.3+, ISCC on PATH).
+iscc packaging\windows\StemSeparator.iss
+```
+
+Outputs:
+
+* `dist\StemSeparator\StemSeparator.exe` + `_internal\` — the onedir bundle.
+  `_internal\bin\` holds the vendored `ffmpeg.exe`/`ffprobe.exe`,
+  `_internal\torch\lib\` the torch DLLs, `_internal\nvidia\*\bin\` the CUDA
+  runtime DLLs when a CUDA torch was installed.
+* `dist\installer\StemSeparator-1.0.3-win64.exe` — the Inno Setup installer
+  (`OutputDir`/`OutputBaseFilename` in the `.iss`). It installs per-user
+  (`PrivilegesRequired=lowest`, with an admin override dialog) because every
+  writable path is in `%LOCALAPPDATA%\StemSeparator`, never next to the
+  binaries; `packaging\windows\StemSeparator.ico` is both the setup icon and the
+  application icon.
+
+Prerequisite the installer can only warn about: the **Microsoft Visual C++
+Redistributable (x64)**. torch, PySide6 and the FFmpeg build all need
+`VCRUNTIME140.dll` / `MSVCP140.dll`. Install
+<https://aka.ms/vs/17/release/vc_redist.x64.exe> first on a clean machine; the
+setup probes `{sys}\vcruntime140.dll` and shows a message pointing at that
+download if it is absent, because the frozen app otherwise dies before it can
+log anything.
+
+## CUDA Installation
+
+Stem Separator runs on the CPU everywhere. To separate on an NVIDIA GPU you need
+a **CUDA-enabled PyTorch** — the plain `torch` wheel from PyPI is not it, and
+worse, PyPI's default wheel is a *different build per operating system* (CPU on
+Linux, CUDA on Windows), which is why `requirements.txt` does not try to express
+the GPU case and `requirements-cuda.txt` exists instead.
+
+Both files install the **matched** pair: a `torch`/`torchaudio` combination from
+the same release (see the comment in `requirements.txt`). Mixing versions is the
+classic `OSError: Could not load this library: .../libtorchaudio.so` — an ABI
+mismatch, not a packaging bug.
+
+Get the wheel for your platform from the PyTorch index instead of PyPI. cu126 and
+cu128 both publish cp311 `win_amd64` and `manylinux_2_28_x86_64` wheels for
+`torch==2.9.0`/`torchaudio==2.9.0` (verified against the index):
+
+```bash
+# Linux
+python -m pip uninstall -y torch torchaudio onnxruntime
+python -m pip install --index-url https://download.pytorch.org/whl/cu128 -r requirements-cuda.txt
+
+# Windows (same commands, same file)
+py -3.11 -m pip uninstall -y torch torchaudio onnxruntime
+py -3.11 -m pip install --index-url https://download.pytorch.org/whl/cu128 -r requirements-cuda.txt
+```
+
+Notes that matter:
+
+* **Driver:** `nvidia-smi` reports the highest CUDA version your driver
+  supports; the wheel's CUDA version must be <= that. If it is not, pick the
+  lower index (`/whl/cu126`).
+* **`onnxruntime` and `onnxruntime-gpu` are mutually exclusive** — both install
+  the same `onnxruntime` package, so uninstall the CPU one first.
+  `audio-separator[gpu]` is the upstream way to pull the CUDA execution
+  provider in; `requirements-cuda.txt` pins `onnxruntime-gpu` to the same
+  release line the CPU build is pinned to.
+* **Rebuild the bundle after changing the environment.** PyInstaller copies the
+  libraries that exist in the interpreter at build time: build with a CUDA torch
+  and the spec collects `torch/lib/*.so|dll` plus `nvidia/*/lib|bin/*` (the
+  Linux spec prints `collected 36 NVIDIA CUDA library file(s)`, the Windows spec
+  prints the matching note or warns `no nvidia/* CUDA runtime DLLs in this
+  environment`).
+
+### Verifying GPU access
+
+```bash
+python -c "import torch; print(torch.__version__, torch.version.cuda, torch.cuda.is_available(), torch.cuda.device_count(), torch.cuda.get_device_name(0))"
+```
+
+Then ask the application, which is what the user actually sees. Start it and
+read `logs/app.log` in the user data directory above: the startup `Platform:
+{...}` line comes from `utils.platform_utils.runtime_report()`, and
+`core/device_manager.py` logs the classification it performed — `CUDA available:
+<name> (torch build <cuda>)` (`:146`), then `Selected device: cuda (...)` or
+`Selected device: CPU (no GPU available)` (`:242`, `:247`).
+
+Observed on this machine from the frozen build's separation worker
+(`--separation-subprocess`, stderr and the app log):
+
+```
+audio_separator.separator.separator - INFO - CUDA is available in Torch, setting Torch device to CUDA
+StemSeparator.Subprocess - WARNING - ONNX models will run on CPU: CUDAExecutionProvider is not present in this onnxruntime build (available: ['AzureExecutionProvider', 'CPUExecutionProvider'])
+StemSeparator.Subprocess - INFO - Device enforced: torch=cuda onnx=['CPUExecutionProvider']
+```
+
+and with the CPU policy (`device: "cpu"`, which sets `CUDA_VISIBLE_DEVICES=""`):
+
+```
+audio_separator.separator.separator - INFO - No hardware acceleration could be configured, running in CPU mode
+StemSeparator.Subprocess - INFO - Device enforced: torch=cpu onnx=['CPUExecutionProvider']
+```
+
+The `onnx=[...]` list is the honest report of the ONNX execution providers:
+`['CPUExecutionProvider']` means MDX-Net/BS-RoFormer models will run on the CPU
+even though Demucs is on the GPU, which is exactly what this machine's
+CPU-only `onnxruntime` does. `CUDAExecutionProvider` in that list is what a
+working GPU ONNX path looks like.
+
+### No GPU: what the user sees
+
+There is no silent fallback. `core/device_manager.py` classifies the hardware and
+applies the configured policy:
+
+| Policy | GPU present | GPU absent |
+| ------ | ----------- | ---------- |
+| `auto` | CUDA | CPU, logged |
+| `gpu_preferred` | CUDA | **visible warning**: CPU-only, no hardware acceleration |
+| `gpu_required` | CUDA | **error dialog** pointing at this section (`docs/PACKAGING.md## CUDA Installation`), and the separation subprocess refuses to start rather than quietly using the CPU |
+| `cpu_only` | CPU, GPU hidden from the driver | CPU |
+
+`gpu_required` raises `RuntimeError` inside the worker
+(`core/separation_subprocess.py`), whose message also links to this section —
+keep the heading text `## CUDA Installation`, two error strings link to it.
+
+## Import Order and Native Library Paths
+
+The frozen build depends on native directories being registered *before* torch,
+PySide6 or audio-separator are imported. `main.py` does it at the top of the
+module (lines 18-38), and the specs install the same calls as a PyInstaller
+**runtime hook**, so they also run for entry points that never reach `main.py`
+(the separation worker):
+
+1. `utils.platform_utils.configure_native_library_dirs(torch_library_dirs())` —
+   `os.add_dll_directory()` on Windows, `LD_LIBRARY_PATH` on Linux, so
+   `torch/lib` and `nvidia/*/lib|bin` are resolvable.
+2. `utils.platform_utils.ensure_binaries_on_path()` — puts the bundled
+   `_internal/bin` (FFmpeg/ffprobe/rubberband) on `PATH` for subprocesses.
+3. `numba_cuda_safe_env()` — `NUMBA_DISABLE_CUDA=1`: numba initialising the CUDA
+   driver before torch poisons the spawned worker's CUDA context.
+4. `configure_multiprocessing()` — forces the `spawn` start method; the `fork`
+   default combined with CUDA and Qt is unreliable (the runtime report shows
+   `'multiprocessing': 'spawn'`).
+
+The hooks are `packaging/windows/_pyi_rthook_windows.py` and
+`packaging/linux/_pyi_rthook_linux.py`; the Linux one additionally patches
+`ctypes.util.find_library` so `sounddevice` finds the vendored PortAudio (see
+`packaging/vendor/README.md` for why nothing else works on POSIX). Both write a
+failure report next to the bundle instead of dying silently, since a windowed
+build has no stderr.
+
+## Building on macOS
+
+Everything above this line is the macOS recipe and stays authoritative for the
+`.app`/`.dmg` build: `packaging/build_arm64.sh`,
+`packaging/StemSeparator-arm64.spec`, the `DYLD_LIBRARY_PATH` export in the
+build script and the `dmgbuild` DMG step. The macOS specs keep
+`onnxruntime` as a *hidden import* and let the bundled hook collect
+`onnxruntime/capi` — it is never in their `excludes` list, because excluding it
+would break MDX-Net/BS-RoFormer support. The Linux and Windows specs follow the
+same policy.
+
+
 ## Support
 
 For build issues:

@@ -1,11 +1,17 @@
-# Build Dependencies for Packaging StemSeparator
+# Build dependencies for packaging StemSeparator
 # Install with: pip install -r requirements-build.txt
+#
+# WHY the marker: `dmgbuild` imports CoreServices/DiskArbitration through
+# pyobjc and cannot even be collected by the resolver on Windows/Linux, while
+# the same file now drives the macOS (.app/.dmg), Windows (onedir + Inno) and
+# Linux (onedir) builds described in docs/PACKAGING.md. The Windows installer
+# additionally needs Inno Setup 6.3+, which is an application, not a package.
 
-# PyInstaller for creating standalone executables
+# PyInstaller for creating standalone executables (all three platforms)
 pyinstaller>=6.0.0
 
 # DMG creation for macOS installers
-dmgbuild>=1.6.0
+dmgbuild>=1.6.0 ; sys_platform == "darwin"
 
-# Pillow for icon conversion (if needed)
+# Pillow for icon conversion (packaging/windows/generate_ico.py, create_icns.py)
 Pillow>=10.0.0

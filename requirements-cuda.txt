@@ -1,0 +1,46 @@
+# CUDA accelerator layer - Windows and Linux x86_64 only
+#
+# Apply ON TOP of requirements.txt, in this order:
+#
+#   pip uninstall -y onnxruntime
+#   pip install -r requirements.txt
+#   pip install --extra-index-url https://download.pytorch.org/whl/cu128 -r requirements-cuda.txt
+#
+# WHY the uninstall: both onnxruntime and onnxruntime-gpu install the whole
+# `onnxruntime` package, so whichever is installed last owns the import.
+#
+# WHY a separate file with markers instead of pins in requirements.txt:
+#   1. `torch==2.9.0` on PyPI is three different builds depending on the OS - the
+#      Windows wheel is CPU-only, the Linux wheel is a CUDA build that drags in
+#      the `nvidia-*` runtime wheels, the macOS wheel is the Metal/MPS one. A
+#      single pinned line can therefore never express "GPU on Windows/Linux, MPS
+#      on macOS".
+#   2. CUDA wheels are not on PyPI at all: they live on the PyTorch index under
+#      an explicit index URL (/whl/cu126, /whl/cu128, ...), which belongs to the
+#      CUDA layer only, not to the CPU/dev install that CI and most users take.
+#   3. onnxruntime-gpu and onnxruntime are mutually exclusive - each ships the
+#      complete `onnxruntime` package, so the last one installed wins. The
+#      uninstall above is what keeps the environment honest about which one is
+#      active (`core/separation_subprocess.py` logs the provider list it found).
+#
+# Verified 2026-10-02 against the PyTorch index: both /whl/cu126/torch/ and
+# /whl/cu128/torch/ publish cp311 win_amd64 and manylinux_2_28_x86_64 wheels of
+# torch 2.9.0+cu12x, and /whl/cu12x/torchaudio/ publishes the matching
+# torchaudio 2.9.0+cu12x. Keep the two pins on the same CUDA suffix as the one
+# line you install.
+#
+# Which CUDA suffix to pick: run `nvidia-smi`; the "CUDA Version" it prints is
+# the highest runtime the installed driver supports, and you must choose an
+# index at or below it (driver 595.x supports cu126 and cu128; an older 11.x
+# driver supports neither, and you stay on the CPU path in requirements.txt).
+
+# PyTorch with the CUDA runtime, replacing the PyPI wheel installed above.
+torch==2.9.0+cu128 ; (sys_platform == "linux" or sys_platform == "win32") and platform_machine == "x86_64"
+torchaudio==2.9.0+cu128 ; (sys_platform == "linux" or sys_platform == "win32") and platform_machine == "x86_64"
+
+# ONNX Runtime with the CUDA execution provider - this is what `audio-separator
+# [gpu]` resolves to upstream; pinned here to the same minor as the CPU
+# onnxruntime in requirements.txt so MDX-Net / BS-RoFormer ONNX models get
+# CUDAExecutionProvider (see the provider warning in
+# core/separation_subprocess.py:_enforce_device).
+onnxruntime-gpu==1.23.2 ; (sys_platform == "linux" or sys_platform == "win32") and platform_machine == "x86_64"
