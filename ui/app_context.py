@@ -135,7 +135,9 @@ class AppContext:
         """
 
         set_language(language)
-        self._logger.info("UI language switched to %s", language)
+        # WHY f-string: AppLogger.info() takes (message, **kwargs) only, so the
+        # %-style positional argument raised TypeError on every language switch.
+        self._logger.info(f"UI language switched to {language}")
 
     def get_language(self) -> str:
         """

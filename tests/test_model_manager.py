@@ -19,15 +19,60 @@ def temp_models_dir():
     shutil.rmtree(temp_dir)
 
 
+def _write_weight(directory: Path, filename: str) -> Path:
+    """Create a file that passes the real weight-size sanity check."""
+    from core.model_manager import MIN_MODEL_BYTES
+
+    directory.mkdir(parents=True, exist_ok=True)
+    path = directory / filename
+    with open(path, "wb") as handle:
+        handle.write(b"\0" * (MIN_MODEL_BYTES + 1))
+    return path
+
+
 @pytest.fixture
 def model_manager_with_temp_dir(temp_models_dir, monkeypatch):
     """ModelManager mit temporärem Verzeichnis"""
     # Setze MODELS_DIR auf temp dir
     monkeypatch.setattr("core.model_manager.MODELS_DIR", temp_models_dir)
+    # WHY: pin the search paths too. The manager also consults the bundled
+    # directory and audio-separator's own cache, so without this the result
+    # depends on which weights happen to sit on the developer's machine.
+    monkeypatch.setattr(
+        "core.model_manager.MODEL_SEARCH_PATHS", [temp_models_dir]
+    )
 
     # Erstelle neue ModelManager-Instanz
     manager = ModelManager()
     return manager
+
+@pytest.fixture
+def stub_separator(monkeypatch):
+    """
+    Replace audio-separator's Separator with a local stand-in.
+
+    WHY: `download_model()` imports the class inside its body and `load_model()`
+    is what performs the HTTP fetch, so without this the unit suite pulls real
+    multi-hundred-megabyte weights from Hugging Face. The stub writes a file
+    that passes verification, which keeps the post-download bookkeeping honest.
+    """
+    import audio_separator.separator as sep_module
+
+    class StubSeparator:
+        instances = []
+
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+            StubSeparator.instances.append(self)
+
+        def load_model(self, model_filename=None, **kwargs):
+            _write_weight(
+                Path(self.kwargs["model_file_dir"]), model_filename
+            )
+            return object()
+
+    monkeypatch.setattr(sep_module, "Separator", StubSeparator)
+    return StubSeparator
 
 
 @pytest.mark.unit
@@ -108,50 +153,64 @@ class TestModelManager:
         assert manager.is_model_downloaded(first_model_id) is False
 
     def test_is_model_downloaded_true(self, model_manager_with_temp_dir):
-        """Teste is_model_downloaded für heruntergeladenes Modell"""
+        """A real weight file in the writable directory counts as downloaded."""
         manager = model_manager_with_temp_dir
 
-        # Simuliere heruntergeladenes Modell
         first_model_id = list(MODELS.keys())[0]
-        model_path = manager.models_dir / first_model_id
-        model_path.mkdir(parents=True, exist_ok=True)
-        (model_path / "test_file.txt").write_text("test")
+        _write_weight(
+            manager.models_dir, MODELS[first_model_id]["model_filename"]
+        )
 
-        # Reload model info
         manager._load_model_info()
 
         assert manager.is_model_downloaded(first_model_id) is True
 
     def test_verify_model_nonexistent(self, model_manager_with_temp_dir):
-        """Teste _verify_model für nicht-existierendes Modell"""
+        """An unknown filename is not verified."""
         manager = model_manager_with_temp_dir
 
-        result = manager._verify_model(Path("/nonexistent/path"))
-        assert result is False
+        assert manager._verify_model("definitely-not-here.onnx") is False
 
     def test_verify_model_empty_dir(self, model_manager_with_temp_dir):
-        """Teste _verify_model für leeres Verzeichnis"""
+        """A model is never verified from an empty directory."""
         manager = model_manager_with_temp_dir
 
         empty_dir = manager.models_dir / "empty"
         empty_dir.mkdir()
 
-        result = manager._verify_model(empty_dir)
-        assert result is False
+        assert manager._verify_model("some_model.onnx") is False
 
-    def test_verify_model_valid_dir(self, model_manager_with_temp_dir):
-        """Teste _verify_model für gültiges Verzeichnis"""
+    def test_verify_model_valid_weight(self, model_manager_with_temp_dir):
+        """A correctly named, correctly sized weight verifies."""
         manager = model_manager_with_temp_dir
 
-        valid_dir = manager.models_dir / "valid"
-        valid_dir.mkdir()
-        (valid_dir / "model.pth").write_text("dummy")
+        first_model_id = list(MODELS.keys())[0]
+        filename = MODELS[first_model_id]["model_filename"]
+        _write_weight(manager.models_dir, filename)
 
-        result = manager._verify_model(valid_dir)
-        assert result is True
+        assert manager._verify_model(filename) is True
 
-    def test_download_model(self, model_manager_with_temp_dir):
-        """Teste download_model"""
+    def test_verify_model_rejects_junk(self, model_manager_with_temp_dir):
+        """
+        Undersized weights, directories and foreign extensions are rejected.
+
+        WHY: the old fall-through accepted any existing path, so a stray
+        directory made a model look installed and separation would fail later.
+        """
+        manager = model_manager_with_temp_dir
+
+        stray_dir = manager.models_dir / "stray"
+        stray_dir.mkdir()
+        assert manager._verify_model("stray") is False
+
+        (manager.models_dir / "tiny.onnx").write_text("not a model")
+        assert manager._verify_model("tiny.onnx") is False
+
+        (manager.models_dir / "notes.txt").write_text("x" * 1024)
+        assert manager._verify_model("notes.txt") is False
+
+    def test_download_model(self, model_manager_with_temp_dir, stub_separator):
+        """download_model drives audio-separator and records the result."""
         manager = model_manager_with_temp_dir
 
         first_model_id = list(MODELS.keys())[0]
@@ -262,19 +321,19 @@ class TestModelManager:
         expected_size = sum(m["size_mb"] for m in MODELS.values())
         assert total_size == expected_size
 
-    def test_get_downloaded_size_mb(self, model_manager_with_temp_dir):
-        """Teste get_downloaded_size_mb"""
+    def test_get_downloaded_size_mb(self, model_manager_with_temp_dir, stub_separator):
+        """Reported size covers only the models actually present."""
         manager = model_manager_with_temp_dir
 
-        # Anfangs 0
         assert manager.get_downloaded_size_mb() == 0
 
-        # Nach Download eines Modells
         first_model_id = list(MODELS.keys())[0]
-        manager.download_model(first_model_id)
+        assert manager.download_model(first_model_id) is True
 
-        expected_size = MODELS[first_model_id]["size_mb"]
-        assert manager.get_downloaded_size_mb() == expected_size
+        assert (
+            manager.get_downloaded_size_mb()
+            == MODELS[first_model_id]["size_mb"]
+        )
 
     def test_get_model_manager_singleton(self):
         """Teste get_model_manager Singleton-Funktion"""

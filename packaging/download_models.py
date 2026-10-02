@@ -27,6 +27,7 @@ from typing import Dict, List, Optional
 # Add parent directory to path to import config
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+from config import MODELS
 from core.model_manager import (
     find_model_file,
     model_search_dirs,
@@ -258,6 +259,29 @@ def main(argv: Optional[List[str]] = None):
     """
     arguments = list(sys.argv[1:] if argv is None else argv)
 
+    # WHY an explicit help branch: the parser below is intentionally permissive
+    # about stray arguments (the historical invocation passes none), which would
+    # otherwise turn `--help` into a several-hundred-megabyte download.
+    if any(argument in ("-h", "--help") for argument in arguments):
+        print(__doc__.strip())
+        print("Options:\n  -h, --help      show this message\n"
+              "      --force, -f   re-download models that already exist\n"
+              "      --model ID[,ID...]   limit to these model ids")
+        return 0
+
+    unknown_flags = [
+        argument
+        for argument in arguments
+        if argument.startswith("--")
+        and argument not in ("--force", "--help")
+        and not argument.startswith("--model")
+    ]
+    if unknown_flags:
+        logger.error(
+            f"Unrecognised option(s): {', '.join(unknown_flags)} (try --help)"
+        )
+        return 2
+
     force = any(argument in ("--force", "-f") for argument in arguments)
 
     model_ids: Optional[List[str]] = None
@@ -268,7 +292,11 @@ def main(argv: Optional[List[str]] = None):
             model_ids = argument.split("=", 1)[1].split(",")
 
     download_all_models(force=force, model_ids=model_ids)
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    # WHY: `main()` returns the process exit code (2 for bad options, and
+    # download failures exit inside `download_all_models`); dropping it would
+    # make a broken build step look successful to CI.
+    sys.exit(main())

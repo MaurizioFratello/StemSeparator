@@ -721,11 +721,16 @@ class PlayerWidget(QWidget):
         # same speakers, so the picker is mandatory UI — without it a wrong ALSA
         # sink silently means "no sound".
         device_row = QHBoxLayout()
-        device_row.addWidget(QLabel("Output:"))
+        device_row.addWidget(
+            QLabel(self.ctx.translate("playback.output_label", "Output:"))
+        )
         self.device_combo = QComboBox()
         self.device_combo.setToolTip(
-            "Which speaker/interface plays the stems. The host API is shown "
-            "because the same device can appear several times."
+            self.ctx.translate(
+                "playback.output_tooltip",
+                "Which speaker/interface plays the stems. The host API is shown "
+                "because the same device can appear several times.",
+            )
         )
         self.device_combo.setMinimumWidth(260)
         self.device_combo.activated.connect(self._on_output_device_selected)

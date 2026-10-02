@@ -39,6 +39,9 @@ MIN_MODEL_BYTES = 10 * 1024 * 1024
 
 # Weight file extensions that get the size sanity check.
 MODEL_EXTENSIONS = (".pth", ".pt", ".ckpt", ".bin", ".safetensors", ".onnx")
+# Weight formats audio-separator may hand back directly instead of through a
+# Demucs YAML descriptor; `.th` is Demucs' own checkpoint extension.
+DIRECT_WEIGHT_EXTENSIONS = (".th",)
 
 # Label used when a model was found somewhere we neither own nor bundle.
 EXTERNAL_SOURCE_LABEL = "external"
@@ -66,20 +69,41 @@ def writable_models_dir() -> Path:
 
 def ensure_writable_models_dir() -> bool:
     """
-    Create the writable model directory, reporting failure instead of raising.
+    Create the writable model directory and prove that it accepts writes.
 
-    WHY: a read-only install (or an unwritable user cache) must not crash app
+    WHY the probe: `mkdir(exist_ok=True)` returns successfully for an existing
+    read-only directory, so it cannot answer the question callers actually have
+    ("may we download here?"). Packaged builds routinely hit this — an install
+    under Program Files or a read-only `_MEIPASS` leaves the bundled directory
+    unusable, and audio-separator would otherwise fail mid-download with an
+    opaque error. Writing a probe file is preferred over `os.access(..., W_OK)`,
+    which can report writable for ACL-mounted or root-owned directories.
+
+    WHY it reports instead of raising: a read-only install must not crash
     start-up — same tolerance `config.py` applies to its own directory setup.
-    Callers that actually write check the return value and surface the error
-    where the user can act on it.
+    Callers that write check the return value and surface the error where the
+    user can act on it.
     """
     target = writable_models_dir()
     try:
         target.mkdir(parents=True, exist_ok=True)
-        return True
+    except OSError as error:
+        logger.warning(f"Models directory {target} could not be created: {error}")
+        return False
+
+    probe = target / f".write-probe-{os.getpid()}"
+    try:
+        with open(probe, "wb") as handle:
+            handle.write(b"\0")
     except OSError as error:
         logger.warning(f"Models directory {target} is not writable: {error}")
         return False
+    finally:
+        try:
+            probe.unlink()
+        except OSError:
+            pass
+    return True
 
 
 def model_search_dirs() -> List[Path]:
@@ -157,23 +181,29 @@ def _candidate_is_valid(model_path: Path) -> bool:
     """
     Decide whether one located candidate is usable.
 
-    Mirrors the historical `_verify_model` rules: missing file or undersized
-    weight is rejected, a Demucs YAML needs its weights beside it.
+    Stricter than the historical `_verify_model`: the candidate must be a real
+    file with a weight extension, an undersized weight is rejected, and a Demucs
+    YAML needs its weights beside it.
     """
     try:
-        if not model_path.exists():
+        if not model_path.is_file():
+            # WHY is_file() and not exists(): directories, leftover marker files
+            # and empty placeholder files used to fall through as "valid", so an
+            # empty directory could satisfy a model lookup.
             return False
 
         if model_path.name.endswith(".yaml"):
             return _demucs_bundle_is_complete(model_path)
 
-        if model_path.suffix.lower() in MODEL_EXTENSIONS:
+        # WHY an explicit allowlist: a candidate whose extension is not a weight
+        # format is never a model, whatever else is lying around in the directory.
+        if model_path.suffix.lower() in MODEL_EXTENSIONS + DIRECT_WEIGHT_EXTENSIONS:
             return model_path.stat().st_size > MIN_MODEL_BYTES
     except OSError as error:
         logger.warning(f"Error verifying model candidate {model_path}: {error}")
         return False
 
-    return True
+    return False
 
 
 def find_model_file(

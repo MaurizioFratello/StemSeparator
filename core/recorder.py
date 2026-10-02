@@ -428,10 +428,12 @@ class Recorder:
                     else "Install BlackHole (or use ScreenCaptureKit on macOS 13+)."
                 )
             )
+            # WHY f-string and not %-args: utils.logger.AppLogger takes a single
+            # message plus **kwargs, so lazy %-style arguments raise TypeError
+            # inside the very failure path that is supposed to explain the error.
             self.logger.error(
-                "%s Available: %s",
-                self.last_error,
-                ", ".join(self.get_available_devices()) or "none",
+                f"{self.last_error} Available: "
+                f"{', '.join(self.get_available_devices()) or 'none'}"
             )
             error_handler.handle_error(
                 RuntimeError(self.last_error), context="recorder.start_recording"

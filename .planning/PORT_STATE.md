@@ -87,11 +87,19 @@ executed** versus what still only exists as code.
 PY=/home/mauriziofratello/.venvs/stemsep/bin/python
 WS=/home/mauriziofratello/Documents/01_Projects/StemSeparator-worktree
 
-# PortAudio (no sudo needed) — provides /tmp/pa_shim.py's target library
+# PortAudio (no sudo needed) — the runtime library sounddevice/ctypes looks up
 cd /tmp && mkdir -p pa && cd pa && apt-get download libportaudio2 && dpkg -x *.deb root
-# shim: /tmp/pa_shim.py (monkeypatches ctypes.util.find_library); kept in /tmp, never in repo
+# The ctypes shim is version-controlled in .port_checkpoints; copy it back to /tmp
+# because the scripts import it as `sys.path.insert(0,'/tmp'); import pa_shim`.
+cp $WS/.port_checkpoints/pa_shim.py /tmp/pa_shim.py
 
-# Rubberband CLI (proves the preferred stretch engine; gitignored, not installed system-wide)
+# Rubberband CLI (proves the preferred stretch engine; gitignored, not installed
+# system-wide). `librubberband.so.3` is ALREADY present in /usr/lib/x86_64-linux-gnu
+# on this host, so extracting the CLI deb and extending PATH is sufficient — verify
+# with `ldconfig -p | grep rubberband` before chasing dependency packages. The CLI
+# deb's own Depends are: libc6, libfftw3-double3, libgcc-s1, libsamplerate0,
+# libsndfile1, libstdc++6 (check with `dpkg-deb -f <deb> Depends` on newer releases,
+# which rename sonames, e.g. t64 variants).
 cd /tmp && mkdir -p rb && cd rb && apt-get download rubberband-cli && dpkg -x *.deb root
 export PATH=/tmp/rb/root/usr/bin:$PATH
 

@@ -530,7 +530,10 @@ class MainWindow(QMainWindow):
 
         if dialog.exec():
             selected_files = dialog.selectedFiles()
-            self._logger.info("Selected files for processing: %s", selected_files)
+            # WHY f-string: AppLogger.info() accepts only (message, **kwargs); the
+            # %-style positional argument raised TypeError here, aborting the rest of
+            # this slot right after the user picked files.
+            self._logger.info(f"Selected files for processing: {selected_files}")
             self.statusBar().showMessage(
                 self._context.translate(
                     "status.files.selected",
