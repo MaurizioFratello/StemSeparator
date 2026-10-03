@@ -39,12 +39,6 @@ jobs:
           #   runners); the macOS-only suites run here and only here.
           # - Windows: QT_QPA_PLATFORM=offscreen (via qt-qpa-platform) gives
           #   Qt a platform plugin without a display server.
-          # WHY the --ignore-glob list: tests/test_screencapture*.py are
-          # standalone ScreenCaptureKit diagnostic scripts, not pytest
-          # suites — they print(), probe the live display and sys.exit(1)
-          # at import time, so they are uncollectable on every OS (their
-          # pyobjc imports are not even declared in requirements.txt);
-          # ScreenCaptureKit behaviour is validated manually per QA-03.
           # tests/test_blackhole_installer.py covers the BlackHole macOS
           # installer and tests/test_macos_* exercise the Darwin branches
           # of the platform code, so both belong to the macOS signal and
@@ -67,19 +61,15 @@ jobs:
           - os: ubuntu-latest
             test-command: >-
               xvfb-run -a python -m pytest
-              --ignore-glob='tests/test_screencapture*.py'
               --ignore-glob='tests/test_blackhole*.py'
               --ignore-glob='tests/test_macos_*.py'
             qt-qpa-platform: ''
           - os: macos-latest
-            test-command: >-
-              python -m pytest
-              --ignore-glob='tests/test_screencapture*.py'
+            test-command: python -m pytest
             qt-qpa-platform: ''
           - os: windows-latest
             test-command: >-
               python -m pytest
-              --ignore-glob='tests/test_screencapture*.py'
               --ignore-glob='tests/test_blackhole*.py'
               --ignore-glob='tests/test_macos_*.py'
             qt-qpa-platform: offscreen
@@ -104,8 +94,16 @@ jobs:
       if: matrix.os == 'ubuntu-latest'
       run: |
         sudo apt-get update
-        sudo apt-get install -y --no-install-recommends libportaudio2 xvfb
+        sudo apt-get install -y --no-install-recommends libportaudio2 xvfb libegl1 libgl1 libxkbcommon0 libdbus-1-3 libfontconfig1
 
+
+    - name: Install system dependencies (macOS)
+      if: matrix.os == 'macos-latest'
+      run: brew install ffmpeg portaudio
+
+    - name: Install system dependencies (Windows)
+      if: matrix.os == 'windows-latest'
+      run: choco install ffmpeg -y --no-progress
     - name: Install Python dependencies
       shell: bash
       # WHY install torch from the PyTorch CPU index BEFORE requirements.txt:
