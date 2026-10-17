@@ -150,9 +150,11 @@ re-planted in `test_styled_components.TestPlayerStemScroll`).
    performance one was starved by the pre-rewrite fake capture.
    File: 15 passed isolated, 40 passed with the capture-device neighbor ×2.
 
-2. **Windows runtime** — win32 branches proven against fakes + static spec checks
-   only. A real 3-OS run (QA-01/02) needs the branch pushed to GitHub; user's call,
-   asked, no answer yet.
+2. **Windows runtime** — win32 branches proven against fakes + static spec
+   checks only. PUSHED (user GO 2026-10-03): `feature/new-worktree` @
+   `49d97d4` on origin; CI run 37078396711 (6-job matrix) fired via the fixed
+   push trigger — verdict pending; report Windows results honestly when in.
+   Token re-authed with `workflow` scope via device flow (gh auth refresh).
 3. **Commits landed** — tests+fixes `6a38215`, then the live-session fixes:
    `1e4fbc2` (vendor-dir discovery), `e817d99` (parent FFmpeg gate),
    `bd6f42b` (rescue-search deletion + queue→Player hand-off).
